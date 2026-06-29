@@ -30,7 +30,7 @@ php artisan ai-harness:install --with=docker --with=polyscope
 - `--with=docker` adds Docker-oriented helper files, including the MySQL testing database initialization script.
 - `--with=polyscope` adds `polyscope.json`.
 - Herd support is runtime detection in `.dev/bin/ai-harness`; it does not currently add separate Herd manifest files.
-- Runtime drivers should prefer Sail when available, then Herd, then the bare local PHP runtime.
+- Runtime drivers should prefer Sail when its Docker or Podman runtime is reachable, then Herd, then the bare local PHP runtime.
 
 ## Verification
 

@@ -3,7 +3,15 @@ set -euo pipefail
 
 cd "${CODEX_WORKTREE_PATH:-$(pwd -P)}"
 
-if [[ -x ./vendor/bin/sail ]]; then
+sail_runtime_available() {
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        return 0
+    fi
+
+    command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1
+}
+
+if [[ -x ./vendor/bin/sail ]] && sail_runtime_available; then
     exec ./vendor/bin/sail artisan "$@"
 fi
 

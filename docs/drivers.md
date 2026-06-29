@@ -42,7 +42,7 @@ Runtime drivers describe how the harness should execute Laravel commands in the 
 
 - Purpose: run Artisan through Laravel Sail.
 - Command shape: `./vendor/bin/sail artisan ...`
-- Best for: Docker-backed Laravel projects using Sail.
+- Best for: Docker-backed Laravel projects using Sail while Docker or Podman is running.
 
 ## Optional Workspace Features
 
