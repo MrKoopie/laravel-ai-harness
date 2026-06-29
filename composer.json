@@ -1,0 +1,65 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "yourwebhoster/laravel-ai-harness",
+    "description": "A Laravel package that installs and refreshes AI agent harnessing, local runtime drivers, and quality foundations.",
+    "keywords": [
+        "ai",
+        "agents",
+        "codex",
+        "claude",
+        "harness",
+        "laravel"
+    ],
+    "homepage": "https://github.com/yourwebhostereu/laravel-ai-harness",
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": "^8.2",
+        "illuminate/console": "^11.0|^12.0|^13.0",
+        "illuminate/contracts": "^11.0|^12.0|^13.0",
+        "illuminate/support": "^11.0|^12.0|^13.0",
+        "spatie/laravel-package-tools": "^1.92"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.27",
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "pestphp/pest": "^3.0|^4.0",
+        "pestphp/pest-plugin-laravel": "^3.0|^4.0",
+        "phpstan/phpstan": "^2.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Yourwebhoster\\LaravelAiHarness\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Yourwebhoster\\LaravelAiHarness\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "format": "pint",
+        "format:check": "pint --test",
+        "test": "pest",
+        "test:coverage": "pest --coverage"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Yourwebhoster\\LaravelAiHarness\\LaravelAiHarnessServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

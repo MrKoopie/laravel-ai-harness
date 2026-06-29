@@ -1,0 +1,6 @@
+/vendor
+/.phpstan
+/.phpunit.cache
+/.pest-cache
+/coverage
+/build

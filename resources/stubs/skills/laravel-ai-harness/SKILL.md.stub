@@ -1,0 +1,16 @@
+---
+name: laravel-ai-harness
+description: Use when changing generated AI harness files, agent guidance, MCP configuration, workspace drivers, or package quality gates.
+---
+
+# Laravel AI Harness
+
+This project uses {{ package_name }}.
+
+Before editing harness-managed files, prefer changing package configuration or source templates, then run:
+
+```bash
+php artisan ai-harness:update
+```
+
+Generated blocks and generated files are package-owned. Keep project-specific notes outside managed blocks.

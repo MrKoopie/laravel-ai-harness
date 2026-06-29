@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mysql --user=root --password="${MYSQL_ROOT_PASSWORD:-}" <<EOSQL
+CREATE DATABASE IF NOT EXISTS \`{{ testing_database_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON \`{{ testing_database_name }}\`.* TO '${MYSQL_USER:-root}'@'%';
+EOSQL

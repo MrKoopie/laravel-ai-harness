@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "${CODEX_WORKTREE_PATH:-$(pwd -P)}"
+
+if [[ -x ./vendor/bin/sail ]]; then
+    exec ./vendor/bin/sail artisan "$@"
+fi
+
+if command -v herd >/dev/null 2>&1; then
+    exec herd php artisan "$@"
+fi
+
+exec php artisan "$@"

@@ -1,0 +1,15 @@
+# AI Harness
+
+This project uses {{ package_name }} to keep Claude Code guidance, hooks, and skills aligned with the local Laravel development harness.
+
+## Runtime
+
+- Use Herd on macOS when available.
+- Use Sail/Docker when a Sail stack is active.
+- Fall back to bare PHP only when the environment already provides the required PHP runtime.
+
+## Worktrees
+
+New worktrees should start from {{ worktree_base_ref }} unless the project explicitly overrides that policy.
+
+Keep custom Claude-specific notes outside this managed block; this block is refreshed by `php artisan ai-harness:update`.

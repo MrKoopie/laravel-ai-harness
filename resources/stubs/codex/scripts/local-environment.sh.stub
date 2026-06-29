@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:-setup}"
+repo_root="${CODEX_WORKTREE_PATH:-}"
+
+if [[ -z "${repo_root}" ]]; then
+    repo_root="$(git rev-parse --show-toplevel)"
+fi
+
+cd "${repo_root}"
+
+artisan() {
+    "${repo_root}/.dev/bin/ai-harness" "$@"
+}
+
+case "${action}" in
+    setup)
+        if [[ ! -f .env && -f .env.example ]]; then
+            cp .env.example .env
+        fi
+
+        if [[ ! -d vendor && -f composer.json ]] && command -v composer >/dev/null 2>&1; then
+            composer install --no-interaction --prefer-dist
+        fi
+
+        if [[ -f artisan ]]; then
+            artisan ai-harness:doctor || true
+        fi
+        ;;
+    cleanup)
+        :
+        ;;
+    *)
+        printf 'local-environment: unknown action %s\n' "${action}" >&2
+        exit 2
+        ;;
+esac

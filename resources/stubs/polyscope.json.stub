@@ -1,0 +1,23 @@
+{
+    "$schema": "https://polyscope.dev/schemas/polyscope.json",
+    "copyGitignored": true,
+    "cloneExclude": [
+        "storage/logs",
+        "storage/framework/cache",
+        "storage/framework/views",
+        "storage/framework/sessions"
+    ],
+    "preview": {
+        "command": "grep ^APP_URL= .env | head -n1 | cut -d= -f2-"
+    },
+    "tasks": [
+        {
+            "label": "Run tests",
+            "prompt": "Run the project test suite with the right runtime for this host and summarize failures."
+        },
+        {
+            "label": "Fix formatting",
+            "prompt": "Run the project's formatter with the right runtime for this host and summarize changes."
+        }
+    ]
+}

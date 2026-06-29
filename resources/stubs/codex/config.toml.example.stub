@@ -1,0 +1,4 @@
+# Copy this file to .codex/config.toml to enable project-local Codex MCP config.
+[mcp_servers.laravel-boost]
+command = "sh"
+args = ["-lc", 'repo_root="$(git -C "${CODEX_WORKTREE_PATH:-.}" rev-parse --show-toplevel)" && cd "$repo_root" && exec "$repo_root/.dev/bin/ai-harness" boost:mcp']

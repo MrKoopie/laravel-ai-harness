@@ -1,0 +1,16 @@
+# AI Harness
+
+This project uses {{ package_name }} to keep agent instructions, MCP config, workspace hooks, and quality guidance fresh.
+
+## Project Context
+
+- App: {{ app_name }}
+- PHP target: {{ php_version }}
+- Default worktree base: {{ worktree_base_ref }}
+
+## Agent Rules
+
+- Prefer Laravel conventions and existing project patterns.
+- Use the generated skills before editing matching domains.
+- Run the smallest relevant tests before reporting work complete.
+- Keep custom project rules outside this managed block; this block is refreshed by `php artisan ai-harness:update`.
