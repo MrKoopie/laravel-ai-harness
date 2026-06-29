@@ -15,12 +15,16 @@ test('package exposes boost-discoverable guidelines and skill resources', functi
         ->toBeString()
         ->toContain('# Laravel AI Harness')
         ->toContain('php artisan ai-harness:install')
-        ->toContain('<!-- ai-harness:start -->')
+        ->toContain('AI Harness managed blocks')
+        ->not()->toContain('<!-- ai-harness:start -->')
+        ->not()->toContain('<!-- ai-harness:end -->')
         ->toContain('<laravel-boost-guidelines>')
         ->and($skill)
         ->toBeString()
         ->toContain('name: laravel-ai-harness')
         ->toContain('description:')
         ->toContain('php artisan boost:update --discover')
-        ->toContain('composer analyse');
+        ->toContain('composer analyse')
+        ->not()->toContain('<!-- ai-harness:start -->')
+        ->not()->toContain('<!-- ai-harness:end -->');
 });

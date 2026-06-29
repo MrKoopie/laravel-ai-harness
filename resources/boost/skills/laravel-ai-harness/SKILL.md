@@ -17,7 +17,7 @@ Use this skill when work touches Laravel AI Harness installation, generated AI a
 
 ## Managed File Boundaries
 
-- Keep custom project guidance outside `<!-- ai-harness:start -->` and `<!-- ai-harness:end -->`.
+- Keep custom project guidance outside AI Harness managed blocks.
 - Do not hand-edit package-owned generated files. Change package configuration, source templates, or drivers, then rerun `ai-harness:update`.
 - Keep Laravel Boost output separate. Boost replaces its `<laravel-boost-guidelines>` block; AI Harness replaces only its own managed blocks and generated harness files.
 - If both Boost and AI Harness are installed, run `php artisan boost:update --discover` for Boost resources and `php artisan ai-harness:update` for harness resources.
