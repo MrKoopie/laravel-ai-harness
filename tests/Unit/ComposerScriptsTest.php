@@ -1,6 +1,6 @@
 <?php
 
-use Yourwebhoster\LaravelAiHarness\Generation\ComposerScripts;
+use MrKoopie\LaravelAiHarness\Generation\ComposerScripts;
 
 test('it installs auto update hooks without removing existing scripts', function (): void {
     $path = temp_file('composer-json');

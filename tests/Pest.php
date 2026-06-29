@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Testing\PendingCommand;
-use Yourwebhoster\LaravelAiHarness\Tests\TestCase;
+use MrKoopie\LaravelAiHarness\Tests\TestCase;
 
 use function Pest\Laravel\artisan;
 

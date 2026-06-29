@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Drivers;
+namespace MrKoopie\LaravelAiHarness\Drivers;
 
 use InvalidArgumentException;
-use Yourwebhoster\LaravelAiHarness\Contracts\AgentDriver;
-use Yourwebhoster\LaravelAiHarness\Contracts\RuntimeDriver;
-use Yourwebhoster\LaravelAiHarness\Drivers\Agents\BasicAgentDriver;
-use Yourwebhoster\LaravelAiHarness\Drivers\Runtimes\BasicRuntimeDriver;
+use MrKoopie\LaravelAiHarness\Contracts\AgentDriver;
+use MrKoopie\LaravelAiHarness\Contracts\RuntimeDriver;
+use MrKoopie\LaravelAiHarness\Drivers\Agents\BasicAgentDriver;
+use MrKoopie\LaravelAiHarness\Drivers\Runtimes\BasicRuntimeDriver;
 
 /**
  * Registry for built-in and future agent/runtime drivers.

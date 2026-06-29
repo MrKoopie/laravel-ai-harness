@@ -2,7 +2,7 @@
 
 return [
     'package' => [
-        'name' => 'yourwebhoster/laravel-ai-harness',
+        'name' => 'mrkoopie/laravel-ai-harness',
         'marker' => 'ai-harness',
     ],
 

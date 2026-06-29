@@ -1,6 +1,6 @@
 <?php
 
-use Yourwebhoster\LaravelAiHarness\Drivers\DriverRegistry;
+use MrKoopie\LaravelAiHarness\Drivers\DriverRegistry;
 
 test('it exposes the initial agent and runtime drivers', function (): void {
     $registry = DriverRegistry::defaults();

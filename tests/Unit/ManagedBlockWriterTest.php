@@ -1,6 +1,6 @@
 <?php
 
-use Yourwebhoster\LaravelAiHarness\Generation\ManagedBlockWriter;
+use MrKoopie\LaravelAiHarness\Generation\ManagedBlockWriter;
 
 test('it appends a managed block when no block exists', function (): void {
     $path = temp_file('managed-block');

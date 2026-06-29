@@ -7,7 +7,7 @@ The package is intentionally conservative. Human-editable files receive managed 
 ## Installation
 
 ```bash
-composer require yourwebhoster/laravel-ai-harness
+composer require mrkoopie/laravel-ai-harness
 php artisan ai-harness:install
 ```
 
@@ -66,7 +66,7 @@ This package ships Laravel Boost resources for package discovery:
 - `resources/boost/guidelines/core.blade.php`
 - `resources/boost/skills/laravel-ai-harness/SKILL.md`
 
-After installing Laravel Boost, run `php artisan boost:install` or `php artisan boost:update --discover` and select `yourwebhoster/laravel-ai-harness` when Boost asks for third-party guidelines or skills.
+After installing Laravel Boost, run `php artisan boost:install` or `php artisan boost:update --discover` and select `mrkoopie/laravel-ai-harness` when Boost asks for third-party guidelines or skills.
 
 Boost and AI Harness own different generated regions. Boost refreshes its `<laravel-boost-guidelines>` block, while AI Harness refreshes its own `<!-- ai-harness:start -->` blocks and generated harness files.
 

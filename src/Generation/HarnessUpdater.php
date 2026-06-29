@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Generation;
+namespace MrKoopie\LaravelAiHarness\Generation;
 
 use RuntimeException;
 
@@ -93,7 +93,7 @@ final readonly class HarnessUpdater
             'app_slug' => trim($appSlug, '-'),
             'database_name' => trim($database, '_'),
             'testing_database_name' => trim($database, '_').'_testing',
-            'package_name' => 'yourwebhoster/laravel-ai-harness',
+            'package_name' => 'mrkoopie/laravel-ai-harness',
             'php_version' => $this->phpVersion($basePath),
             'worktree_base_ref' => $this->worktreeBaseRef($basePath),
             'codex_status_message_json' => json_encode("Provisioning {$appName} worktree", JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Commands;
+namespace MrKoopie\LaravelAiHarness\Commands;
 
-use Yourwebhoster\LaravelAiHarness\Generation\HarnessUpdater;
+use MrKoopie\LaravelAiHarness\Generation\HarnessUpdater;
 
 /**
  * Refreshes package-managed harness artifacts.

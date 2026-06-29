@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Drivers\Runtimes;
+namespace MrKoopie\LaravelAiHarness\Drivers\Runtimes;
 
-use Yourwebhoster\LaravelAiHarness\Contracts\RuntimeDriver;
+use MrKoopie\LaravelAiHarness\Contracts\RuntimeDriver;
 
 /**
  * Runtime driver that prefixes Artisan with a local command runner.

@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness;
+namespace MrKoopie\LaravelAiHarness;
 
+use MrKoopie\LaravelAiHarness\Commands\DoctorCommand;
+use MrKoopie\LaravelAiHarness\Commands\InstallCommand;
+use MrKoopie\LaravelAiHarness\Commands\UpdateCommand;
+use MrKoopie\LaravelAiHarness\Drivers\DriverRegistry;
+use MrKoopie\LaravelAiHarness\Generation\HarnessManifest;
+use MrKoopie\LaravelAiHarness\Generation\HarnessUpdater;
+use MrKoopie\LaravelAiHarness\Generation\ManagedBlockWriter;
+use MrKoopie\LaravelAiHarness\Generation\TemplateRenderer;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use Yourwebhoster\LaravelAiHarness\Commands\DoctorCommand;
-use Yourwebhoster\LaravelAiHarness\Commands\InstallCommand;
-use Yourwebhoster\LaravelAiHarness\Commands\UpdateCommand;
-use Yourwebhoster\LaravelAiHarness\Drivers\DriverRegistry;
-use Yourwebhoster\LaravelAiHarness\Generation\HarnessManifest;
-use Yourwebhoster\LaravelAiHarness\Generation\HarnessUpdater;
-use Yourwebhoster\LaravelAiHarness\Generation\ManagedBlockWriter;
-use Yourwebhoster\LaravelAiHarness\Generation\TemplateRenderer;
 
 /**
  * Registers commands and services for Laravel AI Harness.

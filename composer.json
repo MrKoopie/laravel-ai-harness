@@ -1,6 +1,6 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "yourwebhoster/laravel-ai-harness",
+    "name": "mrkoopie/laravel-ai-harness",
     "description": "A Laravel package that installs and refreshes AI agent harnessing, local runtime drivers, and quality foundations.",
     "keywords": [
         "ai",
@@ -10,7 +10,7 @@
         "harness",
         "laravel"
     ],
-    "homepage": "https://github.com/yourwebhostereu/laravel-ai-harness",
+    "homepage": "https://github.com/MrKoopie/laravel-ai-harness",
     "license": "MIT",
     "type": "library",
     "require": {
@@ -30,12 +30,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Yourwebhoster\\LaravelAiHarness\\": "src/"
+            "MrKoopie\\LaravelAiHarness\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Yourwebhoster\\LaravelAiHarness\\Tests\\": "tests/"
+            "MrKoopie\\LaravelAiHarness\\Tests\\": "tests/"
         }
     },
     "scripts": {
@@ -48,7 +48,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Yourwebhoster\\LaravelAiHarness\\LaravelAiHarnessServiceProvider"
+                "MrKoopie\\LaravelAiHarness\\LaravelAiHarnessServiceProvider"
             ]
         }
     },

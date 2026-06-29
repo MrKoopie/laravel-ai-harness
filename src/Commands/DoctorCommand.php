@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Commands;
+namespace MrKoopie\LaravelAiHarness\Commands;
 
-use Yourwebhoster\LaravelAiHarness\Drivers\DriverRegistry;
-use Yourwebhoster\LaravelAiHarness\Generation\HarnessManifest;
+use MrKoopie\LaravelAiHarness\Drivers\DriverRegistry;
+use MrKoopie\LaravelAiHarness\Generation\HarnessManifest;
 
 /**
  * Reports missing generated artifacts and available drivers.

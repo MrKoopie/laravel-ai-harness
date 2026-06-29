@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Contracts;
+namespace MrKoopie\LaravelAiHarness\Contracts;
 
 /**
  * Builds commands for running Laravel inside a local project runtime.

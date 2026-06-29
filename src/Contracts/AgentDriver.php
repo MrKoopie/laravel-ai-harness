@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Contracts;
+namespace MrKoopie\LaravelAiHarness\Contracts;
 
 /**
  * Describes where a coding agent reads project guidance and generated skills.

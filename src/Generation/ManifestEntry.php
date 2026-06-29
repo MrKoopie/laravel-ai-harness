@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Generation;
+namespace MrKoopie\LaravelAiHarness\Generation;
 
 /**
  * Describes one generated artifact in the harness manifest.

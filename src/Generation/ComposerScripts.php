@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Generation;
+namespace MrKoopie\LaravelAiHarness\Generation;
 
 use RuntimeException;
 

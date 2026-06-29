@@ -1,6 +1,6 @@
 <?php
 
-use Yourwebhoster\LaravelAiHarness\Generation\ManagedBlockWriter;
+use MrKoopie\LaravelAiHarness\Generation\ManagedBlockWriter;
 
 test('service provider uses the configured managed block marker', function (): void {
     config()->set('ai-harness.package.marker', 'custom-harness');

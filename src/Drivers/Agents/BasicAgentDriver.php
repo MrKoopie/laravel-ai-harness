@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Drivers\Agents;
+namespace MrKoopie\LaravelAiHarness\Drivers\Agents;
 
-use Yourwebhoster\LaravelAiHarness\Contracts\AgentDriver;
+use MrKoopie\LaravelAiHarness\Contracts\AgentDriver;
 
 /**
  * Immutable agent driver backed by static guidance and skills paths.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Yourwebhoster\LaravelAiHarness\Commands;
+namespace MrKoopie\LaravelAiHarness\Commands;
 
 use Illuminate\Console\Command;
 

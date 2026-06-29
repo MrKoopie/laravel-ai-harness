@@ -1,9 +1,9 @@
 <?php
 
-namespace Yourwebhoster\LaravelAiHarness\Tests;
+namespace MrKoopie\LaravelAiHarness\Tests;
 
+use MrKoopie\LaravelAiHarness\LaravelAiHarnessServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
-use Yourwebhoster\LaravelAiHarness\LaravelAiHarnessServiceProvider;
 
 class TestCase extends Orchestra
 {
