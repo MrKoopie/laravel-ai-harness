@@ -14,6 +14,10 @@ test('update command writes the initial harness files', function (): void {
         ->and($path.'/.dev/bin/ai-harness')->toBeFile()
         ->and(is_executable($path.'/.dev/bin/ai-harness'))->toBeTrue()
         ->and($path.'/.codex/scripts/local-environment.sh')->toBeFile()
+        ->and(file_get_contents($path.'/.codex/scripts/local-environment.sh'))
+        ->toContain('app_key_missing()')
+        ->toContain('artisan key:generate --ansi')
+        ->not()->toContain('php artisan key:generate --ansi')
         ->and(is_executable($path.'/.codex/scripts/local-environment.sh'))->toBeTrue()
         ->and($path.'/.agents/skills/laravel-ai-harness/SKILL.md')->toBeFile()
         ->and($path.'/polyscope.json')->not()->toBeFile()
@@ -64,6 +68,9 @@ test('update command derives the worktree base from git remote metadata', functi
 });
 
 test('update command can override generated project metadata from config', function (): void {
+    config()->set('ai-harness.project.name', 'Billing Desk');
+    config()->set('ai-harness.project.slug', 'billing-desk');
+    config()->set('ai-harness.project.database_name', 'billing_desk');
     config()->set('ai-harness.project.php_version', '8.4');
     config()->set('ai-harness.project.worktree_base_ref', 'upstream/trunk');
 
@@ -71,11 +78,48 @@ test('update command can override generated project metadata from config', funct
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
+        '--with' => ['docker'],
     ])->assertSuccessful();
 
     expect(file_get_contents($path.'/AGENTS.md'))
+        ->toContain('App: Billing Desk')
         ->toContain('PHP target: 8.4')
-        ->toContain('Default worktree base: upstream/trunk');
+        ->toContain('Default worktree base: upstream/trunk')
+        ->and(file_get_contents($path.'/.codex/environments/environment.toml'))
+        ->toContain('name = "Billing Desk Codex worktree"')
+        ->and(file_get_contents($path.'/docker/mysql/init/10-create-testing-database.sh'))
+        ->toContain('billing_desk_testing');
+});
+
+test('update command preserves existing generated project identity across worktree paths', function (): void {
+    $path = temp_directory('ai-harness-temp-worktree');
+
+    file_put_contents($path.'/AGENTS.md', <<<'MARKDOWN'
+<!-- ai-harness:start -->
+# AI Harness
+
+## Project Context
+
+- App: bill-it
+- PHP target: 8.3
+- Default worktree base: origin/main
+<!-- ai-harness:end -->
+MARKDOWN);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['docker'],
+    ])->assertSuccessful();
+
+    expect(file_get_contents($path.'/AGENTS.md'))
+        ->toContain('App: bill-it')
+        ->and(file_get_contents($path.'/.codex/environments/environment.toml'))
+        ->toContain('name = "bill-it Codex worktree"')
+        ->and(file_get_contents($path.'/.codex/hooks.json'))
+        ->toContain('"statusMessage": "Provisioning bill-it worktree"')
+        ->and(file_get_contents($path.'/docker/mysql/init/10-create-testing-database.sh'))
+        ->toContain('bill_it_testing')
+        ->not()->toContain('ai_harness_temp_worktree_testing');
 });
 
 test('update command renders valid JSON when the app name needs escaping', function (): void {

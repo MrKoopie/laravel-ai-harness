@@ -14,6 +14,23 @@ artisan() {
     "${repo_root}/.dev/bin/ai-harness" "$@"
 }
 
+app_key_missing() {
+    if [[ ! -f .env ]]; then
+        return 1
+    fi
+
+    local app_key_line
+    app_key_line="$(grep -E '^APP_KEY=' .env | tail -n 1 || true)"
+
+    local app_key="${app_key_line#APP_KEY=}"
+    app_key="${app_key%\"}"
+    app_key="${app_key#\"}"
+    app_key="${app_key%\'}"
+    app_key="${app_key#\'}"
+
+    [[ -z "${app_key}" ]]
+}
+
 case "${action}" in
     setup)
         if [[ ! -f .env && -f .env.example ]]; then
@@ -22,6 +39,10 @@ case "${action}" in
 
         if [[ ! -d vendor && -f composer.json ]] && command -v composer >/dev/null 2>&1; then
             composer install --no-interaction --prefer-dist
+        fi
+
+        if [[ -f artisan ]] && app_key_missing; then
+            artisan key:generate --ansi
         fi
 
         if [[ -f artisan ]]; then

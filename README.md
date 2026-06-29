@@ -59,6 +59,16 @@ AI_HARNESS_DOCKER=false
 AI_HARNESS_POLYSCOPE=false
 ```
 
+Generated project metadata is derived from existing harness context before falling back to the directory name. You can pin it explicitly when needed:
+
+```dotenv
+AI_HARNESS_PROJECT_NAME="bill-it"
+AI_HARNESS_PROJECT_SLUG="bill-it"
+AI_HARNESS_DATABASE_NAME="bill_it"
+AI_HARNESS_PHP_VERSION="8.3"
+AI_HARNESS_WORKTREE_BASE_REF="origin/main"
+```
+
 ## Laravel Boost
 
 This package ships Laravel Boost resources for package discovery:

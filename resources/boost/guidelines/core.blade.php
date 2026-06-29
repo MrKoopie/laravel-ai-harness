@@ -22,7 +22,7 @@ php artisan ai-harness:install --with=docker --with=polyscope
 ## Managed Files
 
 - Keep project-specific notes outside AI Harness managed blocks.
-- Do not manually edit package-owned generated files such as `.codex/hooks.json`, `.codex/environments/environment.toml`, `.dev/bin/ai-harness`, `.claude/settings.json`, or `.ai/mcp/mcp.json`; update package configuration or templates and rerun `ai-harness:update`.
+- Do not manually edit package-owned generated files such as `.codex/hooks.json`, `.codex/environments/environment.toml`, `.codex/scripts/local-environment.sh`, `.dev/bin/ai-harness`, `.claude/settings.json`, or `.ai/mcp/mcp.json`; update package configuration or templates and rerun `ai-harness:update`.
 - Treat Laravel Boost files separately from harness files. Boost owns the `<laravel-boost-guidelines>` block, while this package owns only AI Harness managed blocks and generated harness files.
 
 ## Optional Features

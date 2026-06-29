@@ -84,20 +84,91 @@ final readonly class HarnessUpdater
      */
     private function variables(string $basePath): array
     {
-        $appName = basename($basePath);
-        $appSlug = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '-', $appName));
-        $database = str_replace('-', '_', $appSlug);
+        $appName = $this->appName($basePath);
+        $appSlug = $this->appSlug($appName);
+        $database = $this->databaseName($appSlug);
 
         return [
             'app_name' => $appName,
-            'app_slug' => trim($appSlug, '-'),
-            'database_name' => trim($database, '_'),
-            'testing_database_name' => trim($database, '_').'_testing',
+            'app_slug' => $appSlug,
+            'database_name' => $database,
+            'testing_database_name' => $database.'_testing',
             'package_name' => 'mrkoopie/laravel-ai-harness',
             'php_version' => $this->phpVersion($basePath),
             'worktree_base_ref' => $this->worktreeBaseRef($basePath),
             'codex_status_message_json' => json_encode("Provisioning {$appName} worktree", JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ];
+    }
+
+    private function appName(string $basePath): string
+    {
+        $configured = config('ai-harness.project.name');
+
+        if (is_string($configured) && trim($configured) !== '') {
+            return trim($configured);
+        }
+
+        $existing = $this->existingProjectContextValue($basePath, 'App');
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        return basename($basePath);
+    }
+
+    private function appSlug(string $appName): string
+    {
+        $configured = config('ai-harness.project.slug');
+
+        if (is_string($configured) && trim($configured) !== '') {
+            return $this->slug(trim($configured), '-');
+        }
+
+        return $this->slug($appName, '-');
+    }
+
+    private function databaseName(string $appSlug): string
+    {
+        $configured = config('ai-harness.project.database_name');
+
+        if (is_string($configured) && trim($configured) !== '') {
+            return $this->slug(trim($configured), '_');
+        }
+
+        return str_replace('-', '_', $appSlug);
+    }
+
+    private function slug(string $value, string $separator): string
+    {
+        $slug = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', $separator, $value));
+
+        return trim($slug, $separator);
+    }
+
+    private function existingProjectContextValue(string $basePath, string $key): ?string
+    {
+        $path = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'AGENTS.md';
+
+        if (! is_readable($path)) {
+            return null;
+        }
+
+        $contents = file_get_contents($path);
+
+        if ($contents === false) {
+            throw new RuntimeException("Unable to read project guidance [{$path}].");
+        }
+
+        $pattern = '/^- '.preg_quote($key, '/').':\s*(.+)$/m';
+
+        if (preg_match($pattern, $contents, $matches) !== 1) {
+            return null;
+        }
+
+        $value = trim($matches[1]);
+
+        return $value === '' ? null : $value;
     }
 
     private function phpVersion(string $basePath): string
