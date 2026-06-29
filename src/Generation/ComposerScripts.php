@@ -141,6 +141,6 @@ final readonly class ComposerScripts
             ));
         }
 
-        return '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(PHP_BINARY.\' artisan '.$command.'\', $code); exit($code); }"';
+        return '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(escapeshellarg(PHP_BINARY).\' artisan '.$command.'\', $code); exit($code); }"';
     }
 }

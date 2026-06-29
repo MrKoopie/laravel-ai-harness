@@ -4,7 +4,7 @@ use MrKoopie\LaravelAiHarness\Generation\ComposerScripts;
 
 function guarded_ai_harness_script(string $arguments = ''): string
 {
-    return '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(PHP_BINARY.\' artisan ai-harness:update --ansi'.$arguments.'\', $code); exit($code); }"';
+    return '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(escapeshellarg(PHP_BINARY).\' artisan ai-harness:update --ansi'.$arguments.'\', $code); exit($code); }"';
 }
 
 test('it installs auto update hooks without removing existing scripts', function (): void {

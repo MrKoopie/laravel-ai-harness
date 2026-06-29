@@ -14,7 +14,7 @@ php artisan ai-harness:install
 The install command writes the initial harness files and adds this command to both Composer lifecycle hooks:
 
 ```bash
-@php -r "if (file_exists('vendor/mrkoopie/laravel-ai-harness')) { passthru(PHP_BINARY.' artisan ai-harness:update --ansi', $code); exit($code); }"
+@php -r "if (file_exists('vendor/mrkoopie/laravel-ai-harness')) { passthru(escapeshellarg(PHP_BINARY).' artisan ai-harness:update --ansi', $code); exit($code); }"
 ```
 
 After that first install, Composer will refresh managed harness files on every `composer install` and `composer update`.

@@ -178,7 +178,7 @@ test('install command persists selected optional features in composer hooks', fu
     ])->assertSuccessful();
 
     $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
-    $guardedScript = '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(PHP_BINARY.\' artisan ai-harness:update --ansi --with=docker --with=polyscope\', $code); exit($code); }"';
+    $guardedScript = '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(escapeshellarg(PHP_BINARY).\' artisan ai-harness:update --ansi --with=docker --with=polyscope\', $code); exit($code); }"';
 
     expect($composer['scripts']['post-install-cmd'])
         ->toBe([$guardedScript])
