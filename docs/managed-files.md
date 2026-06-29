@@ -36,15 +36,15 @@ Keep project-specific notes in user-owned files or outside managed blocks.
 
 ## Composer Auto Update
 
-`ai-harness:install` adds `@php artisan ai-harness:update --ansi` to both:
+`ai-harness:install` adds a guarded `ai-harness:update --ansi` command to both:
 
 - `post-install-cmd`
 - `post-update-cmd`
 
-The hook is appended once and existing Composer scripts are preserved.
+The hook is appended once, existing Composer scripts are preserved, and the guard skips the update when the package is absent during `composer install --no-dev`.
 
 If install is run with optional features, the generated hook keeps those flags:
 
 ```bash
-@php artisan ai-harness:update --ansi --with=docker --with=polyscope
+ai-harness:update --ansi --with=docker --with=polyscope
 ```

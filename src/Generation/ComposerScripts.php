@@ -14,7 +14,7 @@ final readonly class ComposerScripts
     /**
      * @param  non-empty-string  $baseScript
      */
-    public function __construct(private string $baseScript = '@php artisan ai-harness:update --ansi') {}
+    public function __construct(private string $baseScript = 'ai-harness:update --ansi') {}
 
     /**
      * Ensure post-install and post-update scripts run the harness updater.
@@ -112,7 +112,7 @@ final readonly class ComposerScripts
     {
         $scripts = array_values(array_filter(
             $scripts,
-            fn (string $existingScript): bool => ! str_starts_with($existingScript, $this->baseScript),
+            fn (string $existingScript): bool => ! str_contains($existingScript, 'ai-harness:update'),
         ));
 
         $scripts[] = $script;
@@ -132,13 +132,15 @@ final readonly class ComposerScripts
 
         sort($features);
 
-        if ($features === []) {
-            return $this->baseScript;
+        $command = $this->baseScript;
+
+        if ($features !== []) {
+            $command .= ' '.implode(' ', array_map(
+                fn (string $feature): string => "--with={$feature}",
+                $features,
+            ));
         }
 
-        return $this->baseScript.' '.implode(' ', array_map(
-            fn (string $feature): string => "--with={$feature}",
-            $features,
-        ));
+        return '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(PHP_BINARY.\' artisan '.$command.'\', $code); exit($code); }"';
     }
 }

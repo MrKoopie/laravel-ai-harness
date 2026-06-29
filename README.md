@@ -14,10 +14,11 @@ php artisan ai-harness:install
 The install command writes the initial harness files and adds this command to both Composer lifecycle hooks:
 
 ```bash
-@php artisan ai-harness:update --ansi
+@php -r "if (file_exists('vendor/mrkoopie/laravel-ai-harness')) { passthru(PHP_BINARY.' artisan ai-harness:update --ansi', $code); exit($code); }"
 ```
 
 After that first install, Composer will refresh managed harness files on every `composer install` and `composer update`.
+The generated hook is guarded so production `composer install --no-dev` runs can skip the harness when the package is installed as a development dependency.
 
 When `ai-harness:install` is run with `--with=*` feature flags, those flags are preserved in the Composer hook.
 
@@ -65,6 +66,8 @@ Generated project metadata is derived from existing harness context before falli
 AI_HARNESS_PROJECT_NAME="bill-it"
 AI_HARNESS_PROJECT_SLUG="bill-it"
 AI_HARNESS_DATABASE_NAME="bill_it"
+AI_HARNESS_DATABASE_CHARSET="utf8mb4"
+AI_HARNESS_DATABASE_COLLATION="utf8mb4_uca1400_ai_ci"
 AI_HARNESS_PHP_VERSION="8.3"
 AI_HARNESS_WORKTREE_BASE_REF="origin/main"
 ```

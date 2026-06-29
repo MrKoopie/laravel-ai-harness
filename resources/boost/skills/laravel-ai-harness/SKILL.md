@@ -13,7 +13,7 @@ Use this skill when work touches Laravel AI Harness installation, generated AI a
 - Refresh package-owned files with `php artisan ai-harness:update`.
 - Verify the selected surface with `php artisan ai-harness:doctor`.
 - Preserve optional feature flags in install/update commands, for example `--with=docker --with=polyscope`.
-- When Composer hooks are enabled, keep the `@php artisan ai-harness:update --ansi` hook in both `post-install-cmd` and `post-update-cmd`.
+- When Composer hooks are enabled, keep the guarded `ai-harness:update --ansi` hook in both `post-install-cmd` and `post-update-cmd`.
 
 ## Managed File Boundaries
 
@@ -25,7 +25,7 @@ Use this skill when work touches Laravel AI Harness installation, generated AI a
 ## Drivers And Optional Features
 
 - Agent drivers describe which agent surfaces receive harness guidance, such as Codex and Claude.
-- Runtime drivers describe how commands run locally, preferring Sail when available, then Herd, then bare PHP.
+- Runtime drivers describe how commands run locally, preferring Sail when its Docker or Podman runtime is reachable, then Herd, then bare PHP.
 - `--with=docker` installs Docker-oriented helper files.
 - `--with=polyscope` installs Polyscope configuration.
 - Herd support is runtime detection in `.dev/bin/ai-harness`; it does not currently create a separate Herd file.

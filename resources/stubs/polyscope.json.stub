@@ -1,6 +1,6 @@
 {
     "$schema": "https://polyscope.dev/schemas/polyscope.json",
-    "copyGitignored": true,
+    "copyGitignored": false,
     "cloneExclude": [
         "storage/logs",
         "storage/framework/cache",

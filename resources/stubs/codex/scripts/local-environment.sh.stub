@@ -46,7 +46,7 @@ case "${action}" in
         fi
 
         if [[ -f artisan ]]; then
-            artisan ai-harness:doctor || true
+            artisan ai-harness:doctor
         fi
         ;;
     cleanup)

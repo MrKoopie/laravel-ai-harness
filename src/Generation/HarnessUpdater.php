@@ -93,6 +93,8 @@ final readonly class HarnessUpdater
             'app_slug' => $appSlug,
             'database_name' => $database,
             'testing_database_name' => $database.'_testing',
+            'database_charset' => $this->databaseCharset($basePath),
+            'database_collation' => $this->databaseCollation($basePath),
             'package_name' => 'mrkoopie/laravel-ai-harness',
             'php_version' => $this->phpVersion($basePath),
             'worktree_base_ref' => $this->worktreeBaseRef($basePath),
@@ -139,6 +141,28 @@ final readonly class HarnessUpdater
         return str_replace('-', '_', $appSlug);
     }
 
+    private function databaseCharset(string $basePath): string
+    {
+        $configured = config('ai-harness.project.database_charset');
+
+        if (is_string($configured) && trim($configured) !== '') {
+            return $this->slug(trim($configured), '_');
+        }
+
+        return $this->envValue($basePath, 'DB_CHARSET') ?? 'utf8mb4';
+    }
+
+    private function databaseCollation(string $basePath): string
+    {
+        $configured = config('ai-harness.project.database_collation');
+
+        if (is_string($configured) && trim($configured) !== '') {
+            return $this->slug(trim($configured), '_');
+        }
+
+        return $this->envValue($basePath, 'DB_COLLATION') ?? 'utf8mb4_unicode_ci';
+    }
+
     private function slug(string $value, string $separator): string
     {
         $slug = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', $separator, $value));
@@ -169,6 +193,38 @@ final readonly class HarnessUpdater
         $value = trim($matches[1]);
 
         return $value === '' ? null : $value;
+    }
+
+    private function envValue(string $basePath, string $key): ?string
+    {
+        foreach (['.env.testing.example', '.env.example'] as $filename) {
+            $path = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$filename;
+
+            if (! is_readable($path)) {
+                continue;
+            }
+
+            $contents = file_get_contents($path);
+
+            if ($contents === false) {
+                throw new RuntimeException("Unable to read environment example [{$path}].");
+            }
+
+            $pattern = '/^'.preg_quote($key, '/').'=(.*)$/m';
+
+            if (preg_match($pattern, $contents, $matches) !== 1) {
+                continue;
+            }
+
+            $value = trim($matches[1]);
+            $value = trim($value, "\"'");
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function phpVersion(string $basePath): string

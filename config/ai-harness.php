@@ -33,15 +33,12 @@ return [
         'polyscope' => env('AI_HARNESS_POLYSCOPE', false),
     ],
 
-    'composer' => [
-        'auto_update' => true,
-        'script' => '@php artisan ai-harness:update --ansi',
-    ],
-
     'project' => [
         'name' => env('AI_HARNESS_PROJECT_NAME'),
         'slug' => env('AI_HARNESS_PROJECT_SLUG'),
         'database_name' => env('AI_HARNESS_DATABASE_NAME'),
+        'database_charset' => env('AI_HARNESS_DATABASE_CHARSET'),
+        'database_collation' => env('AI_HARNESS_DATABASE_COLLATION'),
         'php_version' => env('AI_HARNESS_PHP_VERSION'),
         'worktree_base_ref' => env('AI_HARNESS_WORKTREE_BASE_REF'),
         'queue_connection' => 'database',
