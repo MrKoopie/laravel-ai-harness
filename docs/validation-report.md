@@ -17,6 +17,7 @@ This report covers the README/configuration hardening, Herd workspace automation
 - Static quality checks are explicit: Composer validation, Pint, Pest, and PHPStan/Larastan.
 - Sail compatibility is covered by an automated runtime-helper test that proves Sail is preferred when `vendor/bin/sail` and a container runtime are available.
 - Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, DNS-label-length-capped site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and cleanup using the generated worktree path.
+- Codex hook fallback is covered by a test proving the generated `SessionStart` hook provisions only Codex-managed worktrees under `$CODEX_HOME/worktrees/*` and does not run setup against a normal source checkout.
 - Claude worktree automation is covered by tests proving `EnterWorktree`, `ExitWorktree`, and guarded `SessionStart` wrappers delegate to the generated local-environment script and do not run setup against the main checkout.
 
 ## Documentation Inputs

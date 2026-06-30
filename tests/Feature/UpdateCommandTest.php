@@ -1,5 +1,7 @@
 <?php
 
+use Symfony\Component\Process\Process;
+
 test('update command writes the initial harness files', function (): void {
     $path = temp_directory('ai-harness');
 
@@ -82,6 +84,56 @@ test('claude settings reference generated worktree scripts', function (): void {
         ->and($path.'/.claude/scripts/worktree-down.sh')->toBeFile()
         ->and(is_executable($path.'/.claude/scripts/worktree-up.sh'))->toBeTrue()
         ->and(is_executable($path.'/.claude/scripts/worktree-down.sh'))->toBeTrue();
+});
+
+test('codex session hook provisions only codex managed worktrees', function (): void {
+    $root = temp_directory('ai-harness-codex-hook');
+    $codexHome = $root.'/codex-home';
+    $worktree = $codexHome.'/worktrees/abcd/project';
+    $localCheckout = $root.'/source/project';
+    $log = temp_file('codex-hook-log');
+
+    mkdir($worktree, 0755, true);
+    mkdir($localCheckout, 0755, true);
+
+    foreach ([$worktree, $localCheckout] as $path) {
+        pending_artisan('ai-harness:update', [
+            '--path' => $path,
+        ])->assertSuccessful();
+
+        (new Process(['git', 'init'], $path))->mustRun();
+
+        file_put_contents($path.'/.codex/scripts/local-environment.sh', <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+{
+    printf 'action=%s\n' "${1:-}"
+    printf 'profile=%s\n' "${WORKTREE_PROFILE:-}"
+    printf 'path=%s\n' "${CODEX_WORKTREE_PATH:-}"
+} >> "${HARNESS_HOOK_LOG}"
+BASH);
+        chmod($path.'/.codex/scripts/local-environment.sh', 0755);
+    }
+
+    $hooks = json_decode((string) file_get_contents($worktree.'/.codex/hooks.json'), true, flags: JSON_THROW_ON_ERROR);
+    $command = $hooks['hooks']['SessionStart'][0]['hooks'][0]['command'];
+
+    Process::fromShellCommandline($command, $worktree, [
+        'CODEX_HOME' => $codexHome,
+        'HARNESS_HOOK_LOG' => $log,
+        'PATH' => getenv('PATH'),
+    ])->mustRun();
+
+    Process::fromShellCommandline($command, $localCheckout, [
+        'CODEX_HOME' => $codexHome,
+        'HARNESS_HOOK_LOG' => $log,
+        'PATH' => getenv('PATH'),
+    ])->mustRun();
+
+    expect(file_get_contents($log))
+        ->toContain("action=setup\nprofile=codex\npath={$worktree}")
+        ->and(substr_count((string) file_get_contents($log), 'action=setup'))->toBe(1);
 });
 
 test('update command preserves existing codex project config outside the harness block', function (): void {

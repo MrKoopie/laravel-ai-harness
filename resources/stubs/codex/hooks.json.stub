@@ -6,7 +6,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "bash \"$(git rev-parse --show-toplevel)/.codex/scripts/local-environment.sh\" setup",
+                        "command": "sh -lc 'repo_root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; case \"$repo_root\" in \"${CODEX_HOME:-$HOME/.codex}\"/worktrees/*) WORKTREE_PROFILE=codex CODEX_WORKTREE_PATH=\"$repo_root\" bash \"$repo_root/.codex/scripts/local-environment.sh\" setup ;; esac'",
                         "timeout": 600,
                         "statusMessage": {{ codex_status_message_json }}
                     }
