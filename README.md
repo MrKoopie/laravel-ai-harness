@@ -33,6 +33,7 @@ Most teams configure the harness in three places:
 - `config/ai-harness.php`: publish it when you want committed package defaults.
 - `.env`: use `AI_HARNESS_*` variables for local or environment-specific overrides.
 - User-owned guidance outside managed blocks in `AGENTS.md` and `CLAUDE.md`: keep project-specific rules there so updates do not replace them.
+- `.gitignore`: keep the generated AI Harness unignore block so `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` files can be committed.
 
 Publish the config file with Laravel's vendor publishing workflow:
 
@@ -55,16 +56,16 @@ These features are enabled by default:
 
 | Feature | Default | What It Does |
 | --- | --- | --- |
-| Base guidance | Always on | Writes managed blocks to `AGENTS.md` and `CLAUDE.md`, shared MCP config to `.ai/mcp/mcp.json`, and the runtime helper to `.dev/bin/ai-harness`. |
-| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml.example`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, and runs `ai-harness:doctor`. |
-| Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` and Claude-local harness skill files when skills are enabled. |
+| Base guidance | Always on | Writes managed blocks to `AGENTS.md`, `CLAUDE.md`, and `.gitignore`; writes shared MCP config to `.ai/mcp/mcp.json`; writes the runtime helper to `.dev/bin/ai-harness`. |
+| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml.example`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL` and database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs migrations, and runs `ai-harness:doctor`. Codex cleanup removes the isolated database when it is owned by the worktree. |
+| Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` with a session-start doctor check through `.dev/bin/ai-harness`, plus Claude-local harness skill files when skills are enabled. |
 | Skills | `AI_HARNESS_SKILLS=true` | Writes local skill documentation to `.agents/skills/laravel-ai-harness/SKILL.md` and `.claude/skills/laravel-ai-harness/SKILL.md`. |
 
 These features are disabled by default:
 
 | Feature | Default | What It Does When Enabled |
 | --- | --- | --- |
-| Herd workspace automation | `AI_HARNESS_HERD=false` | Codex setup links the generated worktree in Laravel Herd with a deterministic site name, and Codex cleanup unlinks it. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
+| Herd workspace automation | `AI_HARNESS_HERD=false` | Codex setup links the generated worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to that site, and Codex cleanup unlinks it. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
 | Docker database bootstrap | `AI_HARNESS_DOCKER=false` | Writes `docker/mysql/init/10-create-testing-database.sh` for creating the testing database with the configured charset and collation. |
 | Polyscope | `AI_HARNESS_POLYSCOPE=false` | Writes `polyscope.json` workspace metadata. |
 
@@ -117,8 +118,9 @@ For a Laravel application using this package:
 2. Publish `config/ai-harness.php` if the team wants committed defaults.
 3. Put local overrides in `.env`.
 4. Keep custom instructions outside the `<!-- ai-harness:start -->` / `<!-- ai-harness:end -->` blocks.
-5. Run `php artisan ai-harness:doctor` after changing feature flags.
-6. Let Composer refresh managed files during `composer install` and `composer update`, or run `php artisan ai-harness:update` manually after package upgrades.
+5. Commit the generated harness files before creating Codex or Claude worktrees. Git worktrees are created from a commit, so an uncommitted package install in the main checkout will not exist in new worktrees.
+6. Run `php artisan ai-harness:doctor` after changing feature flags.
+7. Let Composer refresh managed files during `composer install` and `composer update`, or run `php artisan ai-harness:update` manually after package upgrades.
 
 For package development in this repository:
 
@@ -169,9 +171,9 @@ Herd workspace automation is opt-in:
 php artisan ai-harness:install --with=herd
 ```
 
-With Herd enabled, Codex setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Codex cleanup unlinks the same Herd site. This keeps temporary Codex worktrees addressable in Herd without leaving stale Herd links after teardown.
+With Herd enabled, Codex setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Codex setup also sets `APP_URL` to that Herd site, configures an isolated database, runs migrations, and runs the harness doctor check. Codex cleanup removes the isolated database when it matches the generated worktree name and unlinks the same Herd site. This keeps temporary Codex worktrees addressable in Herd without leaving stale Herd links after teardown.
 
-Current Herd versions may update `APP_URL` in `.env` when `herd link` creates the site. Treat that as Herd-owned local environment state, not a managed AI Harness file.
+For SQLite projects, the isolated database is a generated file under `database/`. For MySQL or MariaDB projects, the setup hook creates a generated database name using the configured database base name plus the worktree checksum, and cleanup drops only that generated database name.
 
 The runtime helper can still use Herd for Artisan commands without enabling workspace automation:
 
@@ -191,6 +193,7 @@ Default files:
 
 - `AGENTS.md`
 - `CLAUDE.md`
+- `.gitignore` managed unignore block
 - `.ai/mcp/mcp.json`
 - `.dev/bin/ai-harness`
 - `.codex/config.toml.example`

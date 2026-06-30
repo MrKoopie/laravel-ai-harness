@@ -30,6 +30,7 @@ final class HarnessManifest
         return [
             new ManifestEntry('AGENTS.md', 'root/AGENTS.md.stub', 'managed-block'),
             new ManifestEntry('CLAUDE.md', 'root/CLAUDE.md.stub', 'managed-block'),
+            new ManifestEntry('.gitignore', 'root/gitignore.stub', 'managed-block'),
             new ManifestEntry('.ai/mcp/mcp.json', 'ai/mcp.json.stub', 'managed-file'),
             new ManifestEntry('.dev/bin/ai-harness', 'dev/bin/ai-harness.stub', 'managed-file', executable: true),
             new ManifestEntry('.codex/config.toml.example', 'codex/config.toml.example.stub', 'managed-file', feature: 'codex'),

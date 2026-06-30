@@ -10,12 +10,13 @@ This report covers the README/configuration hardening, Herd workspace automation
 
 - Laravel package configuration follows Laravel package conventions: package config can be published with `php artisan vendor:publish --tag=ai-harness-config`, and runtime defaults remain in `config/ai-harness.php`.
 - Generated human-editable files use managed blocks, while generated scripts/config files are package-owned.
+- Generated `.gitignore` rules unignore AI Harness files so `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` can be committed before worktrees are created.
 - Optional environment-specific behavior is opt-in: Herd workspace linking, Docker test database bootstrap, and Polyscope metadata are disabled by default.
 - Composer auto-update hooks are guarded so production `composer install --no-dev` can skip the package when installed as a dev dependency.
 - CI now tests the supported Laravel lines: Laravel 11, 12, and 13 via matching Illuminate and Testbench constraints.
 - Static quality checks are explicit: Composer validation, Pint, Pest, and PHPStan/Larastan.
 - Sail compatibility is covered by an automated runtime-helper test that proves Sail is preferred when `vendor/bin/sail` and a container runtime are available.
-- Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, and Codex cleanup using the worktree path.
+- Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and Codex cleanup using the worktree path.
 
 ## Documentation Inputs
 
@@ -29,7 +30,7 @@ Commands run in the package checkout:
 
 | Command | Result |
 | --- | --- |
-| `composer test` | Passed: 30 tests, 122 assertions |
+| `composer test` | Passed: 34 tests, 143 assertions |
 | `composer format:check` | Passed |
 | `composer validate --strict` | Passed |
 | `composer analyse` | Passed: no PHPStan/Larastan errors |
@@ -54,12 +55,12 @@ Observed versions:
 
 - Laravel skeleton: `laravel/laravel` `v13.8.0`
 - Laravel Framework: `v13.17.0`
-- PHP: `8.5.7` from Laravel Herd
+- PHP: `8.5.5`
 
 Install flow:
 
 1. Added a Composer path repository pointing at this checkout with `symlink=false`.
-2. Installed `mrkoopie/laravel-ai-harness` as a dev dependency.
+2. Installed this PR branch of `mrkoopie/laravel-ai-harness` as a dev dependency from the path repository.
 3. Ran `php artisan ai-harness:install --with=herd`.
 4. Ran `php artisan ai-harness:doctor --with=herd`.
 
@@ -70,6 +71,7 @@ Results:
 - Composer hooks preserved `ai-harness:update --ansi --with=herd`.
 - Doctor output reported `Agents: claude, codex, cursor`, `Runtimes: bare, herd, sail`, and `AI harness looks healthy.`
 - Expected generated files existed under `AGENTS.md`, `CLAUDE.md`, `.ai`, `.dev`, `.codex`, `.claude`, and `.agents`.
+- The generated `.gitignore` included AI Harness unignore rules for `.codex` and `.claude`.
 - Fresh Laravel app tests passed with `php artisan test`: 2 tests, 2 assertions.
 
 ## Herd Workspace Setup And Teardown
@@ -83,7 +85,10 @@ CODEX_WORKTREE_PATH=<temporary-validation-app> WORKTREE_PROFILE=codex bash .code
 Observed setup result:
 
 - Herd created site link `<generated-herd-site>`, including the full-path checksum suffix.
-- Herd updated `.env` `APP_URL` to `http://<generated-herd-site>.test`.
+- `.env` contained `APP_URL=http://<generated-herd-site>.test`.
+- `.env` contained `DB_DATABASE=database/<generated-worktree-database>.sqlite`.
+- Direct filesystem check confirmed the generated SQLite database existed before teardown.
+- The setup hook ran Laravel migrations against the generated worktree database.
 - The setup hook completed `ai-harness:doctor` successfully.
 
 Command run for cleanup:
@@ -95,12 +100,13 @@ CODEX_WORKTREE_PATH=<temporary-validation-app> WORKTREE_PROFILE=codex bash .code
 Observed cleanup result:
 
 - Herd removed the `<generated-herd-site>` symbolic link.
+- Direct filesystem check confirmed the generated SQLite database file was removed.
 - Direct filesystem check confirmed the generated Herd site link no longer exists under Herd's local `Sites` directory.
 
 Local Herd note:
 
-- `herd site-information <temporary-validation-app>` emitted repeated PHP warnings/deprecations on this machine under PHP 8.5, so teardown verification used the deterministic symlink path instead.
+- Some Herd introspection commands emitted repeated PHP warnings/deprecations on this machine under PHP 8.5, so teardown verification used direct filesystem checks.
 
 ## Outcome
 
-The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, opt-in local workspace automation, Sail-aware runtime selection, automated package coverage, CI coverage across supported Laravel lines, and a successful fresh Laravel application validation including Herd setup and teardown.
+The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines, and a successful fresh Laravel application validation including Herd setup and teardown.

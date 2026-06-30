@@ -1,0 +1,19 @@
+# Keep generated Laravel AI Harness files trackable.
+# Commit these files before creating agent worktrees so hooks exist in the worktree commit.
+!/AGENTS.md
+!/CLAUDE.md
+!/.ai/
+!/.ai/**
+!/.agents/
+!/.agents/**
+!/.claude/
+!/.claude/**
+!/.codex/
+!/.codex/**
+!/.dev/
+!/.dev/**
+!/docker/
+!/docker/mysql/
+!/docker/mysql/init/
+!/docker/mysql/init/10-create-testing-database.sh
+!/polyscope.json

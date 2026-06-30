@@ -12,7 +12,17 @@ The package uses two ownership modes.
 <!-- ai-harness:end -->
 ```
 
-Content outside the block belongs to the project and is preserved by updates.
+`.gitignore` uses the same ownership model with Gitignore-safe comments:
+
+```gitignore
+# ai-harness:start
+...
+# ai-harness:end
+```
+
+The generated `.gitignore` block unignores harness paths such as `.codex`, `.claude`, `.ai`, `.agents`, and `.dev`. Laravel skeletons can ignore `/.codex` by default, so keep this block committed before creating agent worktrees.
+
+Content outside managed blocks belongs to the project and is preserved by updates.
 
 ## Managed Files
 
