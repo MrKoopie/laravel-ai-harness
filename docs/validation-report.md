@@ -28,9 +28,9 @@ This report covers the README/configuration hardening, Herd workspace automation
 
 ## Package Validation
 
-Commands run in the package checkout:
+Commands run in the package checkout before the final report-only commits:
 
-Package checkout commit: `1912534`
+Code-changing validation commit: `1912534`. Later commits updated this report only.
 
 | Command | Result |
 | --- | --- |
