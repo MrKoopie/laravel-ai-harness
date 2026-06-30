@@ -31,12 +31,12 @@ Commands run in the package checkout:
 
 | Command | Result |
 | --- | --- |
-| `composer test` | Passed: 40 tests, 203 assertions |
+| `composer test` | Passed: 42 tests, 216 assertions |
 | `composer format:check` | Passed |
 | `composer validate --strict` | Passed |
 | `composer analyse` | Passed: no PHPStan/Larastan errors |
 
-Note: PHPStan needed to run outside the filesystem sandbox because Larastan/PHPStan opened a local TCP worker socket and the sandbox denied it with `EPERM`.
+Note: the final PHPStan/Larastan run was executed outside the filesystem sandbox to avoid local worker socket restrictions; it passed with no errors.
 
 ## Fresh Laravel Project Validation
 
@@ -110,7 +110,7 @@ Local Herd note:
 
 ## Existing test-ai Worktree Validation
 
-The existing `test-ai` project is kept as a committed validation app. It points to the local package path repository and was refreshed from package commit `ee3e550`.
+The existing `test-ai` project is kept as a committed validation app. It points to the local package path repository and was refreshed from the current package branch through Composer's path repository. Composer records a path package reference rather than the package Git commit, so the validation app commit is the durable provenance.
 
 Validation flow:
 

@@ -62,6 +62,17 @@ final readonly class ManagedBlockWriter
             return;
         }
 
+        $unmarkedContent = trim($content);
+        $contentOffset = $unmarkedContent === '' ? false : strpos($existing, $unmarkedContent);
+
+        if ($contentOffset !== false) {
+            $updated = substr_replace($existing, $block, $contentOffset, strlen($unmarkedContent));
+
+            $this->writeFile($path, $this->withTrailingNewline($updated));
+
+            return;
+        }
+
         $separator = trim($existing) === '' ? '' : "\n\n";
 
         $this->writeFile($path, $this->withTrailingNewline(rtrim($existing).$separator.$block));
@@ -95,7 +106,7 @@ final readonly class ManagedBlockWriter
 
     private function startMarker(string $path): string
     {
-        if (basename($path) === '.gitignore') {
+        if ($this->usesHashComments($path)) {
             return "# {$this->marker}:start";
         }
 
@@ -104,7 +115,7 @@ final readonly class ManagedBlockWriter
 
     private function endMarker(string $path): string
     {
-        if (basename($path) === '.gitignore') {
+        if ($this->usesHashComments($path)) {
             return "# {$this->marker}:end";
         }
 
@@ -114,5 +125,10 @@ final readonly class ManagedBlockWriter
     private function withTrailingNewline(string $content): string
     {
         return str_ends_with($content, "\n") ? $content : $content."\n";
+    }
+
+    private function usesHashComments(string $path): bool
+    {
+        return basename($path) === '.gitignore' || str_ends_with($path, '.toml');
     }
 }
