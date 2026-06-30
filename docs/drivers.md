@@ -36,7 +36,7 @@ Runtime drivers describe how the harness should execute Laravel commands in the 
 - Purpose: run Artisan through Laravel Herd's PHP.
 - Command shape: `herd php artisan ...`
 - Best for: macOS Herd projects where Herd owns the active PHP version.
-- Generated files: none. The generated `.dev/bin/ai-harness` helper auto-detects Herd as a fallback when Sail is unavailable; `AI_HARNESS_HERD` does not currently add files to the manifest.
+- Generated files: none beyond the default Codex hook. The generated `.dev/bin/ai-harness` helper auto-detects Herd as a fallback when Sail is unavailable. When `AI_HARNESS_HERD=true` or `--with=herd` is used, the generated Codex setup hook links the temporary worktree in Herd and cleanup unlinks it.
 
 `sail`
 

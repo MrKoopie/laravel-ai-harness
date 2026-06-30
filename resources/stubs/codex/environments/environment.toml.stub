@@ -17,6 +17,7 @@ script = '''
 set -eu
 
 : "${CODEX_SOURCE_TREE_PATH:?CODEX_SOURCE_TREE_PATH is required}"
+: "${CODEX_WORKTREE_PATH:?CODEX_WORKTREE_PATH is required}"
 
 WORKTREE_PROFILE=codex \
 bash "$CODEX_SOURCE_TREE_PATH/.codex/scripts/local-environment.sh" cleanup

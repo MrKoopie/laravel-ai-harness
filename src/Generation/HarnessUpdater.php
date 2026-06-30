@@ -29,7 +29,7 @@ final readonly class HarnessUpdater
 
         foreach ($this->manifest->entries($features) as $entry) {
             $target = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$entry->path;
-            $content = $this->renderer->render($this->stub($entry), $this->variables($basePath));
+            $content = $this->renderer->render($this->stub($entry), $this->variables($basePath, $features));
 
             if ($entry->isBlock()) {
                 $this->blockWriter->write($target, $content);
@@ -80,9 +80,10 @@ final readonly class HarnessUpdater
     }
 
     /**
+     * @param  list<string>  $features
      * @return array<string, string>
      */
-    private function variables(string $basePath): array
+    private function variables(string $basePath, array $features): array
     {
         $appName = $this->appName($basePath);
         $appSlug = $this->appSlug($appName);
@@ -98,6 +99,7 @@ final readonly class HarnessUpdater
             'package_name' => 'mrkoopie/laravel-ai-harness',
             'php_version' => $this->phpVersion($basePath),
             'worktree_base_ref' => $this->worktreeBaseRef($basePath),
+            'herd_workspace_enabled' => in_array('herd', $features, true) ? '1' : '0',
             'codex_status_message_json' => json_encode("Provisioning {$appName} worktree", JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ];
     }

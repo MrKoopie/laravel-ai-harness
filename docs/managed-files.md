@@ -46,5 +46,5 @@ The hook is appended once, existing Composer scripts are preserved, and the guar
 If install is run with optional features, the generated hook keeps those flags:
 
 ```bash
-ai-harness:update --ansi --with=docker --with=polyscope
+ai-harness:update --ansi --with=docker --with=herd --with=polyscope
 ```
