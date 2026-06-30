@@ -38,6 +38,8 @@ final class HarnessManifest
             new ManifestEntry('.codex/hooks.json', 'codex/hooks.json.stub', 'managed-file', feature: 'codex'),
             new ManifestEntry('.codex/scripts/local-environment.sh', 'codex/scripts/local-environment.sh.stub', 'managed-file', executable: true, feature: 'codex'),
             new ManifestEntry('.claude/settings.json', 'claude/settings.json.stub', 'managed-file', feature: 'claude'),
+            new ManifestEntry('.claude/scripts/worktree-up.sh', 'claude/scripts/worktree-up.sh.stub', 'managed-file', executable: true, feature: 'claude'),
+            new ManifestEntry('.claude/scripts/worktree-down.sh', 'claude/scripts/worktree-down.sh.stub', 'managed-file', executable: true, feature: 'claude'),
             new ManifestEntry('polyscope.json', 'polyscope.json.stub', 'managed-file', feature: 'polyscope'),
             new ManifestEntry('docker/mysql/init/10-create-testing-database.sh', 'docker/mysql/init/10-create-testing-database.sh.stub', 'managed-file', executable: true, feature: 'docker'),
             new ManifestEntry('.agents/skills/laravel-ai-harness/SKILL.md', 'skills/laravel-ai-harness/SKILL.md.stub', 'managed-file', feature: 'skills'),

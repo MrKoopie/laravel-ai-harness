@@ -518,7 +518,7 @@ BASH);
         ->toContain('database='.expected_worktree_database_name($path));
 });
 
-test('codex cleanup is run against the generated worktree path', function (): void {
+test('codex local environment runs from the generated worktree checkout', function (): void {
     $path = temp_directory('ai-harness-environment');
 
     pending_artisan('ai-harness:update', [
@@ -526,8 +526,11 @@ test('codex cleanup is run against the generated worktree path', function (): vo
     ])->assertSuccessful();
 
     expect(file_get_contents($path.'/.codex/environments/environment.toml'))
-        ->toContain(': "${CODEX_WORKTREE_PATH:?CODEX_WORKTREE_PATH is required}"')
-        ->toContain('bash "$CODEX_SOURCE_TREE_PATH/.codex/scripts/local-environment.sh" cleanup');
+        ->toContain('WORKTREE_PROFILE=codex \\')
+        ->toContain('bash .codex/scripts/local-environment.sh setup')
+        ->toContain('bash .codex/scripts/local-environment.sh cleanup')
+        ->not()->toContain('CODEX_SOURCE_TREE_PATH')
+        ->not()->toContain('CODEX_WORKTREE_PATH');
 });
 
 /**

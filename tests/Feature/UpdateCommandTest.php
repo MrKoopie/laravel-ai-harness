@@ -42,6 +42,9 @@ test('update command writes the initial harness files', function (): void {
         ->toContain('!/.codex/scripts/local-environment.sh')
         ->toContain('!/.claude/')
         ->toContain('!/.claude/settings.json')
+        ->toContain('!/.claude/scripts/')
+        ->toContain('!/.claude/scripts/worktree-up.sh')
+        ->toContain('!/.claude/scripts/worktree-down.sh')
         ->toContain('!/.ai/mcp/mcp.json')
         ->toContain('!/.dev/bin/ai-harness')
         ->not()->toContain('!/.codex/**')
@@ -53,7 +56,7 @@ test('update command writes the initial harness files', function (): void {
         ->and($path.'/docker/mysql/init/10-create-testing-database.sh')->not()->toBeFile();
 });
 
-test('claude settings only reference generated files', function (): void {
+test('claude settings reference generated worktree scripts', function (): void {
     $path = temp_directory('ai-harness');
 
     pending_artisan('ai-harness:update', [
@@ -71,7 +74,12 @@ test('claude settings only reference generated files', function (): void {
 
     expect(implode("\n", $commands))
         ->toContain('.dev/bin/ai-harness ai-harness:doctor')
-        ->not()->toContain('.claude/scripts/');
+        ->toContain('.claude/scripts/worktree-up.sh')
+        ->toContain('.claude/scripts/worktree-down.sh')
+        ->and($path.'/.claude/scripts/worktree-up.sh')->toBeFile()
+        ->and($path.'/.claude/scripts/worktree-down.sh')->toBeFile()
+        ->and(is_executable($path.'/.claude/scripts/worktree-up.sh'))->toBeTrue()
+        ->and(is_executable($path.'/.claude/scripts/worktree-down.sh'))->toBeTrue();
 });
 
 test('update command can opt into optional workspace features', function (): void {

@@ -28,7 +28,7 @@ After the first install, Composer refreshes managed harness files on every `comp
 
 ## Where To Configure Everything
 
-Most teams configure the harness in three places:
+Most teams configure the harness in four places:
 
 - `config/ai-harness.php`: publish it when you want committed package defaults.
 - `.env`: use `AI_HARNESS_*` variables for local or environment-specific overrides.
@@ -57,15 +57,15 @@ These features are enabled by default:
 | Feature | Default | What It Does |
 | --- | --- | --- |
 | Base guidance | Always on | Writes managed blocks to `AGENTS.md`, `CLAUDE.md`, and `.gitignore`; writes shared MCP config to `.ai/mcp/mcp.json`; writes the runtime helper to `.dev/bin/ai-harness`. |
-| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL`, app database, and companion testing database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs app and testing migrations, temporarily points PHPUnit at the generated testing database, and runs `ai-harness:doctor`. Codex cleanup restores PHPUnit config and removes the isolated app and testing databases when they are owned by the worktree. |
-| Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` with a session-start doctor check through `.dev/bin/ai-harness`, plus Claude-local harness skill files when skills are enabled. |
+| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. When the generated Codex local environment is selected for a worktree, setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL`, app database, and companion testing database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs app and testing migrations, temporarily points PHPUnit at the generated testing database, and runs `ai-harness:doctor`. Cleanup restores PHPUnit config and removes isolated app/testing databases when they are owned by the worktree. Project hooks are generated too, but Codex requires hook trust before non-managed project hooks run. |
+| Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` plus `.claude/scripts/worktree-up.sh` and `.claude/scripts/worktree-down.sh`. Claude `EnterWorktree`, `ExitWorktree`, and worktree `SessionStart` hooks delegate to the same generated local-environment script used by Codex. Main-checkout session starts are guarded and only run the doctor check. Claude-local harness skill files are written when skills are enabled. |
 | Skills | `AI_HARNESS_SKILLS=true` | Writes local skill documentation to `.agents/skills/laravel-ai-harness/SKILL.md` and `.claude/skills/laravel-ai-harness/SKILL.md`. |
 
 These features are disabled by default:
 
 | Feature | Default | What It Does When Enabled |
 | --- | --- | --- |
-| Herd workspace automation | `AI_HARNESS_HERD=false` | Codex setup links the generated worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to that site, provisions isolated app/testing databases, and Codex cleanup removes those owned databases and unlinks the site. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
+| Herd workspace automation | `AI_HARNESS_HERD=false` | Generated Codex and Claude worktree setup links the worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to that site, provisions isolated app/testing databases, and cleanup removes those owned databases and unlinks the site. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
 | Docker database bootstrap | `AI_HARNESS_DOCKER=false` | Writes `docker/mysql/init/10-create-testing-database.sh` for creating the testing database with the configured charset and collation. |
 | Polyscope | `AI_HARNESS_POLYSCOPE=false` | Writes `polyscope.json` workspace metadata. |
 
@@ -122,6 +122,10 @@ For a Laravel application using this package:
 6. Run `php artisan ai-harness:doctor` after changing feature flags.
 7. Let Composer refresh managed files during `composer install` and `composer update`, or run `php artisan ai-harness:update` manually after package upgrades.
 
+For Codex App worktrees, choose the generated local environment named `<app name> Codex worktree` in the new thread view. Codex runs `.codex/environments/environment.toml` as the worktree setup/cleanup environment. If you rely on `.codex/hooks.json` instead, review and trust the project hook first; Codex skips untrusted project command hooks.
+
+For Claude Code worktrees, the generated `.claude/settings.json` hooks call `.claude/scripts/worktree-up.sh` after `EnterWorktree`, call `.claude/scripts/worktree-down.sh` before `ExitWorktree` removal, and retry setup once on worktree `SessionStart` if the provision marker is missing.
+
 For package development in this repository:
 
 ```bash
@@ -163,7 +167,7 @@ php artisan ai-harness:install
 
 The package does not rewrite `compose.yaml`. If you enable the Docker database bootstrap file with `--with=docker`, mount or copy `docker/mysql/init/10-create-testing-database.sh` into your Sail MySQL service only if your project wants MySQL to create the testing database during container startup.
 
-## Herd Worktree Automation
+## Worktree Automation
 
 Herd workspace automation is opt-in:
 
@@ -171,7 +175,9 @@ Herd workspace automation is opt-in:
 php artisan ai-harness:install --with=herd
 ```
 
-With Herd enabled, Codex setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Codex setup also sets `APP_URL` to that Herd site, configures an isolated app database, creates a companion testing database, runs app and testing migrations, and runs the harness doctor check. The testing database name is written to `.env` as `AI_HARNESS_TEST_DB_DATABASE`, and setup temporarily rewrites the worktree-local `phpunit.xml` database env entries so `php artisan test` uses that generated testing database. Codex cleanup restores the original `phpunit.xml`, removes both isolated databases when they match the generated worktree names, and unlinks the same Herd site. This keeps temporary Codex worktrees addressable in Herd without leaving stale Herd links or databases after teardown.
+The worktree setup entrypoint is `.codex/scripts/local-environment.sh`. Codex calls it through `.codex/environments/environment.toml` when the generated local environment is selected. Claude calls it through `.claude/scripts/worktree-up.sh` and `.claude/scripts/worktree-down.sh`.
+
+With Herd enabled, setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Setup also sets `APP_URL` to that Herd site, configures an isolated app database, creates a companion testing database, runs app and testing migrations, and runs the harness doctor check. The testing database name is written to `.env` as `AI_HARNESS_TEST_DB_DATABASE`, and setup temporarily rewrites the worktree-local `phpunit.xml` database env entries so `php artisan test` uses that generated testing database. Cleanup restores the original `phpunit.xml`, removes both isolated databases when they match the generated worktree names, and unlinks the same Herd site. This keeps temporary worktrees addressable in Herd without leaving stale Herd links or databases after teardown.
 
 For SQLite projects, the isolated app and testing databases are generated files under `database/`. For MySQL or MariaDB projects, the setup hook creates generated database names using the configured database base name plus the worktree checksum, and cleanup drops only those generated database names.
 
@@ -201,6 +207,8 @@ Default files:
 - `.codex/hooks.json`
 - `.codex/scripts/local-environment.sh`
 - `.claude/settings.json`
+- `.claude/scripts/worktree-up.sh`
+- `.claude/scripts/worktree-down.sh`
 - `.agents/skills/laravel-ai-harness/SKILL.md`
 - `.claude/skills/laravel-ai-harness/SKILL.md`
 

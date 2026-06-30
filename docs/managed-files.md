@@ -37,6 +37,8 @@ Current managed files include:
 - `.codex/hooks.json`
 - `.codex/scripts/local-environment.sh`
 - `.claude/settings.json`
+- `.claude/scripts/worktree-up.sh`
+- `.claude/scripts/worktree-down.sh`
 - `.agents/skills/laravel-ai-harness/SKILL.md`
 - `.claude/skills/laravel-ai-harness/SKILL.md`
 - `docker/mysql/init/10-create-testing-database.sh`

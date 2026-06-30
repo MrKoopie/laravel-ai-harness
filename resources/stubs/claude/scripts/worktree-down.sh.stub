@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+stdin_json=""
+if [[ ! -t 0 ]]; then
+    stdin_json="$(cat || true)"
+fi
+
+json_value() {
+    local key="${1}"
+
+    [[ -n "${stdin_json}" ]] || return 0
+
+    if command -v php >/dev/null 2>&1; then
+        AI_HARNESS_JSON_KEY="${key}" php -r '
+            $payload = json_decode(stream_get_contents(STDIN), true);
+            if (! is_array($payload)) {
+                exit(0);
+            }
+
+            $value = $payload;
+            foreach (explode(".", getenv("AI_HARNESS_JSON_KEY") ?: "") as $segment) {
+                if (! is_array($value) || ! array_key_exists($segment, $value)) {
+                    exit(0);
+                }
+
+                $value = $value[$segment];
+            }
+
+            if (is_string($value)) {
+                echo $value;
+            }
+        ' <<< "${stdin_json}"
+
+        return
+    fi
+
+    case "${key}" in
+        tool_input.action)
+            printf '%s' "${stdin_json}" | sed -n 's/.*"action"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+            ;;
+        cwd)
+            printf '%s' "${stdin_json}" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+            ;;
+    esac
+}
+
+resolve_worktree_root() {
+    local candidate="${1}"
+    local root after name prefix
+
+    root="$(git -C "${candidate}" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "${root}" ]]; then
+        printf '%s\n' "${root}"
+
+        return
+    fi
+
+    if [[ "${candidate}" == *"/.claude/worktrees/"* ]]; then
+        prefix="${candidate%%/.claude/worktrees/*}/.claude/worktrees"
+        after="${candidate#*/.claude/worktrees/}"
+        name="${after%%/*}"
+        printf '%s\n' "${prefix}/${name}"
+
+        return
+    fi
+
+    printf '%s\n' "${candidate}"
+}
+
+action="$(json_value tool_input.action)"
+action="${action:-remove}"
+
+if [[ "${action}" != "remove" ]]; then
+    exit 0
+fi
+
+worktree_path="${1:-}"
+
+if [[ -z "${worktree_path}" ]]; then
+    worktree_path="$(json_value cwd)"
+fi
+
+if [[ -z "${worktree_path}" ]]; then
+    printf 'worktree-down: could not determine worktree path\n' >&2
+    exit 1
+fi
+
+worktree_path="$(resolve_worktree_root "${worktree_path}")"
+
+if [[ ! -d "${worktree_path}" ]]; then
+    printf 'worktree-down: worktree path does not exist: %s\n' "${worktree_path}" >&2
+    exit 1
+fi
+
+worktree_path="$(cd -- "${worktree_path}" && pwd -P)"
+local_environment="${worktree_path}/.codex/scripts/local-environment.sh"
+
+if [[ ! -x "${local_environment}" ]]; then
+    printf 'worktree-down: missing executable local environment script: %s\n' "${local_environment}" >&2
+    exit 1
+fi
+
+WORKTREE_PROFILE=codex \
+CODEX_WORKTREE_PATH="${worktree_path}" \
+bash "${local_environment}" cleanup
+
+rm -f "${worktree_path}/.claude/.ai-harness-worktree-provisioned"
