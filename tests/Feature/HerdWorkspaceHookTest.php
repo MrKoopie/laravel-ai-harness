@@ -183,7 +183,7 @@ BASH);
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 });
 
-test('codex setup configures an isolated sqlite database, app url, and migrations', function (): void {
+test('codex setup configures isolated sqlite app and testing databases, app url, and migrations', function (): void {
     $path = temp_directory('ai-harness-provision');
 
     file_put_contents($path.'/.env.example', implode("\n", [
@@ -216,32 +216,41 @@ BASH);
 
     $siteName = emitted_herd_site_name($herdLog);
     $database = env_value($path, 'DB_DATABASE');
+    $testingDatabase = env_value($path, 'AI_HARNESS_TEST_DB_DATABASE');
     $databasePath = $path.'/'.$database;
+    $testingDatabasePath = $path.'/'.$testingDatabase;
 
     expect(file_get_contents($path.'/.env'))
         ->toContain('APP_URL=http://'.$siteName.'.test')
         ->toContain('DB_DATABASE='.$database)
+        ->toContain('AI_HARNESS_TEST_DB_DATABASE='.$testingDatabase)
         ->and($database)
         ->toStartWith('database/')
         ->toEndWith('_'.path_checksum($path).'.sqlite')
+        ->and($testingDatabase)
+        ->toStartWith('database/')
+        ->toEndWith('_testing_'.path_checksum($path).'.sqlite')
         ->and($databasePath)->toBeFile()
+        ->and($testingDatabasePath)->toBeFile()
         ->and(file_get_contents($path.'/artisan.log'))
         ->toContain('key:generate --ansi')
         ->toContain('migrate --force --ansi')
         ->toContain('ai-harness:doctor');
 });
 
-test('codex cleanup removes the isolated sqlite database before unlinking herd', function (): void {
+test('codex cleanup removes isolated sqlite app and testing databases before unlinking herd', function (): void {
     $path = temp_directory('ai-harness-cleanup');
 
     file_put_contents($path.'/.env', implode("\n", [
         'APP_URL=http://'.expected_herd_site_name($path).'.test',
         'DB_CONNECTION=sqlite',
         'DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite',
+        'AI_HARNESS_TEST_DB_DATABASE=database/'.expected_worktree_testing_database_name($path).'.sqlite',
         '',
     ]));
     mkdir($path.'/database', 0755, true);
     file_put_contents($path.'/database/'.expected_worktree_database_name($path).'.sqlite', '');
+    file_put_contents($path.'/database/'.expected_worktree_testing_database_name($path).'.sqlite', '');
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
@@ -263,6 +272,8 @@ BASH);
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
     expect($path.'/database/'.expected_worktree_database_name($path).'.sqlite')
+        ->not->toBeFile()
+        ->and($path.'/database/'.expected_worktree_testing_database_name($path).'.sqlite')
         ->not->toBeFile()
         ->and(file_get_contents($herdLog))
         ->toContain('unlink '.expected_herd_site_name($path));
@@ -309,6 +320,7 @@ BASH);
     file_put_contents($path.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SAIL_LOG"
+printf 'database=%s\n' "${AI_HARNESS_DB_DATABASE:-}" >> "$SAIL_LOG"
 BASH);
     chmod($path.'/vendor/bin/sail', 0755);
 
@@ -318,8 +330,64 @@ BASH);
 
     expect(file_get_contents($path.'/.env'))
         ->toContain('DB_DATABASE='.expected_worktree_database_name($path))
+        ->toContain('AI_HARNESS_TEST_DB_DATABASE='.expected_worktree_testing_database_name($path))
         ->and(file_get_contents($sailLog))
-        ->toContain('php -r');
+        ->toContain('php -r')
+        ->toContain('database='.expected_worktree_database_name($path))
+        ->toContain('database='.expected_worktree_testing_database_name($path));
+});
+
+test('mysql worktree app and testing databases are dropped through sail during cleanup', function (): void {
+    $path = temp_directory('ai-harness-sail-database-cleanup');
+
+    file_put_contents($path.'/.env', implode("\n", [
+        'DB_CONNECTION=mysql',
+        'DB_HOST=mysql',
+        'DB_PORT=3306',
+        'DB_DATABASE='.expected_worktree_database_name($path),
+        'DB_USERNAME=sail',
+        'DB_PASSWORD=password',
+        'AI_HARNESS_TEST_DB_DATABASE='.expected_worktree_testing_database_name($path),
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $fakeBin = $path.'/fake-bin';
+    $sailLog = temp_file('sail-log');
+    $herdLog = temp_file('herd-log');
+
+    mkdir($fakeBin, 0755, true);
+    mkdir($path.'/vendor/bin', 0755, true);
+
+    file_put_contents($fakeBin.'/docker', <<<'BASH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "info" ]]; then
+    exit 0
+fi
+
+exit 1
+BASH);
+    chmod($fakeBin.'/docker', 0755);
+
+    file_put_contents($path.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SAIL_LOG"
+printf 'database=%s\n' "${AI_HARNESS_DB_DATABASE:-}" >> "$SAIL_LOG"
+BASH);
+    chmod($path.'/vendor/bin/sail', 0755);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog, [
+        'SAIL_LOG' => $sailLog,
+    ])->mustRun();
+
+    expect(file_get_contents($sailLog))
+        ->toContain('database='.expected_worktree_testing_database_name($path))
+        ->toContain('database='.expected_worktree_database_name($path));
 });
 
 test('codex cleanup is run against the generated worktree path', function (): void {
@@ -388,10 +456,21 @@ function env_value(string $path, string $key): string
 
 function expected_worktree_database_name(string $path): string
 {
-    $name = basename($path).'_'.path_checksum($path);
-    $name = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+    $hash = path_checksum($path);
+    $base = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '_', basename($path)));
+    $base = trim($base, '_');
 
-    return trim($name, '_');
+    return substr($base, 0, 64 - strlen($hash) - 1).'_'.$hash;
+}
+
+function expected_worktree_testing_database_name(string $path): string
+{
+    $hash = path_checksum($path);
+    $base = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '_', basename($path)));
+    $base = trim($base, '_');
+    $suffix = '_testing_';
+
+    return substr($base, 0, 64 - strlen($hash) - strlen($suffix)).$suffix.$hash;
 }
 
 function path_checksum(string $path): string

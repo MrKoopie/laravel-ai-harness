@@ -57,7 +57,7 @@ These features are enabled by default:
 | Feature | Default | What It Does |
 | --- | --- | --- |
 | Base guidance | Always on | Writes managed blocks to `AGENTS.md`, `CLAUDE.md`, and `.gitignore`; writes shared MCP config to `.ai/mcp/mcp.json`; writes the runtime helper to `.dev/bin/ai-harness`. |
-| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml.example`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL` and database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs migrations, and runs `ai-harness:doctor`. Codex cleanup removes the isolated database when it is owned by the worktree. |
+| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml.example`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL`, app database, and companion testing database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs migrations, and runs `ai-harness:doctor`. Codex cleanup removes the isolated app and testing databases when they are owned by the worktree. |
 | Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` with a session-start doctor check through `.dev/bin/ai-harness`, plus Claude-local harness skill files when skills are enabled. |
 | Skills | `AI_HARNESS_SKILLS=true` | Writes local skill documentation to `.agents/skills/laravel-ai-harness/SKILL.md` and `.claude/skills/laravel-ai-harness/SKILL.md`. |
 
@@ -65,7 +65,7 @@ These features are disabled by default:
 
 | Feature | Default | What It Does When Enabled |
 | --- | --- | --- |
-| Herd workspace automation | `AI_HARNESS_HERD=false` | Codex setup links the generated worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to that site, and Codex cleanup unlinks it. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
+| Herd workspace automation | `AI_HARNESS_HERD=false` | Codex setup links the generated worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to that site, provisions isolated app/testing databases, and Codex cleanup removes those owned databases and unlinks the site. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
 | Docker database bootstrap | `AI_HARNESS_DOCKER=false` | Writes `docker/mysql/init/10-create-testing-database.sh` for creating the testing database with the configured charset and collation. |
 | Polyscope | `AI_HARNESS_POLYSCOPE=false` | Writes `polyscope.json` workspace metadata. |
 
@@ -171,9 +171,9 @@ Herd workspace automation is opt-in:
 php artisan ai-harness:install --with=herd
 ```
 
-With Herd enabled, Codex setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Codex setup also sets `APP_URL` to that Herd site, configures an isolated database, runs migrations, and runs the harness doctor check. Codex cleanup removes the isolated database when it matches the generated worktree name and unlinks the same Herd site. This keeps temporary Codex worktrees addressable in Herd without leaving stale Herd links after teardown.
+With Herd enabled, Codex setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Codex setup also sets `APP_URL` to that Herd site, configures an isolated app database, creates a companion testing database, runs migrations, and runs the harness doctor check. The testing database name is written to `.env` as `AI_HARNESS_TEST_DB_DATABASE` for projects that want to point `.env.testing` or their test bootstrap at the generated database. Codex cleanup removes both isolated databases when they match the generated worktree names and unlinks the same Herd site. This keeps temporary Codex worktrees addressable in Herd without leaving stale Herd links or databases after teardown.
 
-For SQLite projects, the isolated database is a generated file under `database/`. For MySQL or MariaDB projects, the setup hook creates a generated database name using the configured database base name plus the worktree checksum, and cleanup drops only that generated database name.
+For SQLite projects, the isolated app and testing databases are generated files under `database/`. For MySQL or MariaDB projects, the setup hook creates generated database names using the configured database base name plus the worktree checksum, and cleanup drops only those generated database names.
 
 The runtime helper can still use Herd for Artisan commands without enabling workspace automation:
 

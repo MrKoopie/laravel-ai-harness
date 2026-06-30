@@ -73,14 +73,40 @@ herd_site_name() {
 }
 
 worktree_database_name() {
-    local base path_hash database_name
+    local base path_hash max_base_length database_name
 
     base="${database_base_name:-$(basename "${repo_root}")}"
     base="$(printf '%s' "${base}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
     path_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
-    database_name="${base:0:48}_${path_hash}"
+    max_base_length=$((64 - ${#path_hash} - 1))
+    database_name="${base:0:${max_base_length}}"
 
-    printf '%s\n' "${database_name:-codex_worktree_${path_hash}}"
+    if [[ -n "${database_name}" ]]; then
+        database_name="${database_name}_${path_hash}"
+    else
+        database_name="codex_worktree_${path_hash}"
+    fi
+
+    printf '%s\n' "${database_name}"
+}
+
+worktree_testing_database_name() {
+    local base path_hash suffix max_base_length database_name
+
+    base="${database_base_name:-$(basename "${repo_root}")}"
+    base="$(printf '%s' "${base}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
+    path_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
+    suffix="_testing_"
+    max_base_length=$((64 - ${#path_hash} - ${#suffix}))
+    database_name="${base:0:${max_base_length}}"
+
+    if [[ -n "${database_name}" ]]; then
+        database_name="${database_name}${suffix}${path_hash}"
+    else
+        database_name="codex_worktree_testing_${path_hash}"
+    fi
+
+    printf '%s\n' "${database_name}"
 }
 
 env_value() {
@@ -166,6 +192,27 @@ configure_worktree_environment() {
             create_mysql_database "${database_name}"
             ;;
     esac
+
+    configure_worktree_testing_database "${connection}"
+}
+
+configure_worktree_testing_database() {
+    local connection="${1}" testing_database_name sqlite_path
+
+    testing_database_name="$(worktree_testing_database_name)"
+
+    case "${connection}" in
+        sqlite)
+            sqlite_path="database/${testing_database_name}.sqlite"
+            set_env_value AI_HARNESS_TEST_DB_DATABASE "${sqlite_path}"
+            mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
+            touch "$(sqlite_database_path "${sqlite_path}")"
+            ;;
+        mysql|mariadb)
+            set_env_value AI_HARNESS_TEST_DB_DATABASE "${testing_database_name}"
+            create_mysql_database "${testing_database_name}"
+            ;;
+    esac
 }
 
 create_mysql_database() {
@@ -203,7 +250,7 @@ create_mysql_database() {
 }
 
 drop_worktree_database() {
-    local connection database_name configured_database sqlite_path
+    local connection database_name testing_database_name configured_database configured_testing_database sqlite_path
 
     codex_workspace_requested || return 0
     [[ -f .env ]] || return 0
@@ -211,16 +258,27 @@ drop_worktree_database() {
     connection="$(env_value DB_CONNECTION || true)"
     connection="${connection:-sqlite}"
     database_name="$(worktree_database_name)"
+    testing_database_name="$(worktree_testing_database_name)"
     configured_database="$(env_value DB_DATABASE || true)"
+    configured_testing_database="$(env_value AI_HARNESS_TEST_DB_DATABASE || true)"
 
     case "${connection}" in
         sqlite)
+            if [[ "${configured_testing_database}" == "database/${testing_database_name}.sqlite" || "${configured_testing_database}" == */"${testing_database_name}.sqlite" ]]; then
+                sqlite_path="$(sqlite_database_path "${configured_testing_database}")"
+                rm -f "${sqlite_path}"
+            fi
+
             if [[ "${configured_database}" == "database/${database_name}.sqlite" || "${configured_database}" == */"${database_name}.sqlite" ]]; then
                 sqlite_path="$(sqlite_database_path "${configured_database}")"
                 rm -f "${sqlite_path}"
             fi
             ;;
         mysql|mariadb)
+            if [[ "${configured_testing_database}" == "${testing_database_name}" ]]; then
+                drop_mysql_database "${testing_database_name}"
+            fi
+
             if [[ "${configured_database}" == "${database_name}" ]]; then
                 drop_mysql_database "${database_name}"
             fi
