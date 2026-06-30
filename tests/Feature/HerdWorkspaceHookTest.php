@@ -17,10 +17,17 @@ test('codex setup and cleanup link and unlink herd workspaces when herd is enabl
     file_put_contents($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
 BASH);
     chmod($fakeBin.'/herd', 0755);
 
-    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
     $log = file($herdLog, FILE_IGNORE_NEW_LINES);
@@ -45,10 +52,17 @@ test('herd workspace automation is disabled by default', function (): void {
     file_put_contents($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
 BASH);
     chmod($fakeBin.'/herd', 0755);
 
-    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
     expect(trim((string) file_get_contents($herdLog)))->toBe('');
@@ -114,10 +128,17 @@ test('herd workspace names are capped to a valid dns label length', function ():
     file_put_contents($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
 BASH);
     chmod($fakeBin.'/herd', 0755);
 
-    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
 
     $siteName = emitted_herd_site_name($herdLog);
 
@@ -194,6 +215,17 @@ test('codex setup configures isolated sqlite app and testing databases, app url,
         '',
     ]));
     file_put_contents($path.'/artisan', '');
+    $phpunit = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit>
+    <php>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value=""/>
+    </php>
+</phpunit>
+XML;
+    file_put_contents($path.'/phpunit.xml', $phpunit);
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
@@ -209,10 +241,17 @@ test('codex setup configures isolated sqlite app and testing databases, app url,
     file_put_contents($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
 BASH);
     chmod($fakeBin.'/herd', 0755);
 
-    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
 
     $siteName = emitted_herd_site_name($herdLog);
     $database = env_value($path, 'DB_DATABASE');
@@ -232,10 +271,74 @@ BASH);
         ->toEndWith('_testing_'.path_checksum($path).'.sqlite')
         ->and($databasePath)->toBeFile()
         ->and($testingDatabasePath)->toBeFile()
+        ->and(file_get_contents($path.'/phpunit.xml'))
+        ->toContain('name="DB_CONNECTION" value="sqlite" force="true"')
+        ->toContain('name="DB_DATABASE" value="'.$testingDatabase.'" force="true"')
         ->and(file_get_contents($path.'/artisan.log'))
         ->toContain('key:generate --ansi')
         ->toContain('migrate --force --ansi')
+        ->toContain('migrate --env=testing --force --ansi')
+        ->toContain('DB_DATABASE='.$testingDatabase)
         ->toContain('ai-harness:doctor');
+});
+
+test('codex cleanup restores phpunit after wiring the generated testing database', function (): void {
+    $path = temp_directory('ai-harness-phpunit-restore');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://example.test',
+        'APP_KEY=',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+    $phpunit = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit>
+    <php>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value=""/>
+    </php>
+</phpunit>
+XML;
+    file_put_contents($path.'/phpunit.xml', $phpunit);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
+
+    expect(file_get_contents($path.'/phpunit.xml'))
+        ->toContain(expected_worktree_testing_database_name($path))
+        ->not()->toBe($phpunit);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit)
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
 test('codex cleanup removes isolated sqlite app and testing databases before unlinking herd', function (): void {
@@ -293,6 +396,15 @@ test('mysql worktree databases are created through sail when sail is available',
         '',
     ]));
     file_put_contents($path.'/artisan', '');
+    file_put_contents($path.'/phpunit.xml', <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit>
+    <php>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+    </php>
+</phpunit>
+XML);
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
@@ -317,14 +429,27 @@ exit 1
 BASH);
     chmod($fakeBin.'/docker', 0755);
 
+    file_put_contents($fakeBin.'/php', <<<'BASH'
+#!/usr/bin/env bash
+printf 'bare php should not patch phpunit.xml when sail is available\n' >&2
+exit 44
+BASH);
+    chmod($fakeBin.'/php', 0755);
+
     file_put_contents($path.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SAIL_LOG"
 printf 'database=%s\n' "${AI_HARNESS_DB_DATABASE:-}" >> "$SAIL_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
 BASH);
     chmod($path.'/vendor/bin/sail', 0755);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'REAL_PHP' => PHP_BINARY,
         'SAIL_LOG' => $sailLog,
     ])->mustRun();
 
@@ -334,7 +459,10 @@ BASH);
         ->and(file_get_contents($sailLog))
         ->toContain('php -r')
         ->toContain('database='.expected_worktree_database_name($path))
-        ->toContain('database='.expected_worktree_testing_database_name($path));
+        ->toContain('database='.expected_worktree_testing_database_name($path))
+        ->and(file_get_contents($path.'/phpunit.xml'))
+        ->toContain('name="DB_CONNECTION" value="mysql" force="true"')
+        ->toContain('name="DB_DATABASE" value="'.expected_worktree_testing_database_name($path).'" force="true"');
 });
 
 test('mysql worktree app and testing databases are dropped through sail during cleanup', function (): void {
@@ -490,6 +618,7 @@ function fake_artisan_helper(string $path): void
     file_put_contents($path.'/.dev/bin/ai-harness', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> artisan.log
+printf 'DB_CONNECTION=%s DB_DATABASE=%s DB_URL=%s\n' "${DB_CONNECTION:-}" "${DB_DATABASE:-}" "${DB_URL:-}" >> artisan.log
 BASH);
     chmod($path.'/.dev/bin/ai-harness', 0755);
 }

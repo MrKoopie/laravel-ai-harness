@@ -128,11 +128,15 @@ env_value() {
 }
 
 set_env_value() {
-    local key="${1}" value="${2}" temporary_file
+    set_env_file_value .env "${1}" "${2}"
+}
+
+set_env_file_value() {
+    local file="${1}" key="${2}" value="${3}" temporary_file
 
     temporary_file="$(mktemp)"
 
-    if [[ -f .env ]]; then
+    if [[ -f "${file}" ]]; then
         awk -v key="${key}" -v value="${value}" '
             BEGIN { replaced = 0 }
             $0 ~ "^" key "=" {
@@ -146,12 +150,144 @@ set_env_value() {
                     print key "=" value
                 }
             }
-        ' .env > "${temporary_file}"
+        ' "${file}" > "${temporary_file}"
     else
         printf '%s=%s\n' "${key}" "${value}" > "${temporary_file}"
     fi
 
-    mv "${temporary_file}" .env
+    mv "${temporary_file}" "${file}"
+}
+
+managed_state_dir() {
+    printf '%s\n' "${repo_root}/.codex/local-environment-state"
+}
+
+remember_original_file() {
+    local target="${1}" backup="${2}"
+
+    mkdir -p "$(managed_state_dir)"
+
+    if [[ -f "${target}" && ! -f "${backup}" ]]; then
+        cp "${target}" "${backup}"
+    fi
+}
+
+remember_managed_checksum() {
+    local target="${1}" checksum_file="${2}"
+
+    if [[ -f "${target}" ]]; then
+        cksum "${target}" > "${checksum_file}"
+    fi
+}
+
+restore_managed_file() {
+    local target="${1}" backup="${2}" checksum_file="${3}" expected_checksum current_checksum
+
+    [[ -f "${backup}" ]] || return 0
+
+    if [[ ! -f "${checksum_file}" ]]; then
+        printf 'local-environment: leaving %s unchanged because no managed checksum exists.\n' "${target}" >&2
+
+        return 0
+    fi
+
+    expected_checksum="$(cat "${checksum_file}")"
+    current_checksum="$(cksum "${target}" 2>/dev/null || true)"
+
+    if [[ "${current_checksum}" == "${expected_checksum}" ]]; then
+        mv "${backup}" "${target}"
+        rm -f "${checksum_file}"
+    else
+        printf 'local-environment: leaving modified %s in place; original backup remains at %s.\n' "${target}" "${backup}" >&2
+    fi
+}
+
+cleanup_managed_state_dir() {
+    local state_dir
+
+    state_dir="$(managed_state_dir)"
+
+    if [[ -d "${state_dir}" ]]; then
+        rmdir "${state_dir}" 2>/dev/null || true
+    fi
+}
+
+patch_phpunit_database() {
+    local connection="${1}" database="${2}" state_dir backup checksum_file
+
+    [[ -f phpunit.xml ]] || return 0
+
+    state_dir="$(managed_state_dir)"
+    backup="${state_dir}/phpunit.xml.backup"
+    checksum_file="${state_dir}/phpunit.xml.cksum"
+
+    remember_original_file phpunit.xml "${backup}"
+
+    AI_HARNESS_TEST_DB_CONNECTION="${connection}" \
+    AI_HARNESS_TEST_DB_DATABASE="${database}" \
+    php_runtime -r '
+        $path = "phpunit.xml";
+        $connection = getenv("AI_HARNESS_TEST_DB_CONNECTION") ?: "sqlite";
+        $database = getenv("AI_HARNESS_TEST_DB_DATABASE");
+
+        if (! is_string($database) || $database === "") {
+            fwrite(STDERR, "Missing testing database name.\n");
+            exit(2);
+        }
+
+        $document = new DOMDocument();
+        $document->preserveWhiteSpace = true;
+        $document->formatOutput = true;
+
+        if (! $document->load($path)) {
+            fwrite(STDERR, "Unable to read phpunit.xml.\n");
+            exit(2);
+        }
+
+        $php = $document->getElementsByTagName("php")->item(0);
+
+        if (! $php instanceof DOMElement) {
+            $php = $document->createElement("php");
+            $document->documentElement?->appendChild($php);
+        }
+
+        $setEnv = function (string $name, string $value) use ($document, $php): void {
+            foreach ($php->getElementsByTagName("env") as $env) {
+                if ($env instanceof DOMElement && $env->getAttribute("name") === $name) {
+                    $env->setAttribute("value", $value);
+                    $env->setAttribute("force", "true");
+
+                    return;
+                }
+            }
+
+            $env = $document->createElement("env");
+            $env->setAttribute("name", $name);
+            $env->setAttribute("value", $value);
+            $env->setAttribute("force", "true");
+            $php->appendChild($env);
+        };
+
+        $setEnv("DB_CONNECTION", $connection);
+        $setEnv("DB_DATABASE", $database);
+        $setEnv("DB_URL", "");
+
+        if ($document->save($path) === false) {
+            fwrite(STDERR, "Unable to write phpunit.xml.\n");
+            exit(2);
+        }
+    '
+
+    remember_managed_checksum phpunit.xml "${checksum_file}"
+}
+
+restore_phpunit_database() {
+    local state_dir
+
+    state_dir="$(managed_state_dir)"
+
+    restore_managed_file phpunit.xml "${state_dir}/phpunit.xml.backup" "${state_dir}/phpunit.xml.cksum"
+    cleanup_managed_state_dir
 }
 
 sqlite_database_path() {
@@ -207,12 +343,33 @@ configure_worktree_testing_database() {
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${sqlite_path}"
             mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
             touch "$(sqlite_database_path "${sqlite_path}")"
+            patch_phpunit_database "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${testing_database_name}"
             create_mysql_database "${testing_database_name}"
+            patch_phpunit_database "${connection}" "${testing_database_name}"
             ;;
     esac
+}
+
+migrate_testing_database() {
+    local connection testing_database
+
+    codex_workspace_requested || return 0
+    [[ -f artisan ]] || return 0
+    [[ -f .env ]] || return 0
+
+    connection="$(env_value DB_CONNECTION || true)"
+    connection="${connection:-sqlite}"
+    testing_database="$(env_value AI_HARNESS_TEST_DB_DATABASE || true)"
+
+    [[ -n "${testing_database}" ]] || return 0
+
+    DB_CONNECTION="${connection}" \
+    DB_DATABASE="${testing_database}" \
+    DB_URL="" \
+    artisan migrate --env=testing --force --ansi
 }
 
 create_mysql_database() {
@@ -390,6 +547,8 @@ case "${action}" in
             artisan migrate --force --ansi
         fi
 
+        migrate_testing_database
+
         if [[ -f artisan ]]; then
             artisan ai-harness:doctor
         fi
@@ -397,8 +556,12 @@ case "${action}" in
     cleanup)
         cd "${repo_root}"
 
-        drop_worktree_database
-        unlink_herd_workspace
+        status=0
+        drop_worktree_database || status=$?
+        restore_phpunit_database || status=$?
+        unlink_herd_workspace || status=$?
+
+        exit "${status}"
         ;;
     *)
         printf 'local-environment: unknown action %s\n' "${action}" >&2

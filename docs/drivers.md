@@ -37,7 +37,7 @@ Runtime drivers describe how the harness should execute Laravel commands in the 
 - Command shape: `herd php artisan ...`
 - Best for: macOS Herd projects where Herd owns the active PHP version.
 - Generated files: none beyond the default Codex hook. The generated `.dev/bin/ai-harness` helper auto-detects Herd as a fallback when Sail is unavailable.
-- Workspace automation: when `AI_HARNESS_HERD=true` or `--with=herd` is used, the generated Codex setup hook links the temporary worktree in Herd, sets `APP_URL` to the generated Herd site, configures per-worktree app and testing databases, and runs migrations. Cleanup removes the owned databases and unlinks the Herd site.
+- Workspace automation: when `AI_HARNESS_HERD=true` or `--with=herd` is used, the generated Codex setup hook links the temporary worktree in Herd, sets `APP_URL` to the generated Herd site, configures per-worktree app and testing databases, runs app/testing migrations, and temporarily points PHPUnit at the generated testing database. Cleanup restores PHPUnit config, removes the owned databases, and unlinks the Herd site.
 
 `sail`
 
