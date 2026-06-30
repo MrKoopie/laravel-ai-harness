@@ -41,6 +41,25 @@ Package checkout commit: `1912534`
 
 Note: the final PHPStan/Larastan run was executed outside the filesystem sandbox to avoid local worker socket restrictions; it passed with no errors.
 
+## Pull Request Validation
+
+PR: `https://github.com/MrKoopie/laravel-ai-harness/pull/2`
+
+Observed GitHub checks after the final push:
+
+- CodeRabbit: passed.
+- Pest PHP 8.2 / Laravel 11: passed.
+- Pest PHP 8.3 / Laravel 12: passed.
+- Pest PHP 8.4 / Laravel 13: passed.
+- Pest PHP 8.5 / Laravel 13: passed.
+- Static Analysis and Style: passed.
+
+Local CodeRabbit CLI note:
+
+- The local CLI is installed at version `0.6.4`.
+- `coderabbit auth status --agent` reported `not_authenticated`.
+- A local `coderabbit review --agent -t committed --base main` run was requested but blocked by the approval reviewer because it would send the branch diff to CodeRabbit's external API and repository public status was not verified.
+
 ## Fresh Laravel Project Validation
 
 Validation app path:
