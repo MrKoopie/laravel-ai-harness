@@ -30,9 +30,11 @@ This report covers the README/configuration hardening, Herd workspace automation
 
 Commands run in the package checkout:
 
+Package checkout commit: `1912534`
+
 | Command | Result |
 | --- | --- |
-| `composer test` | Passed: 42 tests, 216 assertions |
+| `composer test` | Passed: 43 tests, 220 assertions |
 | `composer format:check` | Passed |
 | `composer validate --strict` | Passed |
 | `composer analyse` | Passed: no PHPStan/Larastan errors |
@@ -117,39 +119,42 @@ Validation flow:
 
 1. Reinstalled the local path package in `test-ai`.
 2. Composer ran the guarded `ai-harness:update --ansi --with=herd` hook.
-3. Committed the refreshed generated harness files in `test-ai` at `bed9fc9`.
-4. Created a fresh Codex App worktree from that commit at `<codex-test-ai-worktree>`.
-5. Confirmed the programmatic Codex App worktree creation did not select/run the local environment: `.env` was absent, `phpunit.xml` still used sqlite `:memory:`, and no local-environment state existed.
-6. Ran the generated Codex local environment setup command from the worktree with `WORKTREE_PROFILE=codex`.
+3. Committed the refreshed generated harness files in `test-ai` at `550cdd9`.
+4. Created a fresh Codex App thread `019f1a01-3764-7551-993a-b384ef8e4b37` with worktree `/Users/dkoop/.codex/worktrees/5612/test-ai` from that commit.
+5. Confirmed the programmatic Codex App worktree creation did not select/run the local environment: `.env` was absent and no local-environment state existed.
+6. Ran the generated Codex `SessionStart` hook command from `.codex/hooks.json` in the worktree with `CODEX_HOME=/Users/dkoop/.codex`.
 7. Ran the generated cleanup hook with `WORKTREE_PROFILE=codex`.
 
 Observed setup result:
 
-- Herd created deterministic per-worktree site link `test-ai-b944-1985179630`.
-- `.env` contained `APP_URL=http://test-ai-b944-1985179630.test`.
+- Herd created deterministic per-worktree site link `test-ai-5612-3032540385`.
+- `.env` contained `APP_URL=http://test-ai-5612-3032540385.test`.
 - `.env` contained `DB_CONNECTION=mariadb`.
-- `.env` contained `DB_DATABASE=test_ai_1985179630`, using the generated database name with a full-path checksum suffix.
-- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=test_ai_testing_1985179630`.
+- `.env` contained `DB_DATABASE=test_ai_3032540385`, using the generated database name with a full-path checksum suffix.
+- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=test_ai_testing_3032540385`.
 - `.env` contained a generated `APP_KEY`.
-- `phpunit.xml` was patched to `DB_CONNECTION=mariadb`, `DB_DATABASE=test_ai_testing_1985179630`, and empty `DB_URL`.
-- Independent PDO queries confirmed both generated databases existed after setup.
-- Laravel migrations were marked as ran in both generated databases.
+- `phpunit.xml` was patched to `DB_CONNECTION=mariadb` and `DB_DATABASE=test_ai_testing_3032540385`.
+- Independent MySQL queries confirmed both generated databases existed after setup.
+- Independent MySQL queries confirmed 3 migration rows in each generated database.
 - `php artisan test` passed in the generated worktree: 2 tests, 2 assertions.
-- `php artisan ai-harness:doctor` completed successfully from the setup hook.
+- `php artisan ai-harness:doctor --with=herd --ansi` completed successfully after setup.
 
 Observed cleanup result:
 
 - The generated cleanup hook removed the Herd site link.
-- Independent PDO queries confirmed both generated databases no longer existed after cleanup.
+- Independent MySQL queries confirmed both generated databases no longer existed after cleanup.
 - `phpunit.xml` was restored to sqlite `:memory:`.
 - `.codex/local-environment-state` was removed.
-- A direct filesystem check confirmed the generated Herd site link no longer existed under Herd's local `Sites` directory.
+- `herd links` no longer showed `test-ai-5612-3032540385` or the `/Users/dkoop/.codex/worktrees/5612/test-ai` path.
 - Final worktree status was clean.
 
 Codex App note:
 
-- Current OpenAI Codex documentation says local environment setup scripts run automatically when Codex creates a worktree and that choosing a local environment is optional in the new-thread flow. The programmatic `create_thread` tool used for this validation does not expose a local-environment selector, so it created the worktree without running `.codex/environments/environment.toml`. The generated environment itself validated correctly when run from the worktree checkout, which is the documented execution model when the environment is selected.
+- Current OpenAI Codex documentation says local environment setup scripts run automatically when Codex creates a worktree and that choosing a local environment is optional in the new-thread flow. The programmatic `create_thread` tool used for this validation does not expose a local-environment selector, so it created the worktree without running `.codex/environments/environment.toml`.
+- The generated `SessionStart` hook is a guarded fallback for Codex-managed worktrees, but Codex project command hooks still require user review/trust before Codex runs them automatically. The hook command itself validated correctly from the fresh Codex worktree.
 
 ## Outcome
 
-The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, Claude/Codex worktree wrapper coverage, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines including PHP 8.5, and successful Laravel application validation including Herd setup and teardown.
+The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, Claude/Codex worktree coverage, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines including PHP 8.5, and successful Laravel application validation including Herd setup and teardown.
+
+Remaining Codex App constraint: a tool-created Codex worktree did not run setup until the local environment was selected or the generated project hook command was run/trusted. The package documents that constraint and provides both generated paths, but it cannot bypass Codex's local-environment selection or project-hook trust model.
