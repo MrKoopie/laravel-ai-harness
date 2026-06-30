@@ -12,7 +12,17 @@ The package uses two ownership modes.
 <!-- ai-harness:end -->
 ```
 
-Content outside the block belongs to the project and is preserved by updates.
+`.gitignore` uses the same ownership model with Gitignore-safe comments:
+
+```gitignore
+# ai-harness:start
+...
+# ai-harness:end
+```
+
+The generated `.gitignore` block unignores only package-managed harness artifacts under `.codex`, `.claude`, `.ai`, `.agents`, and `.dev`. Laravel skeletons can ignore `/.codex` by default, so keep this block committed before creating agent worktrees.
+
+Content outside managed blocks belongs to the project and is preserved by updates.
 
 ## Managed Files
 
@@ -46,5 +56,5 @@ The hook is appended once, existing Composer scripts are preserved, and the guar
 If install is run with optional features, the generated hook keeps those flags:
 
 ```bash
-ai-harness:update --ansi --with=docker --with=polyscope
+ai-harness:update --ansi --with=docker --with=herd --with=polyscope
 ```

@@ -37,8 +37,8 @@ final readonly class ManagedBlockWriter
             $existing = '';
         }
 
-        $block = $this->block($content);
-        $pattern = $this->pattern();
+        $block = $this->block($path, $content);
+        $pattern = $this->pattern($path);
         $matches = preg_match($pattern, $existing);
 
         if ($matches === false) {
@@ -74,23 +74,41 @@ final readonly class ManagedBlockWriter
         }
     }
 
-    private function block(string $content): string
+    private function block(string $path, string $content): string
     {
         return sprintf(
-            "<!-- %s:start -->\n%s\n<!-- %s:end -->",
-            $this->marker,
+            "%s\n%s\n%s",
+            $this->startMarker($path),
             trim($content),
-            $this->marker,
+            $this->endMarker($path),
         );
     }
 
-    private function pattern(): string
+    private function pattern(string $path): string
     {
         return sprintf(
-            '/<!-- %s:start -->.*?<!-- %s:end -->/s',
-            preg_quote($this->marker, '/'),
-            preg_quote($this->marker, '/'),
+            '/%s.*?%s/s',
+            preg_quote($this->startMarker($path), '/'),
+            preg_quote($this->endMarker($path), '/'),
         );
+    }
+
+    private function startMarker(string $path): string
+    {
+        if (basename($path) === '.gitignore') {
+            return "# {$this->marker}:start";
+        }
+
+        return "<!-- {$this->marker}:start -->";
+    }
+
+    private function endMarker(string $path): string
+    {
+        if (basename($path) === '.gitignore') {
+            return "# {$this->marker}:end";
+        }
+
+        return "<!-- {$this->marker}:end -->";
     }
 
     private function withTrailingNewline(string $content): string

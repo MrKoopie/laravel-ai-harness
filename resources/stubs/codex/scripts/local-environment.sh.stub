@@ -3,15 +3,292 @@ set -euo pipefail
 
 action="${1:-setup}"
 repo_root="${CODEX_WORKTREE_PATH:-}"
+herd_workspace_enabled="{{ herd_workspace_enabled }}"
+database_base_name="{{ database_name }}"
+database_charset="{{ database_charset }}"
+database_collation="{{ database_collation }}"
 
 if [[ -z "${repo_root}" ]]; then
     repo_root="$(git rev-parse --show-toplevel)"
 fi
 
-cd "${repo_root}"
-
 artisan() {
     "${repo_root}/.dev/bin/ai-harness" "$@"
+}
+
+sail_runtime_available() {
+    [[ -x ./vendor/bin/sail ]] || return 1
+
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
+php_runtime() {
+    if sail_runtime_available; then
+        ./vendor/bin/sail php "$@"
+
+        return
+    fi
+
+    if command -v herd >/dev/null 2>&1; then
+        herd php "$@"
+
+        return
+    fi
+
+    php "$@"
+}
+
+codex_workspace_requested() {
+    [[ "${WORKTREE_PROFILE:-}" == "codex" ]]
+}
+
+herd_workspace_requested() {
+    [[ "${herd_workspace_enabled}" == "1" ]] || return 1
+    [[ "${WORKTREE_PROFILE:-}" == "codex" ]] || return 1
+
+    command -v herd >/dev/null 2>&1
+}
+
+herd_site_name() {
+    local project_name parent_name path_hash base_name max_base_length site_name
+
+    project_name="$(basename "${repo_root}")"
+    parent_name="$(basename "$(dirname "${repo_root}")")"
+    path_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
+    base_name="$(printf '%s' "${project_name}-${parent_name}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+    max_base_length=$((63 - ${#path_hash} - 1))
+    base_name="${base_name:0:${max_base_length}}"
+    base_name="${base_name%-}"
+    site_name="${base_name:-codex-worktree}-${path_hash}"
+
+    printf '%s\n' "${site_name}"
+}
+
+worktree_database_name() {
+    local base path_hash database_name
+
+    base="${database_base_name:-$(basename "${repo_root}")}"
+    base="$(printf '%s' "${base}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
+    path_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
+    database_name="${base:0:48}_${path_hash}"
+
+    printf '%s\n' "${database_name:-codex_worktree_${path_hash}}"
+}
+
+env_value() {
+    local key="${1}" line value
+
+    if [[ ! -f .env ]]; then
+        return 1
+    fi
+
+    line="$(grep -E "^${key}=" .env | tail -n 1 || true)"
+    value="${line#${key}=}"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+
+    [[ "${line}" == "${key}="* ]] || return 1
+    printf '%s\n' "${value}"
+}
+
+set_env_value() {
+    local key="${1}" value="${2}" temporary_file
+
+    temporary_file="$(mktemp)"
+
+    if [[ -f .env ]]; then
+        awk -v key="${key}" -v value="${value}" '
+            BEGIN { replaced = 0 }
+            $0 ~ "^" key "=" {
+                print key "=" value
+                replaced = 1
+                next
+            }
+            { print }
+            END {
+                if (replaced == 0) {
+                    print key "=" value
+                }
+            }
+        ' .env > "${temporary_file}"
+    else
+        printf '%s=%s\n' "${key}" "${value}" > "${temporary_file}"
+    fi
+
+    mv "${temporary_file}" .env
+}
+
+sqlite_database_path() {
+    local database_path="${1}"
+
+    if [[ "${database_path}" = /* ]]; then
+        printf '%s\n' "${database_path}"
+
+        return
+    fi
+
+    printf '%s\n' "${repo_root}/${database_path}"
+}
+
+configure_worktree_environment() {
+    local connection database_name sqlite_path
+
+    codex_workspace_requested || return 0
+    [[ -f .env ]] || return 0
+
+    if herd_workspace_requested; then
+        set_env_value APP_URL "http://$(herd_site_name).test"
+    fi
+
+    connection="$(env_value DB_CONNECTION || true)"
+    connection="${connection:-sqlite}"
+    database_name="$(worktree_database_name)"
+
+    case "${connection}" in
+        sqlite)
+            sqlite_path="database/${database_name}.sqlite"
+            set_env_value DB_DATABASE "${sqlite_path}"
+            mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
+            touch "$(sqlite_database_path "${sqlite_path}")"
+            ;;
+        mysql|mariadb)
+            set_env_value DB_DATABASE "${database_name}"
+            create_mysql_database "${database_name}"
+            ;;
+    esac
+}
+
+create_mysql_database() {
+    local database_name="${1}"
+
+    AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
+    AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
+    AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
+    AI_HARNESS_DB_PASSWORD="$(env_value DB_PASSWORD || true)" \
+    AI_HARNESS_DB_DATABASE="${database_name}" \
+    AI_HARNESS_DB_CHARSET="${database_charset}" \
+    AI_HARNESS_DB_COLLATION="${database_collation}" \
+    php_runtime -r '
+        $database = getenv("AI_HARNESS_DB_DATABASE");
+        $charset = getenv("AI_HARNESS_DB_CHARSET") ?: "utf8mb4";
+        $collation = getenv("AI_HARNESS_DB_COLLATION") ?: "utf8mb4_unicode_ci";
+
+        foreach ([$database, $charset, $collation] as $value) {
+            if (! is_string($value) || preg_match("/^[A-Za-z0-9_]+$/", $value) !== 1) {
+                fwrite(STDERR, "Invalid database identifier.\n");
+                exit(2);
+            }
+        }
+
+        $dsn = sprintf(
+            "mysql:host=%s;port=%s",
+            getenv("AI_HARNESS_DB_HOST") ?: "127.0.0.1",
+            getenv("AI_HARNESS_DB_PORT") ?: "3306"
+        );
+
+        $pdo = new PDO($dsn, getenv("AI_HARNESS_DB_USERNAME") ?: "root", getenv("AI_HARNESS_DB_PASSWORD") ?: "");
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->exec(sprintf("CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET %s COLLATE %s", $database, $charset, $collation));
+    '
+}
+
+drop_worktree_database() {
+    local connection database_name configured_database sqlite_path
+
+    codex_workspace_requested || return 0
+    [[ -f .env ]] || return 0
+
+    connection="$(env_value DB_CONNECTION || true)"
+    connection="${connection:-sqlite}"
+    database_name="$(worktree_database_name)"
+    configured_database="$(env_value DB_DATABASE || true)"
+
+    case "${connection}" in
+        sqlite)
+            if [[ "${configured_database}" == "database/${database_name}.sqlite" || "${configured_database}" == */"${database_name}.sqlite" ]]; then
+                sqlite_path="$(sqlite_database_path "${configured_database}")"
+                rm -f "${sqlite_path}"
+            fi
+            ;;
+        mysql|mariadb)
+            if [[ "${configured_database}" == "${database_name}" ]]; then
+                drop_mysql_database "${database_name}"
+            fi
+            ;;
+    esac
+}
+
+drop_mysql_database() {
+    local database_name="${1}"
+
+    AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
+    AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
+    AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
+    AI_HARNESS_DB_PASSWORD="$(env_value DB_PASSWORD || true)" \
+    AI_HARNESS_DB_DATABASE="${database_name}" \
+    php_runtime -r '
+        $database = getenv("AI_HARNESS_DB_DATABASE");
+
+        if (! is_string($database) || preg_match("/^[A-Za-z0-9_]+$/", $database) !== 1) {
+            fwrite(STDERR, "Invalid database identifier.\n");
+            exit(2);
+        }
+
+        $dsn = sprintf(
+            "mysql:host=%s;port=%s",
+            getenv("AI_HARNESS_DB_HOST") ?: "127.0.0.1",
+            getenv("AI_HARNESS_DB_PORT") ?: "3306"
+        );
+
+        $pdo = new PDO($dsn, getenv("AI_HARNESS_DB_USERNAME") ?: "root", getenv("AI_HARNESS_DB_PASSWORD") ?: "");
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->exec(sprintf("DROP DATABASE IF EXISTS `%s`", $database));
+    '
+}
+
+link_herd_workspace() {
+    if herd_workspace_requested; then
+        herd link "$(herd_site_name)" --no-interaction
+    fi
+}
+
+unlink_herd_workspace() {
+    if herd_workspace_requested; then
+        local output site_name status
+
+        site_name="$(herd_site_name)"
+
+        set +e
+        output="$(herd unlink "${site_name}" 2>&1)"
+        status=$?
+        set -e
+
+        if [[ "${status}" -eq 0 ]]; then
+            if [[ -n "${output}" ]]; then
+                printf '%s\n' "${output}"
+            fi
+
+            return 0
+        fi
+
+        if printf '%s\n' "${output}" | grep -Eiq '(not found|not linked|does not exist|no .*link)'; then
+            return 0
+        fi
+
+        printf '%s\n' "${output}" >&2
+
+        return "${status}"
+    fi
 }
 
 app_key_missing() {
@@ -33,9 +310,15 @@ app_key_missing() {
 
 case "${action}" in
     setup)
+        cd "${repo_root}"
+
+        link_herd_workspace
+
         if [[ ! -f .env && -f .env.example ]]; then
             cp .env.example .env
         fi
+
+        configure_worktree_environment
 
         if [[ ! -d vendor && -f composer.json ]] && command -v composer >/dev/null 2>&1; then
             composer install --no-interaction --prefer-dist
@@ -46,11 +329,18 @@ case "${action}" in
         fi
 
         if [[ -f artisan ]]; then
+            artisan migrate --force --ansi
+        fi
+
+        if [[ -f artisan ]]; then
             artisan ai-harness:doctor
         fi
         ;;
     cleanup)
-        :
+        cd "${repo_root}"
+
+        drop_worktree_database
+        unlink_herd_workspace
         ;;
     *)
         printf 'local-environment: unknown action %s\n' "${action}" >&2

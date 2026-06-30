@@ -3,9 +3,13 @@
 test('update command writes the initial harness files', function (): void {
     $path = temp_directory('ai-harness');
 
+    file_put_contents($path.'/.gitignore', "/.codex\n/.claude\n");
+
     pending_artisan('ai-harness:update', [
         '--path' => $path,
     ])->assertSuccessful();
+
+    $gitignore = file_get_contents($path.'/.gitignore');
 
     expect($path.'/AGENTS.md')->toBeFile()
         ->and(file_get_contents($path.'/AGENTS.md'))->toContain('<!-- ai-harness:start -->')
@@ -28,8 +32,42 @@ test('update command writes the initial harness files', function (): void {
         ->not()->toContain('ai-harness:doctor || true')
         ->and(is_executable($path.'/.codex/scripts/local-environment.sh'))->toBeTrue()
         ->and($path.'/.agents/skills/laravel-ai-harness/SKILL.md')->toBeFile()
+        ->and($gitignore)
+        ->toContain('# ai-harness:start')
+        ->toContain('!/.codex/')
+        ->toContain('!/.codex/scripts/local-environment.sh')
+        ->toContain('!/.claude/')
+        ->toContain('!/.claude/settings.json')
+        ->toContain('!/.ai/mcp/mcp.json')
+        ->toContain('!/.dev/bin/ai-harness')
+        ->not()->toContain('!/.codex/**')
+        ->not()->toContain('!/.claude/**')
+        ->not()->toContain('!/.ai/**')
+        ->not()->toContain('!/.agents/**')
+        ->not()->toContain('!/.dev/**')
         ->and($path.'/polyscope.json')->not()->toBeFile()
         ->and($path.'/docker/mysql/init/10-create-testing-database.sh')->not()->toBeFile();
+});
+
+test('claude settings only reference generated files', function (): void {
+    $path = temp_directory('ai-harness');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $settings = json_decode((string) file_get_contents($path.'/.claude/settings.json'), true, flags: JSON_THROW_ON_ERROR);
+    $commands = [];
+
+    array_walk_recursive($settings, function (mixed $value, mixed $key) use (&$commands): void {
+        if ($key === 'command' && is_string($value)) {
+            $commands[] = $value;
+        }
+    });
+
+    expect(implode("\n", $commands))
+        ->toContain('.dev/bin/ai-harness ai-harness:doctor')
+        ->not()->toContain('.claude/scripts/');
 });
 
 test('update command can opt into optional workspace features', function (): void {
@@ -174,11 +212,11 @@ test('install command persists selected optional features in composer hooks', fu
 
     pending_artisan('ai-harness:install', [
         '--path' => $path,
-        '--with' => [' docker ', '', 'docker', 'polyscope'],
+        '--with' => [' docker ', '', 'docker', 'herd', 'polyscope'],
     ])->assertSuccessful();
 
     $composer = json_decode((string) file_get_contents($path.'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
-    $guardedScript = '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(escapeshellarg(PHP_BINARY).\' artisan ai-harness:update --ansi --with=docker --with=polyscope\', $code); exit($code); }"';
+    $guardedScript = '@php -r "if (file_exists(\'vendor/mrkoopie/laravel-ai-harness\')) { passthru(escapeshellarg(PHP_BINARY).\' artisan ai-harness:update --ansi --with=docker --with=herd --with=polyscope\', $code); exit($code); }"';
 
     expect($composer['scripts']['post-install-cmd'])
         ->toBe([$guardedScript])
