@@ -134,7 +134,7 @@ composer validate --strict
 
 PHPStan uses Larastan. Run it through `composer analyse`, which passes `--memory-limit=1G` for Laravel package analysis.
 
-The GitHub Actions workflow runs Pest against Laravel 11, 12, and 13 dependency lines, then runs Composer validation, Pint, and PHPStan in a separate quality job.
+The GitHub Actions workflow runs Pest against Laravel 11, 12, and 13 dependency lines, includes PHP 8.5 coverage on the latest Laravel line, then runs Composer validation, Pint, and PHPStan in a separate quality job.
 
 ## Laravel Sail Compatibility
 

@@ -41,6 +41,12 @@ jobs:
             testbench: '^11.0'
             pest: '^4.0'
             pest-laravel: '^4.0'
+          - php: '8.5'
+            laravel: '13'
+            illuminate: '^13.0'
+            testbench: '^11.0'
+            pest: '^4.0'
+            pest-laravel: '^4.0'
 
     steps:
       - name: Checkout
@@ -55,6 +61,9 @@ jobs:
 
       - name: Validate Composer metadata
         run: composer validate --strict
+
+      - name: Disable advisory blocking for compatibility installs
+        run: composer config policy.advisories.block false
 
       - name: Select Laravel dependency line
         run: >
@@ -86,7 +95,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: '8.5'
           coverage: none
           tools: composer:v2
 

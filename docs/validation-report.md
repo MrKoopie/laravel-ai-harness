@@ -13,7 +13,7 @@ This report covers the README/configuration hardening, Herd workspace automation
 - Generated `.gitignore` rules unignore AI Harness files so `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` can be committed before worktrees are created.
 - Optional environment-specific behavior is opt-in: Herd workspace linking, Docker test database bootstrap, and Polyscope metadata are disabled by default.
 - Composer auto-update hooks are guarded so production `composer install --no-dev` can skip the package when installed as a dev dependency.
-- CI now tests the supported Laravel lines: Laravel 11, 12, and 13 via matching Illuminate and Testbench constraints.
+- CI now tests the supported Laravel lines: Laravel 11, 12, and 13 via matching Illuminate and Testbench constraints, with PHP 8.5 included on the latest Laravel line.
 - Static quality checks are explicit: Composer validation, Pint, Pest, and PHPStan/Larastan.
 - Sail compatibility is covered by an automated runtime-helper test that proves Sail is preferred when `vendor/bin/sail` and a container runtime are available.
 - Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and Codex cleanup using the worktree path.
