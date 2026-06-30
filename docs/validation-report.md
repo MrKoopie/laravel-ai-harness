@@ -30,7 +30,7 @@ Commands run in the package checkout:
 
 | Command | Result |
 | --- | --- |
-| `composer test` | Passed: 35 tests, 154 assertions |
+| `composer test` | Passed: 35 tests, 156 assertions |
 | `composer format:check` | Passed |
 | `composer validate --strict` | Passed |
 | `composer analyse` | Passed: no PHPStan/Larastan errors |

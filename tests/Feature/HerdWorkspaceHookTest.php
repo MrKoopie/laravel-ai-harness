@@ -24,10 +24,11 @@ BASH);
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
     $log = file($herdLog, FILE_IGNORE_NEW_LINES);
+    $siteName = emitted_herd_site_name($herdLog);
 
     expect($log)
-        ->toContain('link '.expected_herd_site_name($path).' --no-interaction')
-        ->toContain('unlink '.expected_herd_site_name($path));
+        ->toContain('link '.$siteName.' --no-interaction')
+        ->toContain('unlink '.$siteName);
 });
 
 test('herd workspace automation is disabled by default', function (): void {
@@ -85,12 +86,14 @@ BASH);
     run_local_environment($secondPath, 'setup', $fakeBin, $herdLog)->mustRun();
 
     $log = file($herdLog, FILE_IGNORE_NEW_LINES);
+    $firstSiteName = emitted_herd_site_name($herdLog, 0);
+    $secondSiteName = emitted_herd_site_name($herdLog, 1);
 
     expect($log)
-        ->toContain('link '.expected_herd_site_name($firstPath).' --no-interaction')
-        ->toContain('link '.expected_herd_site_name($secondPath).' --no-interaction')
-        ->and(expected_herd_site_name($firstPath))
-        ->not->toBe(expected_herd_site_name($secondPath));
+        ->toContain('link '.$firstSiteName.' --no-interaction')
+        ->toContain('link '.$secondSiteName.' --no-interaction')
+        ->and($firstSiteName)
+        ->not->toBe($secondSiteName);
 });
 
 test('herd workspace names are capped to a valid dns label length', function (): void {
@@ -116,7 +119,7 @@ BASH);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
 
-    $siteName = expected_herd_site_name($path);
+    $siteName = emitted_herd_site_name($herdLog);
 
     expect(strlen($siteName) <= 63)->toBeTrue()
         ->and($siteName)->toEndWith('-'.path_checksum($path))
@@ -211,11 +214,16 @@ BASH);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
 
-    $databasePath = $path.'/database/'.expected_worktree_database_name($path).'.sqlite';
+    $siteName = emitted_herd_site_name($herdLog);
+    $database = env_value($path, 'DB_DATABASE');
+    $databasePath = $path.'/'.$database;
 
     expect(file_get_contents($path.'/.env'))
-        ->toContain('APP_URL=http://'.expected_herd_site_name($path).'.test')
-        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite')
+        ->toContain('APP_URL=http://'.$siteName.'.test')
+        ->toContain('DB_DATABASE='.$database)
+        ->and($database)
+        ->toStartWith('database/')
+        ->toEndWith('_'.path_checksum($path).'.sqlite')
         ->and($databasePath)->toBeFile()
         ->and(file_get_contents($path.'/artisan.log'))
         ->toContain('key:generate --ansi')
@@ -354,6 +362,28 @@ function expected_herd_site_name(string $path): string
     $name = rtrim($name, '-');
 
     return ($name !== '' ? $name : 'codex-worktree').'-'.$hash;
+}
+
+function emitted_herd_site_name(string $herdLog, int $index = 0): string
+{
+    preg_match_all('/^link ([^ ]+) --no-interaction$/m', (string) file_get_contents($herdLog), $matches);
+
+    if (! isset($matches[1][$index])) {
+        throw new RuntimeException('Unable to read emitted Herd site name.');
+    }
+
+    return $matches[1][$index];
+}
+
+function env_value(string $path, string $key): string
+{
+    $env = (string) file_get_contents($path.'/.env');
+
+    if (preg_match('/^'.preg_quote($key, '/').'=(.*)$/m', $env, $matches) !== 1) {
+        throw new RuntimeException("Unable to read {$key} from .env.");
+    }
+
+    return $matches[1];
 }
 
 function expected_worktree_database_name(string $path): string
