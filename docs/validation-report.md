@@ -130,50 +130,49 @@ Local Herd note:
 
 - Some Herd introspection commands emitted repeated PHP warnings/deprecations on this machine under PHP 8.5, so teardown verification used direct filesystem checks.
 
-## Existing test-ai Worktree Validation
+## Codex App Worktree Validation
 
-The existing `test-ai` project is kept as a committed validation app. It points to the local package path repository and was refreshed from the current package branch through Composer's path repository. Composer records a path package reference rather than the package Git commit, so the validation app commit is the durable provenance.
+A fresh Laravel validation app was created under a temporary local test project, installed from this branch through a Composer path repository, generated with `--with=herd`, and committed before Codex App worktree creation. Composer records a path package reference rather than the package Git commit, so the validation app commit is the durable provenance.
 
 Validation flow:
 
-1. Reinstalled the local path package in `test-ai`.
-2. Composer ran the guarded `ai-harness:update --ansi --with=herd` hook.
-3. Committed the refreshed generated harness files in `test-ai` at `550cdd9`.
-4. Created a fresh Codex App thread `019f1a01-3764-7551-993a-b384ef8e4b37` with worktree `/Users/dkoop/.codex/worktrees/5612/test-ai` from that commit.
-5. Confirmed the programmatic Codex App worktree creation did not select/run the local environment: `.env` was absent and no local-environment state existed.
-6. Ran the generated Codex `SessionStart` hook command from `.codex/hooks.json` in the worktree with `CODEX_HOME=/Users/dkoop/.codex`.
-7. Ran the generated cleanup hook with `WORKTREE_PROFILE=codex`.
+1. Created a fresh Laravel app and installed this branch of `mrkoopie/laravel-ai-harness` as a dev dependency.
+2. Ran `ai-harness:install --with=herd` and `ai-harness:update --with=herd`.
+3. Committed the generated harness files in the validation app.
+4. Created one Codex App worktree through the programmatic `create_thread` tool and confirmed it did not run setup because that tool does not expose a local-environment selector.
+5. Created a second Codex App worktree through the App new-thread flow with the generated local environment selected.
+6. Verified the selected local environment ran `.codex/environments/environment.toml`, which delegated to `.codex/scripts/local-environment.sh setup`.
+7. Archived the Codex App thread and verified cleanup ran before the managed worktree was removed.
 
-Observed setup result:
+Observed selected-local-environment setup result:
 
-- Herd created deterministic per-worktree site link `test-ai-5612-3032540385`.
-- `.env` contained `APP_URL=http://test-ai-5612-3032540385.test`.
+- Herd created deterministic per-worktree site link `ai-harness-e2e-20260630-02-d1ba-3389622215`.
+- `.env` contained `APP_URL=http://ai-harness-e2e-20260630-02-d1ba-3389622215.test`.
 - `.env` contained `DB_CONNECTION=mariadb`.
-- `.env` contained `DB_DATABASE=test_ai_3032540385`, using the generated database name with a full-path checksum suffix.
-- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=test_ai_testing_3032540385`.
+- `.env` contained `DB_DATABASE=ai_harness_e2e_20260630_02_3389622215`, using the generated database name with a full-path checksum suffix.
+- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=ai_harness_e2e_20260630_02_testing_3389622215`.
 - `.env` contained a generated `APP_KEY`.
-- `phpunit.xml` was patched to `DB_CONNECTION=mariadb` and `DB_DATABASE=test_ai_testing_3032540385`.
+- `phpunit.xml` was patched to `DB_CONNECTION=mariadb` and `DB_DATABASE=ai_harness_e2e_20260630_02_testing_3389622215`.
 - Independent MySQL queries confirmed both generated databases existed after setup.
 - Independent MySQL queries confirmed 3 migration rows in each generated database.
-- `php artisan test` passed in the generated worktree: 2 tests, 2 assertions.
+- `php artisan test --without-tty --do-not-cache-result` passed in the generated worktree: 2 tests, 2 assertions.
 - `php artisan ai-harness:doctor --with=herd --ansi` completed successfully after setup.
 
-Observed cleanup result:
+Observed Codex App archive cleanup result:
 
-- The generated cleanup hook removed the Herd site link.
+- Archiving the Codex App thread removed the managed worktree directory.
+- Herd no longer listed `ai-harness-e2e-20260630-02-d1ba-3389622215`.
 - Independent MySQL queries confirmed both generated databases no longer existed after cleanup.
-- `phpunit.xml` was restored to sqlite `:memory:`.
-- `.codex/local-environment-state` was removed.
-- `herd links` no longer showed `test-ai-5612-3032540385` or the `/Users/dkoop/.codex/worktrees/5612/test-ai` path.
-- Final worktree status was clean.
+- The source validation app remained clean after teardown.
 
 Codex App note:
 
-- Current OpenAI Codex documentation says local environment setup scripts run automatically when Codex creates a worktree and that choosing a local environment is optional in the new-thread flow. The programmatic `create_thread` tool used for this validation does not expose a local-environment selector, so it created the worktree without running `.codex/environments/environment.toml`.
-- The generated `SessionStart` hook is a guarded fallback for Codex-managed worktrees, but Codex project command hooks still require user review/trust before Codex runs them automatically. The hook command itself validated correctly from the fresh Codex worktree.
+- The generated local environment path validates end-to-end when it is selected in the Codex App new-thread flow.
+- The programmatic `create_thread` tool used during validation does not expose a local-environment selector, so it creates a worktree without running `.codex/environments/environment.toml`.
+- The generated `SessionStart` hook is a guarded fallback for Codex-managed worktrees, but Codex project command hooks still require user review/trust before Codex runs them automatically.
 
 ## Outcome
 
-The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, Claude/Codex worktree coverage, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines including PHP 8.5, and successful Laravel application validation including Herd setup and teardown.
+The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, Claude/Codex worktree coverage, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines including PHP 8.5, and successful Laravel application validation including Codex App local-environment setup, Herd provisioning, database isolation, and teardown.
 
-Remaining Codex App constraint: a tool-created Codex worktree did not run setup until the local environment was selected or the generated project hook command was run/trusted. The package documents that constraint and provides both generated paths, but it cannot bypass Codex's local-environment selection or project-hook trust model.
+Remaining Codex App constraint: tool-created Codex worktrees do not run setup until the local environment is selected or the generated project hook command is reviewed/trusted. The package documents that constraint and provides both generated paths, but it cannot bypass Codex's local-environment selection or project-hook trust model.
