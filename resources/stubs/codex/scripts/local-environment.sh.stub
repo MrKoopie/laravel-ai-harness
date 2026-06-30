@@ -110,13 +110,17 @@ worktree_testing_database_name() {
 }
 
 env_value() {
-    local key="${1}" line value
+    file_env_value .env "${1}"
+}
 
-    if [[ ! -f .env ]]; then
+file_env_value() {
+    local file="${1}" key="${2}" line value
+
+    if [[ ! -f "${file}" ]]; then
         return 1
     fi
 
-    line="$(grep -E "^${key}=" .env | tail -n 1 || true)"
+    line="$(grep -E "^${key}=" "${file}" | tail -n 1 || true)"
     value="${line#${key}=}"
     value="${value%\"}"
     value="${value#\"}"
@@ -160,6 +164,20 @@ set_env_file_value() {
 
 managed_state_dir() {
     printf '%s\n' "${repo_root}/.codex/local-environment-state"
+}
+
+managed_database_state_file() {
+    printf '%s\n' "$(managed_state_dir)/databases.env"
+}
+
+remember_database_target() {
+    local role="${1}" connection="${2}" database="${3}" state_file
+
+    mkdir -p "$(managed_state_dir)"
+    state_file="$(managed_database_state_file)"
+
+    set_env_file_value "${state_file}" "${role}_DB_CONNECTION" "${connection}"
+    set_env_file_value "${state_file}" "${role}_DB_DATABASE" "${database}"
 }
 
 remember_original_file() {
@@ -322,10 +340,12 @@ configure_worktree_environment() {
             set_env_value DB_DATABASE "${sqlite_path}"
             mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
             touch "$(sqlite_database_path "${sqlite_path}")"
+            remember_database_target APP "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
             set_env_value DB_DATABASE "${database_name}"
             create_mysql_database "${database_name}"
+            remember_database_target APP "${connection}" "${database_name}"
             ;;
     esac
 
@@ -343,11 +363,13 @@ configure_worktree_testing_database() {
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${sqlite_path}"
             mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
             touch "$(sqlite_database_path "${sqlite_path}")"
+            remember_database_target TEST "${connection}" "${sqlite_path}"
             patch_phpunit_database "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${testing_database_name}"
             create_mysql_database "${testing_database_name}"
+            remember_database_target TEST "${connection}" "${testing_database_name}"
             patch_phpunit_database "${connection}" "${testing_database_name}"
             ;;
     esac
@@ -407,9 +429,30 @@ create_mysql_database() {
 }
 
 drop_worktree_database() {
-    local connection database_name testing_database_name configured_database configured_testing_database sqlite_path
+    local connection database_name testing_database_name configured_database configured_testing_database sqlite_path state_file status
 
     codex_workspace_requested || return 0
+
+    state_file="$(managed_database_state_file)"
+
+    if [[ -f "${state_file}" ]]; then
+        status=0
+
+        drop_recorded_database \
+            "$(file_env_value "${state_file}" APP_DB_CONNECTION || true)" \
+            "$(file_env_value "${state_file}" APP_DB_DATABASE || true)" || status=$?
+
+        drop_recorded_database \
+            "$(file_env_value "${state_file}" TEST_DB_CONNECTION || true)" \
+            "$(file_env_value "${state_file}" TEST_DB_DATABASE || true)" || status=$?
+
+        if [[ "${status}" -eq 0 ]]; then
+            rm -f "${state_file}"
+        fi
+
+        return "${status}"
+    fi
+
     [[ -f .env ]] || return 0
 
     connection="$(env_value DB_CONNECTION || true)"
@@ -439,6 +482,23 @@ drop_worktree_database() {
             if [[ "${configured_database}" == "${database_name}" ]]; then
                 drop_mysql_database "${database_name}"
             fi
+            ;;
+    esac
+}
+
+drop_recorded_database() {
+    local connection="${1}" database="${2}" sqlite_path
+
+    [[ -n "${connection}" ]] || return 0
+    [[ -n "${database}" ]] || return 0
+
+    case "${connection}" in
+        sqlite)
+            sqlite_path="$(sqlite_database_path "${database}")"
+            rm -f "${sqlite_path}"
+            ;;
+        mysql|mariadb)
+            drop_mysql_database "${database}"
             ;;
     esac
 }

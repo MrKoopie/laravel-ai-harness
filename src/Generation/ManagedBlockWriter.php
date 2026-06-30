@@ -63,10 +63,24 @@ final readonly class ManagedBlockWriter
         }
 
         $unmarkedContent = trim($content);
-        $contentOffset = $unmarkedContent === '' ? false : strpos($existing, $unmarkedContent);
+        $unmarkedMatches = [];
+        $contentOffset = false;
+
+        if ($unmarkedContent !== '') {
+            $unmarkedPattern = sprintf('/%s/s', str_replace("\n", '\R', preg_quote($unmarkedContent, '/')));
+            $unmarkedMatch = preg_match($unmarkedPattern, $existing, $unmarkedMatches, PREG_OFFSET_CAPTURE);
+
+            if ($unmarkedMatch === false) {
+                throw new RuntimeException("Unable to inspect unmarked managed block in file [{$path}].");
+            }
+
+            if ($unmarkedMatch === 1) {
+                $contentOffset = $unmarkedMatches[0][1];
+            }
+        }
 
         if ($contentOffset !== false) {
-            $updated = substr_replace($existing, $block, $contentOffset, strlen($unmarkedContent));
+            $updated = substr_replace($existing, $block, $contentOffset, strlen($unmarkedMatches[0][0]));
 
             $this->writeFile($path, $this->withTrailingNewline($updated));
 

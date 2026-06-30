@@ -125,15 +125,21 @@ BASH);
         'PATH' => getenv('PATH'),
     ])->mustRun();
 
+    Process::fromShellCommandline($command, $worktree, [
+        'CODEX_HOME' => $codexHome.'/',
+        'HARNESS_HOOK_LOG' => $log,
+        'PATH' => getenv('PATH'),
+    ])->mustRun();
+
     Process::fromShellCommandline($command, $localCheckout, [
-        'CODEX_HOME' => $codexHome,
+        'CODEX_HOME' => $codexHome.'/',
         'HARNESS_HOOK_LOG' => $log,
         'PATH' => getenv('PATH'),
     ])->mustRun();
 
     expect(file_get_contents($log))
         ->toContain("action=setup\nprofile=codex\npath={$worktree}")
-        ->and(substr_count((string) file_get_contents($log), 'action=setup'))->toBe(1);
+        ->and(substr_count((string) file_get_contents($log), 'action=setup'))->toBe(2);
 });
 
 test('update command preserves existing codex project config outside the harness block', function (): void {
@@ -171,6 +177,29 @@ test('update command migrates an unmarked generated codex project config into a 
 command = "sh"
 args = ["-lc", 'repo_root="$(git -C "${CODEX_WORKTREE_PATH:-.}" rev-parse --show-toplevel)" && cd "$repo_root" && exec "$repo_root/.dev/bin/ai-harness" boost:mcp']
 TOML);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $config = file_get_contents($path.'/.codex/config.toml');
+
+    expect($config)
+        ->toContain('# ai-harness:start')
+        ->toContain('# ai-harness:end')
+        ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
+});
+
+test('update command migrates an unmarked generated codex project config with crlf line endings', function (): void {
+    $path = temp_directory('ai-harness');
+
+    mkdir($path.'/.codex', 0755, true);
+    $unmarkedConfig = <<<'TOML'
+[mcp_servers.laravel-boost]
+command = "sh"
+args = ["-lc", 'repo_root="$(git -C "${CODEX_WORKTREE_PATH:-.}" rev-parse --show-toplevel)" && cd "$repo_root" && exec "$repo_root/.dev/bin/ai-harness" boost:mcp']
+TOML;
+    file_put_contents($path.'/.codex/config.toml', str_replace("\n", "\r\n", $unmarkedConfig));
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
