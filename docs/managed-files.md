@@ -32,7 +32,7 @@ Current managed files include:
 
 - `.ai/mcp/mcp.json`
 - `.dev/bin/ai-harness`
-- `.codex/config.toml.example`
+- `.codex/config.toml`
 - `.codex/environments/environment.toml`
 - `.codex/hooks.json`
 - `.codex/scripts/local-environment.sh`

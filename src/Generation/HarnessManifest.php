@@ -33,7 +33,7 @@ final class HarnessManifest
             new ManifestEntry('.gitignore', 'root/gitignore.stub', 'managed-block'),
             new ManifestEntry('.ai/mcp/mcp.json', 'ai/mcp.json.stub', 'managed-file'),
             new ManifestEntry('.dev/bin/ai-harness', 'dev/bin/ai-harness.stub', 'managed-file', executable: true),
-            new ManifestEntry('.codex/config.toml.example', 'codex/config.toml.example.stub', 'managed-file', feature: 'codex'),
+            new ManifestEntry('.codex/config.toml', 'codex/config.toml.stub', 'managed-file', feature: 'codex'),
             new ManifestEntry('.codex/environments/environment.toml', 'codex/environments/environment.toml.stub', 'managed-file', feature: 'codex'),
             new ManifestEntry('.codex/hooks.json', 'codex/hooks.json.stub', 'managed-file', feature: 'codex'),
             new ManifestEntry('.codex/scripts/local-environment.sh', 'codex/scripts/local-environment.sh.stub', 'managed-file', executable: true, feature: 'codex'),

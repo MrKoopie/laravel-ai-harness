@@ -57,7 +57,7 @@ These features are enabled by default:
 | Feature | Default | What It Does |
 | --- | --- | --- |
 | Base guidance | Always on | Writes managed blocks to `AGENTS.md`, `CLAUDE.md`, and `.gitignore`; writes shared MCP config to `.ai/mcp/mcp.json`; writes the runtime helper to `.dev/bin/ai-harness`. |
-| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml.example`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL`, app database, and companion testing database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs app and testing migrations, temporarily points PHPUnit at the generated testing database, and runs `ai-harness:doctor`. Codex cleanup restores PHPUnit config and removes the isolated app and testing databases when they are owned by the worktree. |
+| Codex | `AI_HARNESS_CODEX=true` | Writes `.codex/config.toml`, `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. Codex setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL`, app database, and companion testing database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs app and testing migrations, temporarily points PHPUnit at the generated testing database, and runs `ai-harness:doctor`. Codex cleanup restores PHPUnit config and removes the isolated app and testing databases when they are owned by the worktree. |
 | Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` with a session-start doctor check through `.dev/bin/ai-harness`, plus Claude-local harness skill files when skills are enabled. |
 | Skills | `AI_HARNESS_SKILLS=true` | Writes local skill documentation to `.agents/skills/laravel-ai-harness/SKILL.md` and `.claude/skills/laravel-ai-harness/SKILL.md`. |
 
@@ -196,7 +196,7 @@ Default files:
 - `.gitignore` managed unignore block
 - `.ai/mcp/mcp.json`
 - `.dev/bin/ai-harness`
-- `.codex/config.toml.example`
+- `.codex/config.toml`
 - `.codex/environments/environment.toml`
 - `.codex/hooks.json`
 - `.codex/scripts/local-environment.sh`
