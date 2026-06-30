@@ -122,7 +122,7 @@ For a Laravel application using this package:
 6. Run `php artisan ai-harness:doctor` after changing feature flags.
 7. Let Composer refresh managed files during `composer install` and `composer update`, or run `php artisan ai-harness:update` manually after package upgrades.
 
-For Codex App worktrees, choose the generated local environment named `<app name> Codex worktree` in the new thread view. Codex runs `.codex/environments/environment.toml` as the worktree setup/cleanup environment. If you rely on `.codex/hooks.json` instead, review and trust the project hook first; Codex skips untrusted project command hooks. The hook is guarded so it only runs full setup under `$CODEX_HOME/worktrees/*` and does not provision the source checkout.
+For Codex App worktrees, choose the generated local environment named `<app name> Codex worktree` in the new thread view. Codex runs `.codex/environments/environment.toml` as the worktree setup/cleanup environment. If you rely on `.codex/hooks.json` instead, review and trust the project hook first; Codex skips untrusted project command hooks. The hook is guarded so it only runs full setup under `$CODEX_HOME/worktrees/*` and does not provision the source checkout. Codex local-environment selection and project-hook trust are user/app security state; the package cannot preselect or trust them from committed project files.
 
 For Claude Code worktrees, the generated `.claude/settings.json` hooks call `.claude/scripts/worktree-up.sh` after `EnterWorktree`, call `.claude/scripts/worktree-down.sh` before `ExitWorktree` removal, and retry setup once on worktree `SessionStart` if the provision marker is missing.
 
