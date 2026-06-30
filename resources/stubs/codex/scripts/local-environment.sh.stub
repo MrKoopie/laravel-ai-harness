@@ -58,15 +58,18 @@ herd_workspace_requested() {
 }
 
 herd_site_name() {
-    local project_name parent_name path_hash raw_name site_name
+    local project_name parent_name path_hash base_name max_base_length site_name
 
     project_name="$(basename "${repo_root}")"
     parent_name="$(basename "$(dirname "${repo_root}")")"
     path_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
-    raw_name="${project_name}-${parent_name}-${path_hash}"
-    site_name="$(printf '%s' "${raw_name}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+    base_name="$(printf '%s' "${project_name}-${parent_name}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+    max_base_length=$((63 - ${#path_hash} - 1))
+    base_name="${base_name:0:${max_base_length}}"
+    base_name="${base_name%-}"
+    site_name="${base_name:-codex-worktree}-${path_hash}"
 
-    printf '%s\n' "${site_name:-codex-worktree}"
+    printf '%s\n' "${site_name}"
 }
 
 worktree_database_name() {

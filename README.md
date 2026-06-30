@@ -33,7 +33,7 @@ Most teams configure the harness in three places:
 - `config/ai-harness.php`: publish it when you want committed package defaults.
 - `.env`: use `AI_HARNESS_*` variables for local or environment-specific overrides.
 - User-owned guidance outside managed blocks in `AGENTS.md` and `CLAUDE.md`: keep project-specific rules there so updates do not replace them.
-- `.gitignore`: keep the generated AI Harness unignore block so `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` files can be committed.
+- `.gitignore`: keep the generated AI Harness unignore block so package-managed `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` files can be committed.
 
 Publish the config file with Laravel's vendor publishing workflow:
 

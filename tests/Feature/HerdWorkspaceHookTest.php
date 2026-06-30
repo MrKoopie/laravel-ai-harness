@@ -93,6 +93,37 @@ BASH);
         ->not->toBe(expected_herd_site_name($secondPath));
 });
 
+test('herd workspace names are capped to a valid dns label length', function (): void {
+    $root = temp_directory('ai-harness-long-herd');
+    $path = $root.'/'.str_repeat('parent-', 12).'/'.str_repeat('project-', 12);
+
+    mkdir($path, 0755, true);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $root.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    $siteName = expected_herd_site_name($path);
+
+    expect(strlen($siteName) <= 63)->toBeTrue()
+        ->and($siteName)->toEndWith('-'.path_checksum($path))
+        ->and(file_get_contents($herdLog))
+        ->toContain('link '.$siteName.' --no-interaction');
+});
+
 test('herd workspace cleanup surfaces unexpected unlink failures', function (): void {
     $path = temp_directory('ai-harness-herd-failure');
 
@@ -314,34 +345,35 @@ function run_local_environment(string $path, string $action, string $fakeBin, st
 
 function expected_herd_site_name(string $path): string
 {
-    $checksum = new Process(['cksum'], null, null, $path);
-    $checksum->mustRun();
+    $hash = path_checksum($path);
 
-    if (preg_match('/^(\d+)\s+/', $checksum->getOutput(), $matches) !== 1) {
-        throw new RuntimeException('Unable to derive expected Herd site hash.');
-    }
-
-    $hash = $matches[1];
-
-    $name = basename($path).'-'.basename(dirname($path)).'-'.$hash;
+    $name = basename($path).'-'.basename(dirname($path));
     $name = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '-', $name));
+    $name = trim($name, '-');
+    $name = substr($name, 0, 63 - strlen($hash) - 1);
+    $name = rtrim($name, '-');
 
-    return trim($name, '-');
+    return ($name !== '' ? $name : 'codex-worktree').'-'.$hash;
 }
 
 function expected_worktree_database_name(string $path): string
+{
+    $name = basename($path).'_'.path_checksum($path);
+    $name = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+
+    return trim($name, '_');
+}
+
+function path_checksum(string $path): string
 {
     $checksum = new Process(['cksum'], null, null, $path);
     $checksum->mustRun();
 
     if (preg_match('/^(\d+)\s+/', $checksum->getOutput(), $matches) !== 1) {
-        throw new RuntimeException('Unable to derive expected database hash.');
+        throw new RuntimeException('Unable to derive expected path hash.');
     }
 
-    $name = basename($path).'_'.$matches[1];
-    $name = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
-
-    return trim($name, '_');
+    return $matches[1];
 }
 
 function fake_artisan_helper(string $path): void

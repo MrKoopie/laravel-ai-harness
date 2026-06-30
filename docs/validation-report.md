@@ -10,13 +10,13 @@ This report covers the README/configuration hardening, Herd workspace automation
 
 - Laravel package configuration follows Laravel package conventions: package config can be published with `php artisan vendor:publish --tag=ai-harness-config`, and runtime defaults remain in `config/ai-harness.php`.
 - Generated human-editable files use managed blocks, while generated scripts/config files are package-owned.
-- Generated `.gitignore` rules unignore AI Harness files so `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` can be committed before worktrees are created.
+- Generated `.gitignore` rules unignore only package-managed AI Harness files so the required `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` artifacts can be committed before worktrees are created.
 - Optional environment-specific behavior is opt-in: Herd workspace linking, Docker test database bootstrap, and Polyscope metadata are disabled by default.
 - Composer auto-update hooks are guarded so production `composer install --no-dev` can skip the package when installed as a dev dependency.
 - CI now tests the supported Laravel lines: Laravel 11, 12, and 13 via matching Illuminate and Testbench constraints, with PHP 8.5 included on the latest Laravel line.
 - Static quality checks are explicit: Composer validation, Pint, Pest, and PHPStan/Larastan.
 - Sail compatibility is covered by an automated runtime-helper test that proves Sail is preferred when `vendor/bin/sail` and a container runtime are available.
-- Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and Codex cleanup using the worktree path.
+- Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, DNS-label-length-capped site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and Codex cleanup using the worktree path.
 
 ## Documentation Inputs
 
@@ -30,7 +30,7 @@ Commands run in the package checkout:
 
 | Command | Result |
 | --- | --- |
-| `composer test` | Passed: 34 tests, 143 assertions |
+| `composer test` | Passed: 35 tests, 154 assertions |
 | `composer format:check` | Passed |
 | `composer validate --strict` | Passed |
 | `composer analyse` | Passed: no PHPStan/Larastan errors |
@@ -71,7 +71,7 @@ Results:
 - Composer hooks preserved `ai-harness:update --ansi --with=herd`.
 - Doctor output reported `Agents: claude, codex, cursor`, `Runtimes: bare, herd, sail`, and `AI harness looks healthy.`
 - Expected generated files existed under `AGENTS.md`, `CLAUDE.md`, `.ai`, `.dev`, `.codex`, `.claude`, and `.agents`.
-- The generated `.gitignore` included AI Harness unignore rules for `.codex` and `.claude`.
+- The generated `.gitignore` included narrowed AI Harness unignore rules for package-managed `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` artifacts.
 - Fresh Laravel app tests passed with `php artisan test`: 2 tests, 2 assertions.
 
 ## Herd Workspace Setup And Teardown

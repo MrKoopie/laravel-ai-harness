@@ -9,6 +9,8 @@ test('update command writes the initial harness files', function (): void {
         '--path' => $path,
     ])->assertSuccessful();
 
+    $gitignore = file_get_contents($path.'/.gitignore');
+
     expect($path.'/AGENTS.md')->toBeFile()
         ->and(file_get_contents($path.'/AGENTS.md'))->toContain('<!-- ai-harness:start -->')
         ->and($path.'/CLAUDE.md')->toBeFile()
@@ -30,12 +32,19 @@ test('update command writes the initial harness files', function (): void {
         ->not()->toContain('ai-harness:doctor || true')
         ->and(is_executable($path.'/.codex/scripts/local-environment.sh'))->toBeTrue()
         ->and($path.'/.agents/skills/laravel-ai-harness/SKILL.md')->toBeFile()
-        ->and(file_get_contents($path.'/.gitignore'))
+        ->and($gitignore)
         ->toContain('# ai-harness:start')
         ->toContain('!/.codex/')
-        ->toContain('!/.codex/**')
+        ->toContain('!/.codex/scripts/local-environment.sh')
         ->toContain('!/.claude/')
-        ->toContain('!/.claude/**')
+        ->toContain('!/.claude/settings.json')
+        ->toContain('!/.ai/mcp/mcp.json')
+        ->toContain('!/.dev/bin/ai-harness')
+        ->not()->toContain('!/.codex/**')
+        ->not()->toContain('!/.claude/**')
+        ->not()->toContain('!/.ai/**')
+        ->not()->toContain('!/.agents/**')
+        ->not()->toContain('!/.dev/**')
         ->and($path.'/polyscope.json')->not()->toBeFile()
         ->and($path.'/docker/mysql/init/10-create-testing-database.sh')->not()->toBeFile();
 });
