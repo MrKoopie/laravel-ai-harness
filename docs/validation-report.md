@@ -16,7 +16,8 @@ This report covers the README/configuration hardening, Herd workspace automation
 - CI now tests the supported Laravel lines: Laravel 11, 12, and 13 via matching Illuminate and Testbench constraints, with PHP 8.5 included on the latest Laravel line.
 - Static quality checks are explicit: Composer validation, Pint, Pest, and PHPStan/Larastan.
 - Sail compatibility is covered by an automated runtime-helper test that proves Sail is preferred when `vendor/bin/sail` and a container runtime are available.
-- Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, DNS-label-length-capped site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and Codex cleanup using the worktree path.
+- Herd automation is covered by tests for opt-in link/unlink behavior, default disabled behavior, collision-resistant site names, DNS-label-length-capped site names, idempotent missing-link cleanup, unexpected unlink failure surfacing, per-worktree SQLite setup/teardown, Sail-backed MySQL provisioning, and cleanup using the generated worktree path.
+- Claude worktree automation is covered by tests proving `EnterWorktree`, `ExitWorktree`, and guarded `SessionStart` wrappers delegate to the generated local-environment script and do not run setup against the main checkout.
 
 ## Documentation Inputs
 
@@ -30,7 +31,7 @@ Commands run in the package checkout:
 
 | Command | Result |
 | --- | --- |
-| `composer test` | Passed: 35 tests, 156 assertions |
+| `composer test` | Passed: 40 tests, 203 assertions |
 | `composer format:check` | Passed |
 | `composer validate --strict` | Passed |
 | `composer analyse` | Passed: no PHPStan/Larastan errors |
@@ -109,35 +110,45 @@ Local Herd note:
 
 ## Existing test-ai Worktree Validation
 
-The existing `test-ai` project had an unrelated Composer script issue during package installation: its `post-update-cmd` referenced `php artisan boost:update`, but the validation checkout did not expose any `boost` artisan commands. To keep that app-specific issue from masking the harness behavior, the package was installed in a throwaway source branch with Composer scripts bypassed, then `package:discover` and `ai-harness:install --with=herd` were run directly.
+The existing `test-ai` project is kept as a committed validation app. It points to the local package path repository and was refreshed from package commit `ee3e550`.
 
 Validation flow:
 
-1. Installed this PR branch of `mrkoopie/laravel-ai-harness` into a temporary `test-ai` source branch from the committed app state.
-2. Ran `php artisan ai-harness:install --with=herd`.
-3. Committed the generated harness files in the temporary source branch.
-4. Created a fresh Codex-style worktree from that commit.
-5. Ran the generated setup hook with `WORKTREE_PROFILE=codex`.
-6. Ran the generated cleanup hook with `WORKTREE_PROFILE=codex`.
+1. Reinstalled the local path package in `test-ai`.
+2. Composer ran the guarded `ai-harness:update --ansi --with=herd` hook.
+3. Committed the refreshed generated harness files in `test-ai` at `8722e09`.
+4. Created a fresh Codex App worktree from that commit at `<codex-test-ai-worktree>`.
+5. Confirmed the programmatic Codex App worktree creation did not select/run the local environment: `.env` was absent, `phpunit.xml` still used sqlite `:memory:`, and no local-environment state existed.
+6. Ran the generated Codex local environment setup command from the worktree with `WORKTREE_PROFILE=codex`.
+7. Ran the generated cleanup hook with `WORKTREE_PROFILE=codex`.
 
 Observed setup result:
 
-- Herd created a deterministic per-worktree site link `<test-ai-herd-site>`.
-- `.env` contained `APP_URL=http://<test-ai-herd-site>.test`.
+- Herd created deterministic per-worktree site link `test-ai-415a-3056376673`.
+- `.env` contained `APP_URL=http://test-ai-415a-3056376673.test`.
 - `.env` contained `DB_CONNECTION=mariadb`.
-- `.env` contained `DB_DATABASE=<test-ai-worktree-database>`, using the generated database name with a full-path checksum suffix.
+- `.env` contained `DB_DATABASE=test_ai_3056376673`, using the generated database name with a full-path checksum suffix.
+- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=test_ai_testing_3056376673`.
 - `.env` contained a generated `APP_KEY`.
-- An independent PDO query confirmed `<test-ai-worktree-database>` existed after setup.
-- Laravel migrations were marked as ran in the generated database.
+- `phpunit.xml` was patched to `DB_CONNECTION=mariadb`, `DB_DATABASE=test_ai_testing_3056376673`, and empty `DB_URL`.
+- Independent PDO queries confirmed both generated databases existed after setup.
+- Laravel migrations were marked as ran in both generated databases.
 - `php artisan test` passed in the generated worktree: 2 tests, 2 assertions.
 - `php artisan ai-harness:doctor` completed successfully from the setup hook.
 
 Observed cleanup result:
 
 - The generated cleanup hook removed the Herd site link.
-- An independent PDO query confirmed `<test-ai-worktree-database>` no longer existed after cleanup.
+- Independent PDO queries confirmed both generated databases no longer existed after cleanup.
+- `phpunit.xml` was restored to sqlite `:memory:`.
+- `.codex/local-environment-state` was removed.
 - A direct filesystem check confirmed the generated Herd site link no longer existed under Herd's local `Sites` directory.
+- Final worktree status was clean.
+
+Codex App note:
+
+- Current OpenAI Codex documentation says local environment setup scripts run automatically when Codex creates a worktree and that choosing a local environment is optional in the new-thread flow. The programmatic `create_thread` tool used for this validation does not expose a local-environment selector, so it created the worktree without running `.codex/environments/environment.toml`. The generated environment itself validated correctly when run from the worktree checkout, which is the documented execution model when the environment is selected.
 
 ## Outcome
 
-The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines, and a successful fresh Laravel application validation including Herd setup and teardown.
+The package is on-par with the expected Laravel package workflow for this scope: documented defaults, explicit configuration locations, generated files that can be committed before worktree creation, opt-in local workspace automation, Sail-aware runtime selection, Claude/Codex worktree wrapper coverage, per-worktree URL/database provisioning, automated package coverage, CI coverage across supported Laravel lines including PHP 8.5, and successful Laravel application validation including Herd setup and teardown.
