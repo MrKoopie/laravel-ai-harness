@@ -116,7 +116,7 @@ Validation flow:
 
 1. Reinstalled the local path package in `test-ai`.
 2. Composer ran the guarded `ai-harness:update --ansi --with=herd` hook.
-3. Committed the refreshed generated harness files in `test-ai` at `8722e09`.
+3. Committed the refreshed generated harness files in `test-ai` at `bed9fc9`.
 4. Created a fresh Codex App worktree from that commit at `<codex-test-ai-worktree>`.
 5. Confirmed the programmatic Codex App worktree creation did not select/run the local environment: `.env` was absent, `phpunit.xml` still used sqlite `:memory:`, and no local-environment state existed.
 6. Ran the generated Codex local environment setup command from the worktree with `WORKTREE_PROFILE=codex`.
@@ -124,13 +124,13 @@ Validation flow:
 
 Observed setup result:
 
-- Herd created deterministic per-worktree site link `test-ai-415a-3056376673`.
-- `.env` contained `APP_URL=http://test-ai-415a-3056376673.test`.
+- Herd created deterministic per-worktree site link `test-ai-b944-1985179630`.
+- `.env` contained `APP_URL=http://test-ai-b944-1985179630.test`.
 - `.env` contained `DB_CONNECTION=mariadb`.
-- `.env` contained `DB_DATABASE=test_ai_3056376673`, using the generated database name with a full-path checksum suffix.
-- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=test_ai_testing_3056376673`.
+- `.env` contained `DB_DATABASE=test_ai_1985179630`, using the generated database name with a full-path checksum suffix.
+- `.env` contained `AI_HARNESS_TEST_DB_DATABASE=test_ai_testing_1985179630`.
 - `.env` contained a generated `APP_KEY`.
-- `phpunit.xml` was patched to `DB_CONNECTION=mariadb`, `DB_DATABASE=test_ai_testing_3056376673`, and empty `DB_URL`.
+- `phpunit.xml` was patched to `DB_CONNECTION=mariadb`, `DB_DATABASE=test_ai_testing_1985179630`, and empty `DB_URL`.
 - Independent PDO queries confirmed both generated databases existed after setup.
 - Laravel migrations were marked as ran in both generated databases.
 - `php artisan test` passed in the generated worktree: 2 tests, 2 assertions.
