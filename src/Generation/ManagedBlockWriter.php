@@ -37,6 +37,7 @@ final readonly class ManagedBlockWriter
             $existing = '';
         }
 
+        $existing = $this->removeConflictingUnmanagedContent($path, $existing, $content);
         $block = $this->block($path, $content);
         $pattern = $this->pattern($path);
         $matches = preg_match($pattern, $existing);
@@ -139,6 +140,80 @@ final readonly class ManagedBlockWriter
     private function withTrailingNewline(string $content): string
     {
         return str_ends_with($content, "\n") ? $content : $content."\n";
+    }
+
+    private function removeConflictingUnmanagedContent(string $path, string $existing, string $content): string
+    {
+        if (! $this->isCodexConfig($path) || ! str_contains($content, '[mcp_servers.laravel-boost]')) {
+            return $existing;
+        }
+
+        return $this->removeTomlTableOutsideManagedBlock($path, $existing, 'mcp_servers.laravel-boost');
+    }
+
+    private function removeTomlTableOutsideManagedBlock(string $path, string $content, string $table): string
+    {
+        $lines = preg_split('/\R/', $content);
+
+        if ($lines === false) {
+            return $content;
+        }
+
+        $result = [];
+        $insideManagedBlock = false;
+        $skippingTable = false;
+        $startMarker = $this->startMarker($path);
+        $endMarker = $this->endMarker($path);
+
+        foreach ($lines as $line) {
+            if ($skippingTable && ! $this->isTomlTableHeader($line)) {
+                continue;
+            }
+
+            if ($skippingTable) {
+                $skippingTable = false;
+            }
+
+            if (trim($line) === $startMarker) {
+                $insideManagedBlock = true;
+                $result[] = $line;
+
+                continue;
+            }
+
+            if (! $insideManagedBlock && $this->isTomlTableHeader($line, $table)) {
+                $skippingTable = true;
+
+                continue;
+            }
+
+            $result[] = $line;
+
+            if (trim($line) === $endMarker) {
+                $insideManagedBlock = false;
+            }
+        }
+
+        $updated = implode("\n", $result);
+        $updated = preg_replace("/\n{3,}/", "\n\n", $updated) ?? $updated;
+
+        return rtrim($updated);
+    }
+
+    private function isTomlTableHeader(string $line, ?string $table = null): bool
+    {
+        if ($table === null) {
+            return preg_match('/^\s*\[{1,2}[^\]]+\]{1,2}\s*(?:#.*)?$/', $line) === 1;
+        }
+
+        return preg_match('/^\s*\['.preg_quote($table, '/').'\]\s*(?:#.*)?$/', $line) === 1;
+    }
+
+    private function isCodexConfig(string $path): bool
+    {
+        $path = str_replace('\\', '/', $path);
+
+        return $path === '.codex/config.toml' || str_ends_with($path, '/.codex/config.toml');
     }
 
     private function usesHashComments(string $path): bool

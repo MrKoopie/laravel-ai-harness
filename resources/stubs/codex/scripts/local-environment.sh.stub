@@ -3,7 +3,7 @@ set -euo pipefail
 
 action="${1:-setup}"
 repo_root="${CODEX_WORKTREE_PATH:-}"
-herd_workspace_enabled="{{ herd_workspace_enabled }}"
+herd_workspace_enabled="${AI_HARNESS_HERD_WORKSPACE_ENABLED:-{{ herd_workspace_enabled }}}"
 database_base_name="{{ database_name }}"
 database_charset="{{ database_charset }}"
 database_collation="{{ database_collation }}"
@@ -44,6 +44,26 @@ php_runtime() {
     fi
 
     php "$@"
+}
+
+composer_runtime_available() {
+    sail_runtime_available || command -v herd >/dev/null 2>&1 || command -v composer >/dev/null 2>&1
+}
+
+composer_runtime() {
+    if sail_runtime_available; then
+        ./vendor/bin/sail composer "$@"
+
+        return
+    fi
+
+    if command -v herd >/dev/null 2>&1; then
+        herd composer "$@"
+
+        return
+    fi
+
+    composer "$@"
 }
 
 codex_workspace_requested() {
@@ -333,6 +353,7 @@ configure_worktree_environment() {
     connection="$(env_value DB_CONNECTION || true)"
     connection="${connection:-sqlite}"
     database_name="$(worktree_database_name)"
+    set_env_value DB_URL ""
 
     case "${connection}" in
         sqlite)
@@ -346,6 +367,10 @@ configure_worktree_environment() {
             set_env_value DB_DATABASE "${database_name}"
             create_mysql_database "${database_name}"
             remember_database_target APP "${connection}" "${database_name}"
+            ;;
+        *)
+            printf 'local-environment: unsupported DB_CONNECTION=%s for managed Codex worktree.\n' "${connection}" >&2
+            return 1
             ;;
     esac
 
@@ -371,6 +396,10 @@ configure_worktree_testing_database() {
             create_mysql_database "${testing_database_name}"
             remember_database_target TEST "${connection}" "${testing_database_name}"
             patch_phpunit_database "${connection}" "${testing_database_name}"
+            ;;
+        *)
+            printf 'local-environment: unsupported DB_CONNECTION=%s for managed Codex testing database.\n' "${connection}" >&2
+            return 1
             ;;
     esac
 }
@@ -429,7 +458,7 @@ create_mysql_database() {
 }
 
 drop_worktree_database() {
-    local connection database_name testing_database_name configured_database configured_testing_database sqlite_path state_file status
+    local connection database_name testing_database_name configured_database configured_testing_database state_file status
 
     codex_workspace_requested || return 0
 
@@ -465,13 +494,11 @@ drop_worktree_database() {
     case "${connection}" in
         sqlite)
             if [[ "${configured_testing_database}" == "database/${testing_database_name}.sqlite" || "${configured_testing_database}" == */"${testing_database_name}.sqlite" ]]; then
-                sqlite_path="$(sqlite_database_path "${configured_testing_database}")"
-                rm -f "${sqlite_path}"
+                remove_recorded_sqlite_database "${configured_testing_database}"
             fi
 
             if [[ "${configured_database}" == "database/${database_name}.sqlite" || "${configured_database}" == */"${database_name}.sqlite" ]]; then
-                sqlite_path="$(sqlite_database_path "${configured_database}")"
-                rm -f "${sqlite_path}"
+                remove_recorded_sqlite_database "${configured_database}"
             fi
             ;;
         mysql|mariadb)
@@ -486,16 +513,33 @@ drop_worktree_database() {
     esac
 }
 
+remove_recorded_sqlite_database() {
+    local database="${1}" sqlite_path app_path test_path
+
+    sqlite_path="$(sqlite_database_path "${database}")"
+    app_path="$(sqlite_database_path "database/$(worktree_database_name).sqlite")"
+    test_path="$(sqlite_database_path "database/$(worktree_testing_database_name).sqlite")"
+
+    case "${sqlite_path}" in
+        "${app_path}"|"${test_path}")
+            rm -f "${sqlite_path}"
+            ;;
+        *)
+            printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
+            return 1
+            ;;
+    esac
+}
+
 drop_recorded_database() {
-    local connection="${1}" database="${2}" sqlite_path
+    local connection="${1}" database="${2}"
 
     [[ -n "${connection}" ]] || return 0
     [[ -n "${database}" ]] || return 0
 
     case "${connection}" in
         sqlite)
-            sqlite_path="$(sqlite_database_path "${database}")"
-            rm -f "${sqlite_path}"
+            remove_recorded_sqlite_database "${database}"
             ;;
         mysql|mariadb)
             drop_mysql_database "${database}"
@@ -595,8 +639,8 @@ case "${action}" in
 
         configure_worktree_environment
 
-        if [[ ! -d vendor && -f composer.json ]] && command -v composer >/dev/null 2>&1; then
-            composer install --no-interaction --prefer-dist
+        if [[ ! -f vendor/autoload.php && -f composer.json ]] && composer_runtime_available; then
+            composer_runtime install --no-interaction --prefer-dist
         fi
 
         if [[ -f artisan ]] && app_key_missing; then
@@ -604,7 +648,7 @@ case "${action}" in
         fi
 
         if [[ -f artisan ]]; then
-            artisan migrate --force --ansi
+            DB_URL="" artisan migrate --force --ansi
         fi
 
         migrate_testing_database
