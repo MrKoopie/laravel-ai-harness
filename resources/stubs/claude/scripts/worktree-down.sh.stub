@@ -83,26 +83,34 @@ fi
 
 if [[ -z "${worktree_path}" ]]; then
     printf 'worktree-down: could not determine worktree path\n' >&2
-    exit 1
+    exit 0
 fi
 
 worktree_path="$(resolve_worktree_root "${worktree_path}")"
 
 if [[ ! -d "${worktree_path}" ]]; then
     printf 'worktree-down: worktree path does not exist: %s\n' "${worktree_path}" >&2
-    exit 1
+    exit 0
 fi
 
 worktree_path="$(cd -- "${worktree_path}" && pwd -P)"
 local_environment="${worktree_path}/.codex/scripts/local-environment.sh"
 
-if [[ ! -x "${local_environment}" ]]; then
-    printf 'worktree-down: missing executable local environment script: %s\n' "${local_environment}" >&2
-    exit 1
+if [[ ! -r "${local_environment}" ]]; then
+    printf 'worktree-down: missing readable local environment script: %s\n' "${local_environment}" >&2
+    rm -f "${worktree_path}/.claude/.ai-harness-worktree-provisioned"
+    exit 0
 fi
 
+cleanup_status=0
 WORKTREE_PROFILE=codex \
 CODEX_WORKTREE_PATH="${worktree_path}" \
-bash "${local_environment}" cleanup
+bash "${local_environment}" cleanup || cleanup_status=$?
 
 rm -f "${worktree_path}/.claude/.ai-harness-worktree-provisioned"
+
+if [[ "${cleanup_status}" -ne 0 ]]; then
+    printf 'worktree-down: local environment cleanup failed with status %s\n' "${cleanup_status}" >&2
+fi
+
+exit 0

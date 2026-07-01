@@ -1,10 +1,10 @@
 {
     "mcpServers": {
         "laravel-boost": {
-            "command": "php",
+            "command": "sh",
             "args": [
-                "artisan",
-                "boost:mcp"
+                "-lc",
+                "repo_root=\"$(git -C \"${CODEX_WORKTREE_PATH:-.}\" rev-parse --show-toplevel)\" && cd \"$repo_root\" && exec \"$repo_root/.dev/bin/ai-harness\" boost:mcp"
             ]
         }
     }

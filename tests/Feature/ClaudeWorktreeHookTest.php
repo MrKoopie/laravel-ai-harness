@@ -70,6 +70,85 @@ test('claude worktree cleanup delegates to the generated local environment scrip
         ->and($worktree.'/.claude/.ai-harness-worktree-provisioned')->not()->toBeFile();
 });
 
+test('claude worktree cleanup tolerates missing worktree context', function (): void {
+    $path = temp_directory('ai-harness-claude-down-missing-context');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $process = new Process(
+        [$path.'/.claude/scripts/worktree-down.sh'],
+        $path,
+        [
+            'CLAUDE_PROJECT_DIR' => $path,
+        ],
+    );
+    $process->run();
+
+    expect($process->getExitCode())->toBe(0)
+        ->and($process->getErrorOutput())->toContain('could not determine worktree path');
+});
+
+test('claude worktree cleanup removes marker and exits zero when local environment is unavailable', function (): void {
+    $path = temp_directory('ai-harness-claude-down-missing-local-env');
+    $worktree = $path.'/.claude/worktrees/feature-a';
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    mkdir($worktree.'/.claude', 0755, true);
+    file_put_contents($worktree.'/.claude/.ai-harness-worktree-provisioned', '');
+
+    $process = new Process(
+        [$path.'/.claude/scripts/worktree-down.sh', $worktree],
+        $path,
+        [
+            'CLAUDE_PROJECT_DIR' => $path,
+        ],
+    );
+    $process->run();
+
+    expect($process->getExitCode())->toBe(0)
+        ->and($process->getErrorOutput())->toContain('missing readable local environment script')
+        ->and($worktree.'/.claude/.ai-harness-worktree-provisioned')->not()->toBeFile();
+});
+
+test('claude worktree cleanup removes marker and exits zero when local environment cleanup fails', function (): void {
+    $path = temp_directory('ai-harness-claude-down-cleanup-failure');
+    $worktree = $path.'/.claude/worktrees/feature-a';
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    if (! is_dir($worktree.'/.codex/scripts')) {
+        mkdir($worktree.'/.codex/scripts', 0755, true);
+    }
+
+    file_put_contents($worktree.'/.codex/scripts/local-environment.sh', <<<'BASH'
+#!/usr/bin/env bash
+exit 42
+BASH);
+    chmod($worktree.'/.codex/scripts/local-environment.sh', 0755);
+    mkdir($worktree.'/.claude', 0755, true);
+    file_put_contents($worktree.'/.claude/.ai-harness-worktree-provisioned', '');
+
+    $process = new Process(
+        [$path.'/.claude/scripts/worktree-down.sh', $worktree],
+        $path,
+        [
+            'CLAUDE_PROJECT_DIR' => $path,
+        ],
+    );
+    $process->run();
+
+    expect($process->getExitCode())->toBe(0)
+        ->and($process->getErrorOutput())->toContain('local environment cleanup failed with status 42')
+        ->and($worktree.'/.claude/.ai-harness-worktree-provisioned')->not()->toBeFile();
+});
+
 test('claude session setup skips the main checkout', function (): void {
     $path = temp_directory('ai-harness-claude-main');
     $log = temp_file('claude-wrapper-log');

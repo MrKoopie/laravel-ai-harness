@@ -68,6 +68,31 @@ BASH);
     expect(trim((string) file_get_contents($herdLog)))->toBe('');
 });
 
+test('herd workspace automation can be enabled at runtime for generated scripts', function (): void {
+    $path = temp_directory('ai-harness-herd-runtime');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'AI_HARNESS_HERD_WORKSPACE_ENABLED' => '1',
+    ])->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('link '.expected_herd_site_name($path).' --no-interaction');
+});
+
 test('herd workspace names include a stable suffix from the full worktree path', function (): void {
     $root = temp_directory('ai-harness-collision');
     $firstPath = $root.'/first/shared/project';
@@ -282,6 +307,69 @@ BASH);
         ->toContain('ai-harness:doctor');
 });
 
+test('codex setup clears db url before running app migrations', function (): void {
+    $path = temp_directory('ai-harness-app-db-url');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_KEY=',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        'DB_URL=mysql://production.example/app',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'DB_URL' => 'mysql://ambient.example/app',
+    ])->mustRun();
+
+    expect(file_get_contents($path.'/.env'))
+        ->toContain('DB_URL=')
+        ->not()->toContain('DB_URL=mysql://production.example/app')
+        ->and(file_get_contents($path.'/artisan.log'))
+        ->toContain("migrate --force --ansi\nDB_CONNECTION= DB_DATABASE= DB_URL=\n");
+});
+
+test('codex setup fails fast for unsupported database connections', function (): void {
+    $path = temp_directory('ai-harness-unsupported-db');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_KEY=',
+        'DB_CONNECTION=pgsql',
+        'DB_DATABASE=app',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    $process = run_local_environment($path, 'setup', $fakeBin, $herdLog);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('unsupported DB_CONNECTION=pgsql');
+});
+
 test('codex cleanup restores phpunit after wiring the generated testing database', function (): void {
     $path = temp_directory('ai-harness-phpunit-restore');
 
@@ -436,6 +524,35 @@ BASH);
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
+test('codex cleanup refuses recorded sqlite paths outside the managed worktree databases', function (): void {
+    $path = temp_directory('ai-harness-cleanup-recorded-sqlite-refusal');
+    $outsideDatabase = temp_file('ai-harness-outside-sqlite');
+
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/databases.env', implode("\n", [
+        'APP_DB_CONNECTION=sqlite',
+        'APP_DB_DATABASE='.$outsideDatabase,
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    $process = run_local_environment($path, 'cleanup', $fakeBin, $herdLog);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('refusing to remove unmanaged sqlite database path')
+        ->and($outsideDatabase)->toBeFile()
+        ->and($path.'/.codex/local-environment-state/databases.env')->toBeFile();
+});
+
 test('mysql worktree databases are created through sail when sail is available', function (): void {
     $path = temp_directory('ai-harness-sail-database');
 
@@ -517,6 +634,57 @@ BASH);
         ->and(file_get_contents($path.'/phpunit.xml'))
         ->toContain('name="DB_CONNECTION" value="mysql" force="true"')
         ->toContain('name="DB_DATABASE" value="'.expected_worktree_testing_database_name($path).'" force="true"');
+});
+
+test('codex setup routes composer install through the runtime helper until autoload exists', function (): void {
+    $path = temp_directory('ai-harness-composer-runtime');
+
+    file_put_contents($path.'/composer.json', json_encode([
+        'require' => [
+            'php' => '^8.3',
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $fakeBin = $path.'/fake-bin';
+    $sailLog = temp_file('sail-log');
+    $herdLog = temp_file('herd-log');
+
+    mkdir($fakeBin, 0755, true);
+    mkdir($path.'/vendor/bin', 0755, true);
+
+    file_put_contents($fakeBin.'/docker', <<<'BASH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "info" ]]; then
+    exit 0
+fi
+
+exit 1
+BASH);
+    chmod($fakeBin.'/docker', 0755);
+
+    file_put_contents($fakeBin.'/composer', <<<'BASH'
+#!/usr/bin/env bash
+printf 'bare composer should not be used when sail is available\n' >&2
+exit 44
+BASH);
+    chmod($fakeBin.'/composer', 0755);
+
+    file_put_contents($path.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SAIL_LOG"
+BASH);
+    chmod($path.'/vendor/bin/sail', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'SAIL_LOG' => $sailLog,
+    ])->mustRun();
+
+    expect(file_get_contents($sailLog))
+        ->toContain('composer install --no-interaction --prefer-dist');
 });
 
 test('mysql worktree app and testing databases are dropped through sail during cleanup', function (): void {

@@ -168,6 +168,39 @@ TOML);
         ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
 });
 
+test('update command replaces an existing laravel boost codex server instead of duplicating it', function (): void {
+    $path = temp_directory('ai-harness');
+
+    mkdir($path.'/.codex', 0755, true);
+    file_put_contents($path.'/.codex/config.toml', <<<'TOML'
+model = "gpt-5.5"
+
+[mcp_servers.laravel-boost]
+command = "php"
+args = [
+    "artisan",
+    "boost:mcp",
+]
+
+[features]
+hooks = true
+TOML);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $config = file_get_contents($path.'/.codex/config.toml');
+
+    expect($config)
+        ->toContain('model = "gpt-5.5"')
+        ->toContain('[features]')
+        ->toContain('# ai-harness:start')
+        ->toContain('exec "$repo_root/.dev/bin/ai-harness" boost:mcp')
+        ->not()->toContain('command = "php"')
+        ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
+});
+
 test('update command migrates an unmarked generated codex project config into a managed block', function (): void {
     $path = temp_directory('ai-harness');
 
@@ -211,6 +244,23 @@ TOML;
         ->toContain('# ai-harness:start')
         ->toContain('# ai-harness:end')
         ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
+});
+
+test('shared mcp config routes laravel boost through the harness runtime helper', function (): void {
+    $path = temp_directory('ai-harness');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $config = json_decode((string) file_get_contents($path.'/.ai/mcp/mcp.json'), true, flags: JSON_THROW_ON_ERROR);
+    $server = $config['mcpServers']['laravel-boost'];
+
+    expect($server['command'])->toBe('sh')
+        ->and($server['args'])->toHaveCount(2)
+        ->and($server['args'][0])->toBe('-lc')
+        ->and($server['args'][1])->toContain('exec "$repo_root/.dev/bin/ai-harness" boost:mcp')
+        ->and($server['args'][1])->not()->toContain('php artisan');
 });
 
 test('update command can opt into optional workspace features', function (): void {
