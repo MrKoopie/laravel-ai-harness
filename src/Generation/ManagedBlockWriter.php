@@ -62,6 +62,31 @@ final readonly class ManagedBlockWriter
             return;
         }
 
+        $unmarkedContent = trim($content);
+        $unmarkedMatches = [];
+        $contentOffset = false;
+
+        if ($unmarkedContent !== '') {
+            $unmarkedPattern = sprintf('/%s/s', str_replace("\n", '\R', preg_quote($unmarkedContent, '/')));
+            $unmarkedMatch = preg_match($unmarkedPattern, $existing, $unmarkedMatches, PREG_OFFSET_CAPTURE);
+
+            if ($unmarkedMatch === false) {
+                throw new RuntimeException("Unable to inspect unmarked managed block in file [{$path}].");
+            }
+
+            if ($unmarkedMatch === 1) {
+                $contentOffset = $unmarkedMatches[0][1];
+            }
+        }
+
+        if ($contentOffset !== false) {
+            $updated = substr_replace($existing, $block, $contentOffset, strlen($unmarkedMatches[0][0]));
+
+            $this->writeFile($path, $this->withTrailingNewline($updated));
+
+            return;
+        }
+
         $separator = trim($existing) === '' ? '' : "\n\n";
 
         $this->writeFile($path, $this->withTrailingNewline(rtrim($existing).$separator.$block));
@@ -95,7 +120,7 @@ final readonly class ManagedBlockWriter
 
     private function startMarker(string $path): string
     {
-        if (basename($path) === '.gitignore') {
+        if ($this->usesHashComments($path)) {
             return "# {$this->marker}:start";
         }
 
@@ -104,7 +129,7 @@ final readonly class ManagedBlockWriter
 
     private function endMarker(string $path): string
     {
-        if (basename($path) === '.gitignore') {
+        if ($this->usesHashComments($path)) {
             return "# {$this->marker}:end";
         }
 
@@ -114,5 +139,10 @@ final readonly class ManagedBlockWriter
     private function withTrailingNewline(string $content): string
     {
         return str_ends_with($content, "\n") ? $content : $content."\n";
+    }
+
+    private function usesHashComments(string $path): bool
+    {
+        return basename($path) === '.gitignore' || str_ends_with($path, '.toml');
     }
 }

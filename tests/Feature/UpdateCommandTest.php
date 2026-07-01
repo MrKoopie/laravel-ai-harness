@@ -1,5 +1,7 @@
 <?php
 
+use Symfony\Component\Process\Process;
+
 test('update command writes the initial harness files', function (): void {
     $path = temp_directory('ai-harness');
 
@@ -31,13 +33,22 @@ test('update command writes the initial harness files', function (): void {
         ->not()->toContain('php artisan key:generate --ansi')
         ->not()->toContain('ai-harness:doctor || true')
         ->and(is_executable($path.'/.codex/scripts/local-environment.sh'))->toBeTrue()
+        ->and($path.'/.codex/config.toml')->toBeFile()
+        ->and(file_get_contents($path.'/.codex/config.toml'))
+        ->toContain('# ai-harness:start')
+        ->toContain('boost:mcp')
+        ->toContain('# ai-harness:end')
         ->and($path.'/.agents/skills/laravel-ai-harness/SKILL.md')->toBeFile()
         ->and($gitignore)
         ->toContain('# ai-harness:start')
         ->toContain('!/.codex/')
+        ->toContain('!/.codex/config.toml')
         ->toContain('!/.codex/scripts/local-environment.sh')
         ->toContain('!/.claude/')
         ->toContain('!/.claude/settings.json')
+        ->toContain('!/.claude/scripts/')
+        ->toContain('!/.claude/scripts/worktree-up.sh')
+        ->toContain('!/.claude/scripts/worktree-down.sh')
         ->toContain('!/.ai/mcp/mcp.json')
         ->toContain('!/.dev/bin/ai-harness')
         ->not()->toContain('!/.codex/**')
@@ -49,7 +60,7 @@ test('update command writes the initial harness files', function (): void {
         ->and($path.'/docker/mysql/init/10-create-testing-database.sh')->not()->toBeFile();
 });
 
-test('claude settings only reference generated files', function (): void {
+test('claude settings reference generated worktree scripts', function (): void {
     $path = temp_directory('ai-harness');
 
     pending_artisan('ai-harness:update', [
@@ -65,9 +76,141 @@ test('claude settings only reference generated files', function (): void {
         }
     });
 
-    expect(implode("\n", $commands))
-        ->toContain('.dev/bin/ai-harness ai-harness:doctor')
-        ->not()->toContain('.claude/scripts/');
+    expect($commands)
+        ->toContain('"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-up.sh"')
+        ->toContain('"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-down.sh"')
+        ->toContain('"$CLAUDE_PROJECT_DIR/.dev/bin/ai-harness" ai-harness:doctor')
+        ->and($path.'/.claude/scripts/worktree-up.sh')->toBeFile()
+        ->and($path.'/.claude/scripts/worktree-down.sh')->toBeFile()
+        ->and(is_executable($path.'/.claude/scripts/worktree-up.sh'))->toBeTrue()
+        ->and(is_executable($path.'/.claude/scripts/worktree-down.sh'))->toBeTrue();
+});
+
+test('codex session hook provisions only codex managed worktrees', function (): void {
+    $root = temp_directory('ai-harness-codex-hook');
+    $codexHome = $root.'/codex-home';
+    $worktree = $codexHome.'/worktrees/abcd/project';
+    $localCheckout = $root.'/source/project';
+    $log = temp_file('codex-hook-log');
+
+    mkdir($worktree, 0755, true);
+    mkdir($localCheckout, 0755, true);
+
+    foreach ([$worktree, $localCheckout] as $path) {
+        pending_artisan('ai-harness:update', [
+            '--path' => $path,
+        ])->assertSuccessful();
+
+        (new Process(['git', 'init'], $path))->mustRun();
+
+        file_put_contents($path.'/.codex/scripts/local-environment.sh', <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+{
+    printf 'action=%s\n' "${1:-}"
+    printf 'profile=%s\n' "${WORKTREE_PROFILE:-}"
+    printf 'path=%s\n' "${CODEX_WORKTREE_PATH:-}"
+} >> "${HARNESS_HOOK_LOG}"
+BASH);
+        chmod($path.'/.codex/scripts/local-environment.sh', 0755);
+    }
+
+    $hooks = json_decode((string) file_get_contents($worktree.'/.codex/hooks.json'), true, flags: JSON_THROW_ON_ERROR);
+    $command = $hooks['hooks']['SessionStart'][0]['hooks'][0]['command'];
+
+    Process::fromShellCommandline($command, $worktree, [
+        'CODEX_HOME' => $codexHome,
+        'HARNESS_HOOK_LOG' => $log,
+        'PATH' => getenv('PATH'),
+    ])->mustRun();
+
+    Process::fromShellCommandline($command, $worktree, [
+        'CODEX_HOME' => $codexHome.'/',
+        'HARNESS_HOOK_LOG' => $log,
+        'PATH' => getenv('PATH'),
+    ])->mustRun();
+
+    Process::fromShellCommandline($command, $localCheckout, [
+        'CODEX_HOME' => $codexHome.'/',
+        'HARNESS_HOOK_LOG' => $log,
+        'PATH' => getenv('PATH'),
+    ])->mustRun();
+
+    expect(file_get_contents($log))
+        ->toContain("action=setup\nprofile=codex\npath={$worktree}")
+        ->and(substr_count((string) file_get_contents($log), 'action=setup'))->toBe(2);
+});
+
+test('update command preserves existing codex project config outside the harness block', function (): void {
+    $path = temp_directory('ai-harness');
+
+    mkdir($path.'/.codex', 0755, true);
+    file_put_contents($path.'/.codex/config.toml', <<<'TOML'
+model = "gpt-5.5"
+
+[features]
+hooks = true
+TOML);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $config = file_get_contents($path.'/.codex/config.toml');
+
+    expect($config)
+        ->toContain('model = "gpt-5.5"')
+        ->toContain('[features]')
+        ->toContain('# ai-harness:start')
+        ->toContain('[mcp_servers.laravel-boost]')
+        ->toContain('# ai-harness:end')
+        ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
+});
+
+test('update command migrates an unmarked generated codex project config into a managed block', function (): void {
+    $path = temp_directory('ai-harness');
+
+    mkdir($path.'/.codex', 0755, true);
+    file_put_contents($path.'/.codex/config.toml', <<<'TOML'
+[mcp_servers.laravel-boost]
+command = "sh"
+args = ["-lc", 'repo_root="$(git -C "${CODEX_WORKTREE_PATH:-.}" rev-parse --show-toplevel)" && cd "$repo_root" && exec "$repo_root/.dev/bin/ai-harness" boost:mcp']
+TOML);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $config = file_get_contents($path.'/.codex/config.toml');
+
+    expect($config)
+        ->toContain('# ai-harness:start')
+        ->toContain('# ai-harness:end')
+        ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
+});
+
+test('update command migrates an unmarked generated codex project config with crlf line endings', function (): void {
+    $path = temp_directory('ai-harness');
+
+    mkdir($path.'/.codex', 0755, true);
+    $unmarkedConfig = <<<'TOML'
+[mcp_servers.laravel-boost]
+command = "sh"
+args = ["-lc", 'repo_root="$(git -C "${CODEX_WORKTREE_PATH:-.}" rev-parse --show-toplevel)" && cd "$repo_root" && exec "$repo_root/.dev/bin/ai-harness" boost:mcp']
+TOML;
+    file_put_contents($path.'/.codex/config.toml', str_replace("\n", "\r\n", $unmarkedConfig));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $config = file_get_contents($path.'/.codex/config.toml');
+
+    expect($config)
+        ->toContain('# ai-harness:start')
+        ->toContain('# ai-harness:end')
+        ->and(substr_count((string) $config, '[mcp_servers.laravel-boost]'))->toBe(1);
 });
 
 test('update command can opt into optional workspace features', function (): void {

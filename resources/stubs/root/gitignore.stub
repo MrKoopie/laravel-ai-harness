@@ -11,11 +11,14 @@
 !/.agents/skills/laravel-ai-harness/SKILL.md
 !/.claude/
 !/.claude/settings.json
+!/.claude/scripts/
+!/.claude/scripts/worktree-up.sh
+!/.claude/scripts/worktree-down.sh
 !/.claude/skills/
 !/.claude/skills/laravel-ai-harness/
 !/.claude/skills/laravel-ai-harness/SKILL.md
 !/.codex/
-!/.codex/config.toml.example
+!/.codex/config.toml
 !/.codex/environments/
 !/.codex/environments/environment.toml
 !/.codex/hooks.json

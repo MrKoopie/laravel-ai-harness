@@ -22,6 +22,8 @@ The package uses two ownership modes.
 
 The generated `.gitignore` block unignores only package-managed harness artifacts under `.codex`, `.claude`, `.ai`, `.agents`, and `.dev`. Laravel skeletons can ignore `/.codex` by default, so keep this block committed before creating agent worktrees.
 
+`.codex/config.toml` also uses a managed block with TOML-safe `# ai-harness:start` / `# ai-harness:end` comments. Existing Codex project settings outside that block belong to the project and are preserved by updates.
+
 Content outside managed blocks belongs to the project and is preserved by updates.
 
 ## Managed Files
@@ -32,11 +34,12 @@ Current managed files include:
 
 - `.ai/mcp/mcp.json`
 - `.dev/bin/ai-harness`
-- `.codex/config.toml.example`
 - `.codex/environments/environment.toml`
 - `.codex/hooks.json`
 - `.codex/scripts/local-environment.sh`
 - `.claude/settings.json`
+- `.claude/scripts/worktree-up.sh`
+- `.claude/scripts/worktree-down.sh`
 - `.agents/skills/laravel-ai-harness/SKILL.md`
 - `.claude/skills/laravel-ai-harness/SKILL.md`
 - `docker/mysql/init/10-create-testing-database.sh`
