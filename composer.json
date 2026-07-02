@@ -42,6 +42,7 @@
         "analyse": "phpstan analyse --memory-limit=1G",
         "format": "pint",
         "format:check": "pint --test",
+        "shellcheck": "git grep -l '^#!/usr/bin/env bash' -- resources/stubs | xargs shellcheck",
         "test": "pest",
         "test:coverage": "pest --coverage"
     },

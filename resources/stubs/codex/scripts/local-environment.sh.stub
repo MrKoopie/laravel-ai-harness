@@ -141,7 +141,7 @@ file_env_value() {
     fi
 
     line="$(grep -E "^${key}=" "${file}" | tail -n 1 || true)"
-    value="${line#${key}=}"
+    value="${line#"${key}"=}"
     value="${value%\"}"
     value="${value#\"}"
     value="${value%\'}"
@@ -261,6 +261,7 @@ patch_phpunit_database() {
 
     remember_original_file phpunit.xml "${backup}"
 
+    # shellcheck disable=SC2016
     AI_HARNESS_TEST_DB_CONNECTION="${connection}" \
     AI_HARNESS_TEST_DB_DATABASE="${database}" \
     php_runtime -r '
@@ -426,6 +427,7 @@ migrate_testing_database() {
 create_mysql_database() {
     local database_name="${1}"
 
+    # shellcheck disable=SC2016
     AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
     AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
     AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
@@ -550,6 +552,7 @@ drop_recorded_database() {
 drop_mysql_database() {
     local database_name="${1}"
 
+    # shellcheck disable=SC2016
     AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
     AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
     AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
