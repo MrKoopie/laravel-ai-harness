@@ -12,6 +12,7 @@ json_value() {
     [[ -n "${stdin_json}" ]] || return 0
 
     if command -v php >/dev/null 2>&1; then
+        # shellcheck disable=SC2016
         AI_HARNESS_JSON_KEY="${key}" php -r '
             $payload = json_decode(stream_get_contents(STDIN), true);
             if (! is_array($payload)) {

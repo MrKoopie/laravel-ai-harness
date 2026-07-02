@@ -86,6 +86,29 @@ test('claude settings reference generated worktree scripts', function (): void {
         ->and(is_executable($path.'/.claude/scripts/worktree-down.sh'))->toBeTrue();
 });
 
+test('generated shell scripts pass shellcheck', function (): void {
+    $path = temp_directory('ai-harness-shellcheck');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['docker'],
+    ])->assertSuccessful();
+
+    $scripts = [
+        $path.'/.dev/bin/ai-harness',
+        $path.'/.codex/scripts/local-environment.sh',
+        $path.'/.claude/scripts/worktree-up.sh',
+        $path.'/.claude/scripts/worktree-down.sh',
+        $path.'/docker/mysql/init/10-create-testing-database.sh',
+    ];
+
+    $process = new Process(['shellcheck', ...$scripts]);
+    $process->run();
+
+    expect(trim($process->getOutput().$process->getErrorOutput()))->toBe('')
+        ->and($process->isSuccessful())->toBeTrue();
+})->skip(fn (): bool => ! shellcheck_available(), 'shellcheck is not installed.');
+
 test('codex session hook provisions only codex managed worktrees', function (): void {
     $root = temp_directory('ai-harness-codex-hook');
     $codexHome = $root.'/codex-home';
@@ -419,3 +442,11 @@ test('install command persists selected optional features in composer hooks', fu
             $guardedScript,
         ]);
 });
+
+function shellcheck_available(): bool
+{
+    $process = new Process(['sh', '-c', 'command -v shellcheck']);
+    $process->run();
+
+    return $process->isSuccessful();
+}
