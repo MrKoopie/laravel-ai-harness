@@ -92,7 +92,7 @@ AI_HARNESS_PHP_VERSION="8.3"
 AI_HARNESS_WORKTREE_BASE_REF="origin/main"
 ```
 
-`AI_HARNESS_WORKTREE_BASE_REF` defaults to `origin/main` when that ref exists, then the repository's `origin/HEAD` target, then `origin/main`.
+`AI_HARNESS_WORKTREE_BASE_REF` defaults to an available `origin/main` ref. If that ref is absent, it uses the repository's `origin/HEAD` target, falling back to the literal `origin/main` ref when no remote metadata exists.
 
 ## Commands
 
