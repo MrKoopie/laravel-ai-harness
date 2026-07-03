@@ -14,12 +14,33 @@ sail_runtime_available() {
     command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1
 }
 
+uses_phpunit_configuration() {
+    local argument
+
+    for argument in "$@"; do
+        case "${argument}" in
+            --configuration|--configuration=*)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+artisan_args=("$@")
+phpunit_config=".ai-harness.phpunit.xml"
+
+if [[ "${1:-}" == "test" && -f "${phpunit_config}" ]] && ! uses_phpunit_configuration "$@"; then
+    artisan_args=("test" "--configuration=${phpunit_config}" "${@:2}")
+fi
+
 if [[ -x ./vendor/bin/sail ]] && sail_runtime_available; then
-    exec ./vendor/bin/sail artisan "$@"
+    exec ./vendor/bin/sail artisan "${artisan_args[@]}"
 fi
 
 if command -v herd >/dev/null 2>&1; then
-    exec herd php artisan "$@"
+    exec herd php artisan "${artisan_args[@]}"
 fi
 
-exec php artisan "$@"
+exec php artisan "${artisan_args[@]}"
