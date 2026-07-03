@@ -283,7 +283,7 @@ BASH);
     $testingDatabase = env_value($path, 'AI_HARNESS_TEST_DB_DATABASE');
     $databasePath = $path.'/'.$database;
     $testingDatabasePath = $path.'/'.$testingDatabase;
-    $phpunitConfig = $path.'/.codex/local-environment-state/phpunit.xml';
+    $phpunitConfig = $path.'/.ai-harness.phpunit.xml';
 
     expect(file_get_contents($path.'/.env'))
         ->toContain('APP_URL=http://'.$siteName.'.test')
@@ -414,7 +414,7 @@ BASH);
         'REAL_PHP' => PHP_BINARY,
     ])->mustRun();
 
-    $phpunitConfig = $path.'/.codex/local-environment-state/phpunit.xml';
+    $phpunitConfig = $path.'/.ai-harness.phpunit.xml';
 
     expect(file_get_contents($phpunitConfig))
         ->toContain('DB_DATABASE')
@@ -477,10 +477,14 @@ BASH);
     $setupStatus = new Process(['git', 'status', '--short', '--', 'phpunit.xml'], $path);
     $setupStatus->mustRun();
 
-    expect(file_get_contents($path.'/.codex/local-environment-state/phpunit.xml'))
+    $generatedConfigStatus = new Process(['git', 'status', '--short', '--', '.ai-harness.phpunit.xml'], $path);
+    $generatedConfigStatus->mustRun();
+
+    expect(file_get_contents($path.'/.ai-harness.phpunit.xml'))
         ->toContain('database/'.expected_worktree_testing_database_name($path).'.sqlite')
         ->and(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit)
-        ->and(trim($setupStatus->getOutput()))->toBe('');
+        ->and(trim($setupStatus->getOutput()))->toBe('')
+        ->and(trim($generatedConfigStatus->getOutput()))->toBe('');
 
     file_put_contents($path.'/phpunit.xml', str_replace('</phpunit>', "    <!-- custom phpunit edit -->\n</phpunit>", $phpunit));
 
@@ -495,6 +499,7 @@ BASH);
     $cleanupStatus->mustRun();
 
     expect(trim($cleanupStatus->getOutput()))->toBe('M phpunit.xml')
+        ->and($path.'/.ai-harness.phpunit.xml')->not->toBeFile()
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
@@ -722,7 +727,7 @@ BASH);
         ->toContain('php -r')
         ->toContain('database='.expected_worktree_database_name($path))
         ->toContain('database='.expected_worktree_testing_database_name($path))
-        ->and(file_get_contents($path.'/.codex/local-environment-state/phpunit.xml'))
+        ->and(file_get_contents($path.'/.ai-harness.phpunit.xml'))
         ->toContain('name="DB_CONNECTION" value="mysql" force="true"')
         ->toContain('name="DB_DATABASE" value="'.expected_worktree_testing_database_name($path).'" force="true"')
         ->toContain('name="DB_URL" value="" force="true"')

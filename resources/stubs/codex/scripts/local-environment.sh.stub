@@ -233,7 +233,7 @@ cleanup_managed_state_dir() {
 }
 
 managed_phpunit_config_file() {
-    printf '%s\n' "$(managed_state_dir)/phpunit.xml"
+    printf '%s\n' ".ai-harness.phpunit.xml"
 }
 
 configure_phpunit_database() {

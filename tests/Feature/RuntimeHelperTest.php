@@ -53,8 +53,7 @@ test('runtime helper passes generated phpunit config to artisan test', function 
         '--path' => $path,
     ])->assertSuccessful();
 
-    mkdir($path.'/.codex/local-environment-state', 0755, true);
-    file_put_contents($path.'/.codex/local-environment-state/phpunit.xml', '<phpunit/>');
+    file_put_contents($path.'/.ai-harness.phpunit.xml', '<phpunit/>');
 
     $runtimeLog = temp_file('runtime-log');
     $fakeBin = $path.'/fake-bin';
@@ -78,5 +77,5 @@ BASH);
     $process->mustRun();
 
     expect(trim((string) file_get_contents($runtimeLog)))
-        ->toBe('herd php artisan test --configuration='.$path.'/.codex/local-environment-state/phpunit.xml --filter=ExampleTest');
+        ->toBe('herd php artisan test --configuration=.ai-harness.phpunit.xml --filter=ExampleTest');
 });

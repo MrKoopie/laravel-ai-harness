@@ -29,7 +29,7 @@ uses_phpunit_configuration() {
 }
 
 artisan_args=("$@")
-phpunit_config="${repo_root}/.codex/local-environment-state/phpunit.xml"
+phpunit_config=".ai-harness.phpunit.xml"
 
 if [[ "${1:-}" == "test" && -f "${phpunit_config}" ]] && ! uses_phpunit_configuration "$@"; then
     artisan_args=("test" "--configuration=${phpunit_config}" "${@:2}")

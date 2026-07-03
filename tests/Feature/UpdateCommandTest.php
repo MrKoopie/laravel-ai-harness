@@ -42,6 +42,7 @@ test('update command writes the initial harness files', function (): void {
         ->and($path.'/.agents/skills/laravel-ai-harness/SKILL.md')->toBeFile()
         ->and($gitignore)
         ->toContain('# ai-harness:start')
+        ->toContain('/.ai-harness.phpunit.xml')
         ->toContain('!/.codex/')
         ->toContain('/.codex/local-environment-state/')
         ->toContain('!/.codex/config.toml')
