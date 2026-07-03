@@ -2,7 +2,7 @@
 
 use Symfony\Component\Process\Process;
 
-test('runtime helper prefers sail when sail and a container runtime are available', function (): void {
+test('runtime helper prefers sail only when the sail app service is running', function (): void {
     $path = temp_directory('ai-harness-sail');
 
     pending_artisan('ai-harness:update', [
@@ -24,6 +24,11 @@ BASH);
     file_put_contents($fakeBin.'/docker', <<<'BASH'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "info" ]]; then
+    exit 0
+fi
+
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'mysql\nlaravel.test\n'
     exit 0
 fi
 
@@ -78,4 +83,165 @@ BASH);
 
     expect(trim((string) file_get_contents($runtimeLog)))
         ->toBe('herd php artisan test --configuration=.ai-harness.phpunit.xml --filter=ExampleTest');
+});
+
+test('runtime helper ignores sail when the app service is not running', function (): void {
+    $path = temp_directory('ai-harness-herd-runtime');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf 'sail should not run\n' >> "$RUNTIME_LOG"
+exit 44
+BASH);
+    chmod($path.'/vendor/bin/sail', 0755);
+
+    file_put_contents($fakeBin.'/docker', <<<'BASH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "info" ]]; then
+    exit 0
+fi
+
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'mysql\n'
+    exit 0
+fi
+
+exit 1
+BASH);
+    chmod($fakeBin.'/docker', 0755);
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'migrate', '--env=testing'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php artisan migrate --env=testing');
+});
+
+test('runtime helper honors custom sail app service names', function (): void {
+    $path = temp_directory('ai-harness-custom-sail');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf 'sail %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($path.'/vendor/bin/sail', 0755);
+
+    file_put_contents($fakeBin.'/docker', <<<'BASH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "info" ]]; then
+    exit 0
+fi
+
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'mysql\napp\n'
+    exit 0
+fi
+
+exit 1
+BASH);
+    chmod($fakeBin.'/docker', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'migrate', '--env=testing'],
+        $path,
+        [
+            'APP_SERVICE' => 'app',
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('sail artisan migrate --env=testing');
+});
+
+test('runtime helper resolves herd from the well known macos path', function (): void {
+    $path = temp_directory('ai-harness-herd-known-path');
+    $home = temp_directory('ai-harness-home');
+    $herdDirectory = $home.'/Library/Application Support/Herd/bin';
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $runtimeLog = temp_file('runtime-log');
+
+    mkdir($herdDirectory, 0755, true);
+    file_put_contents($herdDirectory.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($herdDirectory.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'migrate', '--env=testing'],
+        $path,
+        [
+            'HOME' => $home,
+            'PATH' => '/usr/bin:/bin:/usr/sbin:/sbin',
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php artisan migrate --env=testing');
+});
+
+test('runtime helper skips doctor successfully while vendor autoload is missing', function (): void {
+    $path = temp_directory('ai-harness-doctor-missing-vendor');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'ai-harness:doctor'],
+        $path,
+        [
+            'PATH' => '/usr/bin:/bin:/usr/sbin:/sbin',
+        ],
+    );
+
+    $process->mustRun();
+
+    expect($process->getErrorOutput())
+        ->toContain('ai-harness:doctor skipped: provisioning in progress; vendor/autoload.php is missing.');
 });

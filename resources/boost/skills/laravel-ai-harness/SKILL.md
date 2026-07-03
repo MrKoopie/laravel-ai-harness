@@ -25,7 +25,7 @@ Use this skill when work touches Laravel AI Harness installation, generated AI a
 ## Drivers And Optional Features
 
 - Agent drivers describe which agent surfaces receive harness guidance, such as Codex and Claude.
-- Runtime drivers describe how commands run locally, preferring Sail when its Docker or Podman runtime is reachable, then Herd, then bare PHP.
+- Runtime drivers describe how commands run locally, preferring Sail only when the Sail app service is running, then Herd, then bare PHP.
 - `--with=docker` installs Docker-oriented helper files.
 - `--with=polyscope` installs Polyscope configuration.
 - Herd support is runtime detection in `.dev/bin/ai-harness`; it does not currently create a separate Herd file.

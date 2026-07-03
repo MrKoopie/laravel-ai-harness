@@ -23,8 +23,8 @@ test('update command writes the initial harness files', function (): void {
         ->toContain('repo_root="${CODEX_WORKTREE_PATH:-$(cd -- "${script_dir}/../.." && pwd -P)}"')
         ->toContain('sail_runtime_available()')
         ->toContain('uses_phpunit_configuration()')
-        ->toContain('docker info >/dev/null 2>&1')
-        ->toContain('podman info >/dev/null 2>&1')
+        ->toContain('docker compose ps --status=running --services')
+        ->toContain('APP_SERVICE')
         ->and(is_executable($path.'/.dev/bin/ai-harness'))->toBeTrue()
         ->and($path.'/.codex/scripts/local-environment.sh')->toBeFile()
         ->and(file_get_contents($path.'/.codex/scripts/local-environment.sh'))
@@ -80,9 +80,8 @@ test('claude settings reference generated worktree scripts', function (): void {
     });
 
     expect($commands)
-        ->toContain('"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-up.sh"')
+        ->toContain('"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-up.sh" && "$CLAUDE_PROJECT_DIR/.dev/bin/ai-harness" ai-harness:doctor')
         ->toContain('"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-down.sh"')
-        ->toContain('"$CLAUDE_PROJECT_DIR/.dev/bin/ai-harness" ai-harness:doctor')
         ->and($path.'/.claude/scripts/worktree-up.sh')->toBeFile()
         ->and($path.'/.claude/scripts/worktree-down.sh')->toBeFile()
         ->and(is_executable($path.'/.claude/scripts/worktree-up.sh'))->toBeTrue()

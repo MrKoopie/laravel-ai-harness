@@ -46,6 +46,25 @@ json_value() {
     esac
 }
 
+json_escape() {
+    local value="${1}"
+
+    if command -v php >/dev/null 2>&1; then
+        AI_HARNESS_JSON_VALUE="${value}" php -r 'echo json_encode(getenv("AI_HARNESS_JSON_VALUE"), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);'
+
+        return
+    fi
+
+    printf '"%s"' "$(printf '%s' "${value}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+emit_failure_context() {
+    local failed_step="${1}" log_file="${2}" message
+
+    message="Laravel AI Harness provisioning failed step: ${failed_step}. Log: ${log_file}"
+    printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":%s}}\n' "$(json_escape "${message}")"
+}
+
 resolve_worktree_root() {
     local candidate="${1}"
     local root after name prefix
@@ -112,9 +131,26 @@ if [[ -f "${marker}" ]]; then
 fi
 
 mkdir -p "${worktree_path}/.claude"
+log_file="${worktree_path}/.claude/ai-harness-worktree-up.log"
 
+set +e
 WORKTREE_PROFILE=codex \
 CODEX_WORKTREE_PATH="${worktree_path}" \
-bash "${local_environment}" setup
+bash "${local_environment}" setup 2>&1 | tee "${log_file}" >&2
+status=${PIPESTATUS[0]}
+set -e
+
+if [[ "${status}" -ne 0 ]]; then
+    failed_step="setup"
+
+    if [[ -f "${worktree_path}/.codex/local-environment-state/current-step" ]]; then
+        failed_step="$(cat "${worktree_path}/.codex/local-environment-state/current-step")"
+    fi
+
+    printf 'worktree-up: provisioning failed during %s; see %s\n' "${failed_step}" "${log_file}" >&2
+    emit_failure_context "${failed_step}" "${log_file}"
+
+    exit "${status}"
+fi
 
 touch "${marker}"

@@ -29,7 +29,7 @@ final readonly class HarnessUpdater
 
         foreach ($this->manifest->entries($features) as $entry) {
             $target = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$entry->path;
-            $content = $this->renderer->render($this->stub($entry), $this->variables($basePath, $features));
+            $content = $this->render($entry, $basePath, $features);
 
             if ($entry->isBlock()) {
                 $this->blockWriter->write($target, $content);
@@ -47,6 +47,16 @@ final readonly class HarnessUpdater
         return $written;
     }
 
+    /**
+     * Render one manifest entry for the target project without writing it.
+     *
+     * @param  list<string>  $features
+     */
+    public function render(ManifestEntry $entry, string $basePath, array $features = []): string
+    {
+        return $this->withTrailingNewline($this->renderer->render($this->stub($entry), $this->variables($basePath, $features)));
+    }
+
     private function writeFile(string $target, string $content): void
     {
         $directory = dirname($target);
@@ -55,11 +65,16 @@ final readonly class HarnessUpdater
             throw new RuntimeException("Unable to create directory [{$directory}].");
         }
 
-        $content = str_ends_with($content, "\n") ? $content : $content."\n";
+        $content = $this->withTrailingNewline($content);
 
         if (file_put_contents($target, $content) !== strlen($content)) {
             throw new RuntimeException("Unable to write file [{$target}].");
         }
+    }
+
+    private function withTrailingNewline(string $content): string
+    {
+        return str_ends_with($content, "\n") ? $content : $content."\n";
     }
 
     private function stub(ManifestEntry $entry): string

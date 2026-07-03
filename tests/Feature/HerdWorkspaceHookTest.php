@@ -35,6 +35,7 @@ BASH);
 
     expect($log)
         ->toContain('link '.$siteName.' --no-interaction')
+        ->toContain('secure '.$siteName)
         ->toContain('unlink '.$siteName);
 });
 
@@ -286,7 +287,7 @@ BASH);
     $phpunitConfig = $path.'/.ai-harness.phpunit.xml';
 
     expect(file_get_contents($path.'/.env'))
-        ->toContain('APP_URL=http://'.$siteName.'.test')
+        ->toContain('APP_URL=https://'.$siteName.'.test')
         ->toContain('DB_DATABASE='.$database)
         ->toContain('AI_HARNESS_TEST_DB_DATABASE='.$testingDatabase)
         ->and($database)
@@ -372,6 +373,196 @@ test('codex setup fails fast for unsupported database connections', function ():
 
     expect($process->getExitCode())->toBe(1)
         ->and($process->getErrorOutput())->toContain('unsupported DB_CONNECTION=pgsql');
+});
+
+test('codex setup resolves herd from the well known macos path', function (): void {
+    $path = temp_directory('ai-harness-herd-known-path');
+    $home = temp_directory('ai-harness-home');
+    $herdDirectory = $home.'/Library/Application Support/Herd/bin';
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://example.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    mkdir($herdDirectory, 0755, true);
+    file_put_contents($herdDirectory.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
+BASH);
+    chmod($herdDirectory.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
+
+    $siteName = emitted_herd_site_name($herdLog);
+
+    expect(file_get_contents($herdLog))
+        ->toContain('link '.$siteName.' --no-interaction')
+        ->toContain('secure '.$siteName)
+        ->and(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.$siteName.'.test');
+});
+
+test('codex setup keeps the baked herd feature when project config only provides the default false value', function (): void {
+    $path = temp_directory('ai-harness-herd-baked-feature');
+
+    mkdir($path.'/config', 0755, true);
+    file_put_contents($path.'/config/ai-harness.php', <<<'PHP'
+<?php
+
+return [
+    'features' => [
+        'herd' => env('AI_HARNESS_HERD', false),
+    ],
+];
+PHP);
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://example.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    $siteName = emitted_herd_site_name($herdLog);
+
+    expect(file_get_contents($herdLog))
+        ->toContain('link '.$siteName.' --no-interaction')
+        ->toContain('secure '.$siteName)
+        ->and(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.$siteName.'.test');
+});
+
+test('codex setup enables herd from runtime project config when the baked flag is disabled', function (): void {
+    $path = temp_directory('ai-harness-herd-runtime-config');
+
+    mkdir($path.'/config', 0755, true);
+    file_put_contents($path.'/config/ai-harness.php', <<<'PHP'
+<?php
+
+return [
+    'features' => [
+        'herd' => true,
+    ],
+];
+PHP);
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://example.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    $siteName = emitted_herd_site_name($herdLog);
+
+    expect(file_get_contents($herdLog))
+        ->toContain('link '.$siteName.' --no-interaction')
+        ->toContain('secure '.$siteName)
+        ->and(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.$siteName.'.test');
+});
+
+test('codex setup warns and keeps shared app url when herd is enabled but unavailable', function (): void {
+    $path = temp_directory('ai-harness-herd-missing-setup');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    $process = run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ]);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())
+        ->toContain('Herd workspace requested but Herd CLI could not be resolved; worktree will reuse the shared APP_URL.')
+        ->and(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=http://shared.test')
+        ->not()->toContain('APP_URL=https://');
 });
 
 test('codex cleanup removes generated phpunit config after wiring the generated testing database', function (): void {
@@ -692,6 +883,11 @@ if [[ "${1:-}" == "info" ]]; then
     exit 0
 fi
 
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'laravel.test\n'
+    exit 0
+fi
+
 exit 1
 BASH);
     chmod($fakeBin.'/docker', 0755);
@@ -761,6 +957,11 @@ if [[ "${1:-}" == "info" ]]; then
     exit 0
 fi
 
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'laravel.test\n'
+    exit 0
+fi
+
 exit 1
 BASH);
     chmod($fakeBin.'/docker', 0755);
@@ -819,6 +1020,11 @@ if [[ "${1:-}" == "info" ]]; then
     exit 0
 fi
 
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'laravel.test\n'
+    exit 0
+fi
+
 exit 1
 BASH);
     chmod($fakeBin.'/docker', 0755);
@@ -871,6 +1077,11 @@ test('mysql cleanup uses recorded database targets when env changes after setup'
     file_put_contents($fakeBin.'/docker', <<<'BASH'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "info" ]]; then
+    exit 0
+fi
+
+if [[ "${1:-}" == "compose" && "${2:-}" == "ps" ]]; then
+    printf 'laravel.test\n'
     exit 0
 fi
 
@@ -940,15 +1151,17 @@ test('codex local environment runs from the generated worktree checkout', functi
  */
 function run_local_environment(string $path, string $action, string $fakeBin, string $herdLog, array $environment = []): Process
 {
+    $defaults = [
+        'CODEX_WORKTREE_PATH' => $path,
+        'HERD_LOG' => $herdLog,
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'WORKTREE_PROFILE' => 'codex',
+    ];
+
     return new Process(
         ['bash', $path.'/.codex/scripts/local-environment.sh', $action],
         $path,
-        [
-            'CODEX_WORKTREE_PATH' => $path,
-            'HERD_LOG' => $herdLog,
-            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
-            'WORKTREE_PROFILE' => 'codex',
-        ] + $environment,
+        array_merge($defaults, $environment),
     );
 }
 
