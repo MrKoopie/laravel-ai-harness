@@ -298,7 +298,14 @@ final readonly class HarnessUpdater
             return trim($configured);
         }
 
-        $remoteHeadPath = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'.git'.DIRECTORY_SEPARATOR.'refs'.DIRECTORY_SEPARATOR.'remotes'.DIRECTORY_SEPARATOR.'origin'.DIRECTORY_SEPARATOR.'HEAD';
+        $remoteDirectory = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'.git'.DIRECTORY_SEPARATOR.'refs'.DIRECTORY_SEPARATOR.'remotes'.DIRECTORY_SEPARATOR.'origin';
+        $originMainPath = $remoteDirectory.DIRECTORY_SEPARATOR.'main';
+
+        if (is_readable($originMainPath)) {
+            return 'origin/main';
+        }
+
+        $remoteHeadPath = $remoteDirectory.DIRECTORY_SEPARATOR.'HEAD';
 
         if (is_readable($remoteHeadPath)) {
             $remoteHeadContents = file_get_contents($remoteHeadPath);

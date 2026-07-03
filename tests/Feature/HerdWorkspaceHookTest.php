@@ -296,9 +296,12 @@ BASH);
         ->toEndWith('_testing_'.path_checksum($path).'.sqlite')
         ->and($databasePath)->toBeFile()
         ->and($testingDatabasePath)->toBeFile()
+        ->and(file_get_contents($path.'/.env.testing'))
+        ->toContain('DB_CONNECTION=sqlite')
+        ->toContain('DB_DATABASE='.$testingDatabase)
+        ->toContain('DB_URL=')
         ->and(file_get_contents($path.'/phpunit.xml'))
-        ->toContain('name="DB_CONNECTION" value="sqlite" force="true"')
-        ->toContain('name="DB_DATABASE" value="'.$testingDatabase.'" force="true"')
+        ->toBe($phpunit)
         ->and(file_get_contents($path.'/artisan.log'))
         ->toContain('key:generate --ansi')
         ->toContain('migrate --force --ansi')
@@ -370,8 +373,8 @@ test('codex setup fails fast for unsupported database connections', function ():
         ->and($process->getErrorOutput())->toContain('unsupported DB_CONNECTION=pgsql');
 });
 
-test('codex cleanup restores phpunit after wiring the generated testing database', function (): void {
-    $path = temp_directory('ai-harness-phpunit-restore');
+test('codex cleanup removes generated env testing file after wiring the generated testing database', function (): void {
+    $path = temp_directory('ai-harness-env-testing-remove');
 
     file_put_contents($path.'/.env.example', implode("\n", [
         'APP_URL=http://example.test',
@@ -381,17 +384,6 @@ test('codex cleanup restores phpunit after wiring the generated testing database
         '',
     ]));
     file_put_contents($path.'/artisan', '');
-    $phpunit = <<<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit>
-    <php>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-        <env name="DB_URL" value=""/>
-    </php>
-</phpunit>
-XML;
-    file_put_contents($path.'/phpunit.xml', $phpunit);
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
@@ -419,13 +411,60 @@ BASH);
         'REAL_PHP' => PHP_BINARY,
     ])->mustRun();
 
-    expect(file_get_contents($path.'/phpunit.xml'))
-        ->toContain(expected_worktree_testing_database_name($path))
-        ->not()->toBe($phpunit);
+    expect(file_get_contents($path.'/.env.testing'))
+        ->toContain('DB_DATABASE=database/'.expected_worktree_testing_database_name($path).'.sqlite');
 
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
-    expect(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit)
+    expect($path.'/.env.testing')->not->toBeFile()
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
+test('codex cleanup restores existing env testing file after wiring the generated testing database', function (): void {
+    $path = temp_directory('ai-harness-env-testing-restore');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://example.test',
+        'APP_KEY=',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+    $envTesting = implode("\n", [
+        'APP_ENV=testing',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=:memory:',
+        '',
+    ]);
+    file_put_contents($path.'/.env.testing', $envTesting);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/.env.testing'))
+        ->toContain('DB_DATABASE=database/'.expected_worktree_testing_database_name($path).'.sqlite')
+        ->not()->toBe($envTesting);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/.env.testing'))->toBe($envTesting)
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
@@ -627,13 +666,16 @@ BASH);
     expect(file_get_contents($path.'/.env'))
         ->toContain('DB_DATABASE='.expected_worktree_database_name($path))
         ->toContain('AI_HARNESS_TEST_DB_DATABASE='.expected_worktree_testing_database_name($path))
+        ->and(file_get_contents($path.'/.env.testing'))
+        ->toContain('DB_CONNECTION=mysql')
+        ->toContain('DB_DATABASE='.expected_worktree_testing_database_name($path))
+        ->toContain('DB_URL=')
         ->and(file_get_contents($sailLog))
         ->toContain('php -r')
         ->toContain('database='.expected_worktree_database_name($path))
         ->toContain('database='.expected_worktree_testing_database_name($path))
         ->and(file_get_contents($path.'/phpunit.xml'))
-        ->toContain('name="DB_CONNECTION" value="mysql" force="true"')
-        ->toContain('name="DB_DATABASE" value="'.expected_worktree_testing_database_name($path).'" force="true"');
+        ->not()->toContain(expected_worktree_testing_database_name($path));
 });
 
 test('codex setup routes composer install through the runtime helper until autoload exists', function (): void {

@@ -42,6 +42,7 @@ test('update command writes the initial harness files', function (): void {
         ->and($gitignore)
         ->toContain('# ai-harness:start')
         ->toContain('!/.codex/')
+        ->toContain('/.codex/local-environment-state/')
         ->toContain('!/.codex/config.toml')
         ->toContain('!/.codex/scripts/local-environment.sh')
         ->toContain('!/.claude/')
@@ -342,6 +343,25 @@ test('update command derives the worktree base from git remote metadata', functi
     ])->assertSuccessful();
 
     expect(file_get_contents($path.'/AGENTS.md'))->toContain('Default worktree base: origin/develop');
+});
+
+test('update command prefers origin main over a feature branch remote head', function (): void {
+    $path = temp_directory('ai-harness');
+    $remoteDirectory = $path.'/.git/refs/remotes/origin';
+
+    mkdir($remoteDirectory.'/codex', 0755, true);
+    file_put_contents($remoteDirectory.'/HEAD', 'ref: refs/remotes/origin/codex/fix-boost-marker-collision');
+    file_put_contents($remoteDirectory.'/main', str_repeat('0', 40));
+    file_put_contents($remoteDirectory.'/codex/fix-boost-marker-collision', str_repeat('1', 40));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    expect(file_get_contents($path.'/AGENTS.md'))
+        ->toContain('Default worktree base: origin/main')
+        ->and(file_get_contents($path.'/CLAUDE.md'))
+        ->toContain('Fetch origin main before creating worktrees');
 });
 
 test('update command can override generated project metadata from config', function (): void {

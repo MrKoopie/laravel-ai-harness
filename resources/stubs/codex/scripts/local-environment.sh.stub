@@ -210,6 +210,22 @@ remember_original_file() {
     fi
 }
 
+remember_original_file_or_absence() {
+    local target="${1}" backup="${2}" absence_file="${3}"
+
+    mkdir -p "$(managed_state_dir)"
+
+    if [[ -f "${backup}" || -f "${absence_file}" ]]; then
+        return 0
+    fi
+
+    if [[ -f "${target}" ]]; then
+        cp "${target}" "${backup}"
+    else
+        touch "${absence_file}"
+    fi
+}
+
 remember_managed_checksum() {
     local target="${1}" checksum_file="${2}"
 
@@ -240,6 +256,33 @@ restore_managed_file() {
     fi
 }
 
+remove_managed_file_if_unchanged() {
+    local target="${1}" absence_file="${2}" checksum_file="${3}" expected_checksum current_checksum
+
+    [[ -f "${absence_file}" ]] || return 0
+
+    if [[ ! -f "${target}" ]]; then
+        rm -f "${absence_file}" "${checksum_file}"
+
+        return 0
+    fi
+
+    if [[ ! -f "${checksum_file}" ]]; then
+        printf 'local-environment: leaving %s unchanged because no managed checksum exists.\n' "${target}" >&2
+
+        return 0
+    fi
+
+    expected_checksum="$(cat "${checksum_file}")"
+    current_checksum="$(cksum "${target}" 2>/dev/null || true)"
+
+    if [[ "${current_checksum}" == "${expected_checksum}" ]]; then
+        rm -f "${target}" "${absence_file}" "${checksum_file}"
+    else
+        printf 'local-environment: leaving modified %s in place; generated file marker remains at %s.\n' "${target}" "${absence_file}" >&2
+    fi
+}
+
 cleanup_managed_state_dir() {
     local state_dir
 
@@ -250,82 +293,30 @@ cleanup_managed_state_dir() {
     fi
 }
 
-patch_phpunit_database() {
-    local connection="${1}" database="${2}" state_dir backup checksum_file
-
-    [[ -f phpunit.xml ]] || return 0
+configure_testing_environment_file() {
+    local connection="${1}" database="${2}" state_dir backup absence_file checksum_file
 
     state_dir="$(managed_state_dir)"
-    backup="${state_dir}/phpunit.xml.backup"
-    checksum_file="${state_dir}/phpunit.xml.cksum"
+    backup="${state_dir}/.env.testing.backup"
+    absence_file="${state_dir}/.env.testing.absent"
+    checksum_file="${state_dir}/.env.testing.cksum"
 
-    remember_original_file phpunit.xml "${backup}"
+    remember_original_file_or_absence .env.testing "${backup}" "${absence_file}"
 
-    # shellcheck disable=SC2016
-    AI_HARNESS_TEST_DB_CONNECTION="${connection}" \
-    AI_HARNESS_TEST_DB_DATABASE="${database}" \
-    php_runtime -r '
-        $path = "phpunit.xml";
-        $connection = getenv("AI_HARNESS_TEST_DB_CONNECTION") ?: "sqlite";
-        $database = getenv("AI_HARNESS_TEST_DB_DATABASE");
+    set_env_file_value .env.testing DB_CONNECTION "${connection}"
+    set_env_file_value .env.testing DB_DATABASE "${database}"
+    set_env_file_value .env.testing DB_URL ""
 
-        if (! is_string($database) || $database === "") {
-            fwrite(STDERR, "Missing testing database name.\n");
-            exit(2);
-        }
-
-        $document = new DOMDocument();
-        $document->preserveWhiteSpace = true;
-        $document->formatOutput = true;
-
-        if (! $document->load($path)) {
-            fwrite(STDERR, "Unable to read phpunit.xml.\n");
-            exit(2);
-        }
-
-        $php = $document->getElementsByTagName("php")->item(0);
-
-        if (! $php instanceof DOMElement) {
-            $php = $document->createElement("php");
-            $document->documentElement?->appendChild($php);
-        }
-
-        $setEnv = function (string $name, string $value) use ($document, $php): void {
-            foreach ($php->getElementsByTagName("env") as $env) {
-                if ($env instanceof DOMElement && $env->getAttribute("name") === $name) {
-                    $env->setAttribute("value", $value);
-                    $env->setAttribute("force", "true");
-
-                    return;
-                }
-            }
-
-            $env = $document->createElement("env");
-            $env->setAttribute("name", $name);
-            $env->setAttribute("value", $value);
-            $env->setAttribute("force", "true");
-            $php->appendChild($env);
-        };
-
-        $setEnv("DB_CONNECTION", $connection);
-        $setEnv("DB_DATABASE", $database);
-        $setEnv("DB_URL", "");
-
-        if ($document->save($path) === false) {
-            fwrite(STDERR, "Unable to write phpunit.xml.\n");
-            exit(2);
-        }
-    '
-
-    remember_managed_checksum phpunit.xml "${checksum_file}"
+    remember_managed_checksum .env.testing "${checksum_file}"
 }
 
-restore_phpunit_database() {
+restore_testing_environment_file() {
     local state_dir
 
     state_dir="$(managed_state_dir)"
 
-    restore_managed_file phpunit.xml "${state_dir}/phpunit.xml.backup" "${state_dir}/phpunit.xml.cksum"
+    restore_managed_file .env.testing "${state_dir}/.env.testing.backup" "${state_dir}/.env.testing.cksum"
+    remove_managed_file_if_unchanged .env.testing "${state_dir}/.env.testing.absent" "${state_dir}/.env.testing.cksum"
     cleanup_managed_state_dir
 }
 
@@ -390,13 +381,13 @@ configure_worktree_testing_database() {
             mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
             touch "$(sqlite_database_path "${sqlite_path}")"
             remember_database_target TEST "${connection}" "${sqlite_path}"
-            patch_phpunit_database "${connection}" "${sqlite_path}"
+            configure_testing_environment_file "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${testing_database_name}"
             create_mysql_database "${testing_database_name}"
             remember_database_target TEST "${connection}" "${testing_database_name}"
-            patch_phpunit_database "${connection}" "${testing_database_name}"
+            configure_testing_environment_file "${connection}" "${testing_database_name}"
             ;;
         *)
             printf 'local-environment: unsupported DB_CONNECTION=%s for managed Codex testing database.\n' "${connection}" >&2
@@ -665,7 +656,7 @@ case "${action}" in
 
         status=0
         drop_worktree_database || status=$?
-        restore_phpunit_database || status=$?
+        restore_testing_environment_file || status=$?
         unlink_herd_workspace || status=$?
 
         exit "${status}"

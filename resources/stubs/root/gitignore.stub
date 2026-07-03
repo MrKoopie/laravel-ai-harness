@@ -18,6 +18,7 @@
 !/.claude/skills/laravel-ai-harness/
 !/.claude/skills/laravel-ai-harness/SKILL.md
 !/.codex/
+/.codex/local-environment-state/
 !/.codex/config.toml
 !/.codex/environments/
 !/.codex/environments/environment.toml
