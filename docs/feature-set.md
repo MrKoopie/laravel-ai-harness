@@ -6,7 +6,7 @@ Laravel AI Harness starts with the features extracted from the existing Laravel 
 - Shared MCP configuration for Laravel Boost.
 - Project-local helper scripts so agents can call Artisan through Herd, Sail, or local PHP.
 - Generated Codex and Claude hooks for worktree/session setup.
-- Shared worktree provisioning that configures an isolated `APP_URL`, app database, companion testing database, app key, app/testing migrations, managed `phpunit.xml` test database wiring, cleanup restoration, and doctor check.
+- Shared worktree provisioning that configures an isolated `APP_URL`, app database, companion testing database, app key, app/testing migrations, ignored generated PHPUnit test database wiring, cleanup restoration, and doctor check.
 - Optional Herd link/unlink automation for temporary Codex and Claude worktrees.
 - Generated local skills for harness-aware agent behavior.
 - A managed `.gitignore` block that keeps generated harness files trackable in Laravel projects that ignore `.codex` or similar local directories.

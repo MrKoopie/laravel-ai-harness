@@ -45,3 +45,38 @@ BASH);
     expect(trim((string) file_get_contents($runtimeLog)))
         ->toBe('sail artisan migrate --env=testing');
 });
+
+test('runtime helper passes generated phpunit config to artisan test', function (): void {
+    $path = temp_directory('ai-harness-test-config');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/phpunit.xml', '<phpunit/>');
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'test', '--filter=ExampleTest'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php artisan test --configuration='.$path.'/.codex/local-environment-state/phpunit.xml --filter=ExampleTest');
+});

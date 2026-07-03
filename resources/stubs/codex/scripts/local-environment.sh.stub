@@ -200,24 +200,6 @@ remember_database_target() {
     set_env_file_value "${state_file}" "${role}_DB_DATABASE" "${database}"
 }
 
-remember_original_file() {
-    local target="${1}" backup="${2}"
-
-    mkdir -p "$(managed_state_dir)"
-
-    if [[ -f "${target}" && ! -f "${backup}" ]]; then
-        cp "${target}" "${backup}"
-    fi
-}
-
-remember_managed_checksum() {
-    local target="${1}" checksum_file="${2}"
-
-    if [[ -f "${target}" ]]; then
-        cksum "${target}" > "${checksum_file}"
-    fi
-}
-
 restore_managed_file() {
     local target="${1}" backup="${2}" checksum_file="${3}" expected_checksum current_checksum
 
@@ -240,47 +222,6 @@ restore_managed_file() {
     fi
 }
 
-managed_git_file_marker() {
-    local target="${1}"
-
-    printf '%s\n' "$(managed_state_dir)/$(basename "${target}").skip-worktree"
-}
-
-managed_git_file_is_tracked() {
-    local target="${1}"
-
-    git -C "${repo_root}" ls-files --error-unmatch -- "${target}" >/dev/null 2>&1
-}
-
-managed_git_file_is_clean() {
-    local target="${1}"
-
-    git -C "${repo_root}" diff --quiet -- "${target}" 2>/dev/null || return 1
-    git -C "${repo_root}" diff --cached --quiet -- "${target}" 2>/dev/null || return 1
-}
-
-hide_managed_git_file() {
-    local target="${1}" marker
-
-    marker="$(managed_git_file_marker "${target}")"
-    mkdir -p "$(dirname "${marker}")"
-
-    if git -C "${repo_root}" update-index --skip-worktree -- "${target}" 2>/dev/null; then
-        touch "${marker}"
-    fi
-}
-
-unhide_managed_git_file() {
-    local target="${1}" marker
-
-    marker="$(managed_git_file_marker "${target}")"
-
-    [[ -f "${marker}" ]] || return 0
-
-    git -C "${repo_root}" update-index --no-skip-worktree -- "${target}" 2>/dev/null || true
-    rm -f "${marker}"
-}
-
 cleanup_managed_state_dir() {
     local state_dir
 
@@ -291,29 +232,32 @@ cleanup_managed_state_dir() {
     fi
 }
 
-patch_phpunit_database() {
-    local connection="${1}" database="${2}" state_dir backup checksum_file hide_from_git_status
+managed_phpunit_config_file() {
+    printf '%s\n' "$(managed_state_dir)/phpunit.xml"
+}
+
+configure_phpunit_database() {
+    local connection="${1}" database="${2}" config_file
 
     [[ -f phpunit.xml ]] || return 0
 
-    state_dir="$(managed_state_dir)"
-    backup="${state_dir}/phpunit.xml.backup"
-    checksum_file="${state_dir}/phpunit.xml.cksum"
-    hide_from_git_status=0
-
-    if managed_git_file_is_tracked phpunit.xml && managed_git_file_is_clean phpunit.xml; then
-        hide_from_git_status=1
-    fi
-
-    remember_original_file phpunit.xml "${backup}"
+    config_file="$(managed_phpunit_config_file)"
+    mkdir -p "$(dirname "${config_file}")"
 
     # shellcheck disable=SC2016
     AI_HARNESS_TEST_DB_CONNECTION="${connection}" \
     AI_HARNESS_TEST_DB_DATABASE="${database}" \
+    AI_HARNESS_PHPUNIT_CONFIG="${config_file}" \
     php_runtime -r '
-        $path = "phpunit.xml";
+        $sourcePath = "phpunit.xml";
+        $targetPath = getenv("AI_HARNESS_PHPUNIT_CONFIG");
         $connection = getenv("AI_HARNESS_TEST_DB_CONNECTION") ?: "sqlite";
         $database = getenv("AI_HARNESS_TEST_DB_DATABASE");
+
+        if (! is_string($targetPath) || $targetPath === "") {
+            fwrite(STDERR, "Missing generated PHPUnit config path.\n");
+            exit(2);
+        }
 
         if (! is_string($database) || $database === "") {
             fwrite(STDERR, "Missing testing database name.\n");
@@ -324,7 +268,7 @@ patch_phpunit_database() {
         $document->preserveWhiteSpace = true;
         $document->formatOutput = true;
 
-        if (! $document->load($path)) {
+        if (! $document->load($sourcePath)) {
             fwrite(STDERR, "Unable to read phpunit.xml.\n");
             exit(2);
         }
@@ -357,17 +301,11 @@ patch_phpunit_database() {
         $setEnv("DB_DATABASE", $database);
         $setEnv("DB_URL", "");
 
-        if ($document->save($path) === false) {
-            fwrite(STDERR, "Unable to write phpunit.xml.\n");
+        if ($document->save($targetPath) === false) {
+            fwrite(STDERR, "Unable to write generated PHPUnit config.\n");
             exit(2);
         }
     '
-
-    remember_managed_checksum phpunit.xml "${checksum_file}"
-
-    if [[ "${hide_from_git_status}" -eq 1 ]]; then
-        hide_managed_git_file phpunit.xml
-    fi
 }
 
 restore_phpunit_database() {
@@ -375,8 +313,8 @@ restore_phpunit_database() {
 
     state_dir="$(managed_state_dir)"
 
-    unhide_managed_git_file phpunit.xml
     restore_managed_file phpunit.xml "${state_dir}/phpunit.xml.backup" "${state_dir}/phpunit.xml.cksum"
+    rm -f "$(managed_phpunit_config_file)"
     cleanup_managed_state_dir
 }
 
@@ -441,13 +379,13 @@ configure_worktree_testing_database() {
             mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
             touch "$(sqlite_database_path "${sqlite_path}")"
             remember_database_target TEST "${connection}" "${sqlite_path}"
-            patch_phpunit_database "${connection}" "${sqlite_path}"
+            configure_phpunit_database "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${testing_database_name}"
             create_mysql_database "${testing_database_name}"
             remember_database_target TEST "${connection}" "${testing_database_name}"
-            patch_phpunit_database "${connection}" "${testing_database_name}"
+            configure_phpunit_database "${connection}" "${testing_database_name}"
             ;;
         *)
             printf 'local-environment: unsupported DB_CONNECTION=%s for managed Codex testing database.\n' "${connection}" >&2

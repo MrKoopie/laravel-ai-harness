@@ -323,7 +323,9 @@ final readonly class HarnessUpdater
 
     private function gitRefExists(string $basePath, string $ref): bool
     {
-        if (is_readable($this->gitPath($basePath, $ref))) {
+        $looseRefPath = $this->gitPath($basePath, $ref);
+
+        if (is_file($looseRefPath) && is_readable($looseRefPath)) {
             return true;
         }
 

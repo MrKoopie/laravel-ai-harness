@@ -22,6 +22,7 @@ test('update command writes the initial harness files', function (): void {
         ->toContain('script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"')
         ->toContain('repo_root="${CODEX_WORKTREE_PATH:-$(cd -- "${script_dir}/../.." && pwd -P)}"')
         ->toContain('sail_runtime_available()')
+        ->toContain('uses_phpunit_configuration()')
         ->toContain('docker info >/dev/null 2>&1')
         ->toContain('podman info >/dev/null 2>&1')
         ->and(is_executable($path.'/.dev/bin/ai-harness'))->toBeTrue()
@@ -387,6 +388,23 @@ test('update command detects origin main in packed refs before remote head', fun
         ->toContain('Worktree setup: fetch origin/main before creating a new worktree.')
         ->and(file_get_contents($path.'/CLAUDE.md'))
         ->toContain('Fetch origin/main before creating worktrees');
+});
+
+test('update command ignores origin main namespace directories', function (): void {
+    $path = temp_directory('ai-harness');
+    $remoteDirectory = $path.'/.git/refs/remotes/origin';
+
+    mkdir($remoteDirectory.'/main', 0755, true);
+    file_put_contents($remoteDirectory.'/HEAD', 'ref: refs/remotes/origin/develop');
+    file_put_contents($remoteDirectory.'/main/fix', str_repeat('0', 40));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    expect(file_get_contents($path.'/AGENTS.md'))
+        ->toContain('Default worktree base: origin/develop')
+        ->toContain('Worktree setup: fetch origin/develop before creating a new worktree.');
 });
 
 test('update command can override generated project metadata from config', function (): void {

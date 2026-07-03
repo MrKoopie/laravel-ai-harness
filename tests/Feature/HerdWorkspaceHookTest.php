@@ -283,6 +283,7 @@ BASH);
     $testingDatabase = env_value($path, 'AI_HARNESS_TEST_DB_DATABASE');
     $databasePath = $path.'/'.$database;
     $testingDatabasePath = $path.'/'.$testingDatabase;
+    $phpunitConfig = $path.'/.codex/local-environment-state/phpunit.xml';
 
     expect(file_get_contents($path.'/.env'))
         ->toContain('APP_URL=http://'.$siteName.'.test')
@@ -296,10 +297,12 @@ BASH);
         ->toEndWith('_testing_'.path_checksum($path).'.sqlite')
         ->and($databasePath)->toBeFile()
         ->and($testingDatabasePath)->toBeFile()
-        ->and(file_get_contents($path.'/phpunit.xml'))
+        ->and(file_get_contents($phpunitConfig))
         ->toContain('name="DB_CONNECTION" value="sqlite" force="true"')
         ->toContain('name="DB_DATABASE" value="'.$testingDatabase.'" force="true"')
         ->toContain('name="DB_URL" value="" force="true"')
+        ->and(file_get_contents($path.'/phpunit.xml'))
+        ->toBe($phpunit)
         ->and(file_get_contents($path.'/artisan.log'))
         ->toContain('key:generate --ansi')
         ->toContain('migrate --force --ansi')
@@ -371,8 +374,8 @@ test('codex setup fails fast for unsupported database connections', function ():
         ->and($process->getErrorOutput())->toContain('unsupported DB_CONNECTION=pgsql');
 });
 
-test('codex cleanup restores phpunit after wiring the generated testing database', function (): void {
-    $path = temp_directory('ai-harness-phpunit-restore');
+test('codex cleanup removes generated phpunit config after wiring the generated testing database', function (): void {
+    $path = temp_directory('ai-harness-phpunit-config-remove');
 
     file_put_contents($path.'/.env.example', implode("\n", [
         'APP_URL=http://example.test',
@@ -419,18 +422,21 @@ BASH);
         'REAL_PHP' => PHP_BINARY,
     ])->mustRun();
 
-    expect(file_get_contents($path.'/phpunit.xml'))
+    $phpunitConfig = $path.'/.codex/local-environment-state/phpunit.xml';
+
+    expect(file_get_contents($phpunitConfig))
         ->toContain('DB_DATABASE')
         ->toContain('database/'.expected_worktree_testing_database_name($path).'.sqlite')
-        ->not()->toBe($phpunit);
+        ->not()->toBe($phpunit)
+        ->and(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit);
 
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
-    expect(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit)
+    expect($phpunitConfig)->not->toBeFile()
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
-test('codex setup hides managed phpunit patch from git status until cleanup', function (): void {
+test('codex setup leaves tracked phpunit edits visible in git status', function (): void {
     $path = temp_directory('ai-harness-phpunit-git-status');
 
     file_put_contents($path.'/.env.example', implode("\n", [
@@ -487,17 +493,62 @@ BASH);
     $setupStatus = new Process(['git', 'status', '--short', '--', 'phpunit.xml'], $path);
     $setupStatus->mustRun();
 
-    expect(file_get_contents($path.'/phpunit.xml'))
+    expect(file_get_contents($path.'/.codex/local-environment-state/phpunit.xml'))
         ->toContain('database/'.expected_worktree_testing_database_name($path).'.sqlite')
+        ->and(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit)
         ->and(trim($setupStatus->getOutput()))->toBe('');
+
+    file_put_contents($path.'/phpunit.xml', str_replace('</phpunit>', "    <!-- custom phpunit edit -->\n</phpunit>", $phpunit));
+
+    $manualEditStatus = new Process(['git', 'status', '--short', '--', 'phpunit.xml'], $path);
+    $manualEditStatus->mustRun();
+
+    expect(trim($manualEditStatus->getOutput()))->toBe('M phpunit.xml');
 
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
     $cleanupStatus = new Process(['git', 'status', '--short', '--', 'phpunit.xml'], $path);
     $cleanupStatus->mustRun();
 
+    expect(trim($cleanupStatus->getOutput()))->toBe('M phpunit.xml')
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
+test('codex cleanup restores legacy phpunit backup state', function (): void {
+    $path = temp_directory('ai-harness-phpunit-legacy-restore');
+
+    $phpunit = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit>
+    <php>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+    </php>
+</phpunit>
+XML;
+    $patchedPhpunit = str_replace('value=":memory:"', 'value="database/legacy_testing.sqlite" force="true"', $phpunit);
+
+    file_put_contents($path.'/phpunit.xml', $patchedPhpunit);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/phpunit.xml.backup', $phpunit);
+
+    $checksum = new Process(['cksum', 'phpunit.xml'], $path);
+    $checksum->mustRun();
+    file_put_contents($path.'/.codex/local-environment-state/phpunit.xml.cksum', $checksum->getOutput());
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
     expect(file_get_contents($path.'/phpunit.xml'))->toBe($phpunit)
-        ->and(trim($cleanupStatus->getOutput()))->toBe('')
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
@@ -674,7 +725,7 @@ BASH);
 
     file_put_contents($fakeBin.'/php', <<<'BASH'
 #!/usr/bin/env bash
-printf 'bare php should not patch phpunit.xml when sail is available\n' >&2
+printf 'bare php should not generate phpunit config when sail is available\n' >&2
 exit 44
 BASH);
     chmod($fakeBin.'/php', 0755);
@@ -703,10 +754,12 @@ BASH);
         ->toContain('php -r')
         ->toContain('database='.expected_worktree_database_name($path))
         ->toContain('database='.expected_worktree_testing_database_name($path))
-        ->and(file_get_contents($path.'/phpunit.xml'))
+        ->and(file_get_contents($path.'/.codex/local-environment-state/phpunit.xml'))
         ->toContain('name="DB_CONNECTION" value="mysql" force="true"')
         ->toContain('name="DB_DATABASE" value="'.expected_worktree_testing_database_name($path).'" force="true"')
-        ->toContain('name="DB_URL" value="" force="true"');
+        ->toContain('name="DB_URL" value="" force="true"')
+        ->and(file_get_contents($path.'/phpunit.xml'))
+        ->not()->toContain(expected_worktree_testing_database_name($path));
 });
 
 test('codex setup routes composer install through the runtime helper until autoload exists', function (): void {
