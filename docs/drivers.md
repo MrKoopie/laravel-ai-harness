@@ -36,8 +36,8 @@ Runtime drivers describe how the harness should execute Laravel commands in the 
 - Purpose: run Artisan through Laravel Herd's PHP.
 - Command shape: `herd php artisan ...`
 - Best for: macOS Herd projects where Herd owns the active PHP version.
-- Generated files: none beyond the default Codex and Claude worktree hooks. The generated `.dev/bin/ai-harness` helper auto-detects Herd as a fallback when Sail is unavailable.
-- Workspace automation: when `AI_HARNESS_HERD=true` or `--with=herd` is used, the generated worktree setup links the temporary worktree in Herd, sets `APP_URL` to the generated Herd site, configures per-worktree app and testing databases, runs app/testing migrations, and writes an ignored generated PHPUnit config for the testing database. The `.dev/bin/ai-harness test` helper uses that config automatically unless the caller provides `--configuration`. Cleanup removes generated PHPUnit state, restores legacy managed `phpunit.xml` backups when present, removes the owned databases, and unlinks the Herd site.
+- Generated files: none beyond the default Codex and Claude worktree hooks. The generated `.dev/bin/ai-harness` helper auto-detects Herd as a fallback when the Sail app service is not running.
+- Workspace automation: when `AI_HARNESS_HERD=true` or `--with=herd` is used, the generated worktree setup links and secures the temporary worktree in Herd, sets `APP_URL` to the generated HTTPS Herd site, configures per-worktree app and testing databases, runs app/testing migrations, and writes an ignored generated PHPUnit config for the testing database. The `.dev/bin/ai-harness test` helper uses that config automatically unless the caller provides `--configuration`. Cleanup removes generated PHPUnit state, restores legacy managed `phpunit.xml` backups when present, removes the owned databases, and unlinks the Herd site.
 
 `sail`
 

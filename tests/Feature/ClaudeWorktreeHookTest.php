@@ -176,6 +176,43 @@ test('claude session setup skips the main checkout', function (): void {
     expect(trim((string) file_get_contents($log)))->toBe('');
 });
 
+test('claude worktree setup writes a log and session context when provisioning fails', function (): void {
+    $path = temp_directory('ai-harness-claude-failure');
+    $worktree = $path.'/.claude/worktrees/feature-a';
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    install_failing_local_environment($worktree);
+
+    $process = new Process(
+        [$path.'/.claude/scripts/worktree-up.sh'],
+        $path,
+        [
+            'CLAUDE_PROJECT_DIR' => $path,
+        ],
+    );
+    $process->setInput(json_encode([
+        'tool_response' => [
+            'worktreePath' => $worktree,
+        ],
+    ], JSON_THROW_ON_ERROR));
+    $process->run();
+
+    $logPath = $worktree.'/.claude/ai-harness-worktree-up.log';
+    $hookOutput = json_decode(trim($process->getOutput()), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($process->getExitCode())->toBe(37)
+        ->and($logPath)->toBeFile()
+        ->and(file_get_contents($logPath))->toContain('simulated provisioning failure')
+        ->and($hookOutput['hookSpecificOutput']['additionalContext'])->toContain('failed step: setup')
+        ->toContain($logPath)
+        ->and($process->getOutput())->toContain('"hookSpecificOutput"')
+        ->toContain('failed step: setup')
+        ->toContain($logPath);
+});
+
 function install_fake_local_environment(string $path): void
 {
     if (! is_dir($path.'/.codex/scripts')) {
@@ -191,6 +228,23 @@ set -euo pipefail
     printf 'profile=%s\n' "${WORKTREE_PROFILE:-}"
     printf 'path=%s\n' "${CODEX_WORKTREE_PATH:-}"
 } >> "${HARNESS_WRAPPER_LOG}"
+BASH);
+
+    chmod($path.'/.codex/scripts/local-environment.sh', 0755);
+}
+
+function install_failing_local_environment(string $path): void
+{
+    if (! is_dir($path.'/.codex/scripts')) {
+        mkdir($path.'/.codex/scripts', 0755, true);
+    }
+
+    file_put_contents($path.'/.codex/scripts/local-environment.sh', <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'simulated provisioning failure\n'
+exit 37
 BASH);
 
     chmod($path.'/.codex/scripts/local-environment.sh', 0755);

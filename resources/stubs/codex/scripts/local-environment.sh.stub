@@ -16,15 +16,53 @@ artisan() {
     "${repo_root}/.dev/bin/ai-harness" "$@"
 }
 
-sail_runtime_available() {
-    [[ -x ./vendor/bin/sail ]] || return 1
+herd_binary() {
+    if command -v herd >/dev/null 2>&1; then
+        command -v herd
 
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
         return 0
     fi
 
-    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+    local herd_path="${HOME}/Library/Application Support/Herd/bin/herd"
+
+    if [[ -x "${herd_path}" ]]; then
+        printf '%s\n' "${herd_path}"
+
         return 0
+    fi
+
+    return 1
+}
+
+run_host_php() {
+    if command -v php >/dev/null 2>&1; then
+        php "$@"
+
+        return
+    fi
+
+    local herd_path
+
+    if herd_path="$(herd_binary)"; then
+        "${herd_path}" php "$@"
+
+        return
+    fi
+
+    return 127
+}
+
+sail_runtime_available() {
+    local app_service="${APP_SERVICE:-laravel.test}"
+
+    [[ -x ./vendor/bin/sail ]] || return 1
+
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        docker compose ps --status=running --services 2>/dev/null | grep -Fxq "${app_service}" && return 0
+    fi
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+        podman compose ps --status=running --services 2>/dev/null | grep -Fxq "${app_service}" && return 0
     fi
 
     return 1
@@ -37,8 +75,10 @@ php_runtime() {
         return
     fi
 
-    if command -v herd >/dev/null 2>&1; then
-        herd php "$@"
+    local herd_path
+
+    if herd_path="$(herd_binary)"; then
+        "${herd_path}" php "$@"
 
         return
     fi
@@ -47,7 +87,7 @@ php_runtime() {
 }
 
 composer_runtime_available() {
-    sail_runtime_available || command -v herd >/dev/null 2>&1 || command -v composer >/dev/null 2>&1
+    sail_runtime_available || herd_binary >/dev/null 2>&1 || command -v composer >/dev/null 2>&1
 }
 
 composer_runtime() {
@@ -57,8 +97,10 @@ composer_runtime() {
         return
     fi
 
-    if command -v herd >/dev/null 2>&1; then
-        herd composer "$@"
+    local herd_path
+
+    if herd_path="$(herd_binary)"; then
+        "${herd_path}" composer "$@"
 
         return
     fi
@@ -70,11 +112,133 @@ codex_workspace_requested() {
     [[ "${WORKTREE_PROFILE:-}" == "codex" ]]
 }
 
-herd_workspace_requested() {
-    [[ "${herd_workspace_enabled}" == "1" ]] || return 1
-    [[ "${WORKTREE_PROFILE:-}" == "codex" ]] || return 1
+feature_flag_enabled() {
+    local value
 
-    command -v herd >/dev/null 2>&1
+    value="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+
+    case "${value}" in
+        1|true|yes|on)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+herd_workspace_env_value() {
+    if [[ -n "${AI_HARNESS_HERD+x}" ]]; then
+        printf '%s\n' "${AI_HARNESS_HERD}"
+
+        return 0
+    fi
+
+    if [[ -f .env ]]; then
+        file_env_value .env AI_HARNESS_HERD && return 0
+    fi
+
+    return 1
+}
+
+herd_workspace_config_status() {
+    [[ -f config/ai-harness.php ]] || return 2
+
+    local previous_config_path previous_config_path_was_set status
+
+    previous_config_path_was_set="${AI_HARNESS_CONFIG_PATH+x}"
+    previous_config_path="${AI_HARNESS_CONFIG_PATH:-}"
+
+    export AI_HARNESS_CONFIG_PATH="${repo_root}/config/ai-harness.php"
+
+    set +e
+    # shellcheck disable=SC2016
+    run_host_php -r '
+        function env($key, $default = null) {
+            $value = getenv((string) $key);
+
+            if ($value === false) {
+                return $default;
+            }
+
+            return match (strtolower((string) $value)) {
+                "true", "(true)" => true,
+                "false", "(false)" => false,
+                "empty", "(empty)" => "",
+                "null", "(null)" => null,
+                default => $value,
+            };
+        }
+
+        try {
+            $config = require getenv("AI_HARNESS_CONFIG_PATH");
+            $enabled = is_array($config) ? ($config["features"]["herd"] ?? false) : false;
+
+            exit($enabled === true || $enabled === 1 || $enabled === "1" ? 0 : 1);
+        } catch (Throwable) {
+            exit(2);
+        }
+    '
+    status=$?
+    set -e
+
+    if [[ -n "${previous_config_path_was_set}" ]]; then
+        export AI_HARNESS_CONFIG_PATH="${previous_config_path}"
+    else
+        unset AI_HARNESS_CONFIG_PATH
+    fi
+
+    return "${status}"
+}
+
+runtime_herd_workspace_enabled() {
+    local value status
+
+    if value="$(herd_workspace_env_value)"; then
+        feature_flag_enabled "${value}"
+
+        return
+    fi
+
+    herd_workspace_config_status
+    status=$?
+
+    if [[ "${status}" -eq 0 ]]; then
+        return 0
+    fi
+
+    [[ "${herd_workspace_enabled}" == "1" ]]
+}
+
+herd_workspace_requested() {
+    runtime_herd_workspace_enabled || return 1
+    [[ "${WORKTREE_PROFILE:-}" == "codex" ]] || return 1
+}
+
+warn_herd_unavailable() {
+    local warning_file
+
+    warning_file="$(managed_state_dir)/herd-warning-emitted"
+
+    if [[ -f "${warning_file}" ]]; then
+        return
+    fi
+
+    mkdir -p "$(managed_state_dir)"
+    printf 'local-environment: Herd workspace requested but Herd CLI could not be resolved; worktree will reuse the shared APP_URL.\n' >&2
+    touch "${warning_file}"
+}
+
+herd_workspace_available() {
+    herd_workspace_requested || return 1
+
+    if herd_binary >/dev/null 2>&1; then
+        return 0
+    fi
+
+    warn_herd_unavailable
+
+    return 1
 }
 
 herd_site_name() {
@@ -184,6 +348,20 @@ set_env_file_value() {
 
 managed_state_dir() {
     printf '%s\n' "${repo_root}/.codex/local-environment-state"
+}
+
+current_step_file() {
+    printf '%s\n' "$(managed_state_dir)/current-step"
+}
+
+record_current_step() {
+    mkdir -p "$(managed_state_dir)"
+    printf '%s\n' "${1}" > "$(current_step_file)"
+    printf 'local-environment: %s\n' "${1}"
+}
+
+clear_current_step() {
+    rm -f "$(current_step_file)"
 }
 
 managed_database_state_file() {
@@ -336,8 +514,8 @@ configure_worktree_environment() {
     codex_workspace_requested || return 0
     [[ -f .env ]] || return 0
 
-    if herd_workspace_requested; then
-        set_env_value APP_URL "http://$(herd_site_name).test"
+    if herd_workspace_available; then
+        set_env_value APP_URL "https://$(herd_site_name).test"
     fi
 
     connection="$(env_value DB_CONNECTION || true)"
@@ -568,19 +746,34 @@ drop_mysql_database() {
 }
 
 link_herd_workspace() {
-    if herd_workspace_requested; then
-        herd link "$(herd_site_name)" --no-interaction
+    local herd_path site_name
+
+    herd_workspace_requested || return 0
+
+    if ! herd_path="$(herd_binary)"; then
+        warn_herd_unavailable
+
+        return 0
     fi
+
+    site_name="$(herd_site_name)"
+
+    "${herd_path}" link "${site_name}" --no-interaction
+    "${herd_path}" secure "${site_name}"
 }
 
 unlink_herd_workspace() {
     if herd_workspace_requested; then
-        local output site_name status
+        local herd_path output site_name status
+
+        if ! herd_path="$(herd_binary)"; then
+            return 0
+        fi
 
         site_name="$(herd_site_name)"
 
         set +e
-        output="$(herd unlink "${site_name}" 2>&1)"
+        output="$("${herd_path}" unlink "${site_name}" 2>&1)"
         status=$?
         set -e
 
@@ -623,31 +816,41 @@ case "${action}" in
     setup)
         cd "${repo_root}"
 
+        record_current_step "link Herd workspace"
         link_herd_workspace
 
+        record_current_step "prepare environment file"
         if [[ ! -f .env && -f .env.example ]]; then
             cp .env.example .env
         fi
 
+        record_current_step "configure worktree environment"
         configure_worktree_environment
 
+        record_current_step "install Composer dependencies"
         if [[ ! -f vendor/autoload.php && -f composer.json ]] && composer_runtime_available; then
             composer_runtime install --no-interaction --prefer-dist
         fi
 
+        record_current_step "generate application key"
         if [[ -f artisan ]] && app_key_missing; then
             artisan key:generate --ansi
         fi
 
+        record_current_step "migrate application database"
         if [[ -f artisan ]]; then
             DB_URL="" artisan migrate --force --ansi
         fi
 
+        record_current_step "migrate testing database"
         migrate_testing_database
 
+        record_current_step "run harness doctor"
         if [[ -f artisan ]]; then
             artisan ai-harness:doctor
         fi
+
+        clear_current_step
         ;;
     cleanup)
         cd "${repo_root}"

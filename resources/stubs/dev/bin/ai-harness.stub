@@ -6,12 +6,22 @@ repo_root="${CODEX_WORKTREE_PATH:-$(cd -- "${script_dir}/../.." && pwd -P)}"
 
 cd "${repo_root}"
 
-sail_runtime_available() {
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+herd_binary() {
+    if command -v herd >/dev/null 2>&1; then
+        command -v herd
+
         return 0
     fi
 
-    command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1
+    local herd_path="${HOME}/Library/Application Support/Herd/bin/herd"
+
+    if [[ -x "${herd_path}" ]]; then
+        printf '%s\n' "${herd_path}"
+
+        return 0
+    fi
+
+    return 1
 }
 
 uses_phpunit_configuration() {
@@ -28,6 +38,22 @@ uses_phpunit_configuration() {
     return 1
 }
 
+sail_runtime_available() {
+    local app_service="${APP_SERVICE:-laravel.test}"
+
+    [[ -x ./vendor/bin/sail ]] || return 1
+
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        docker compose ps --status=running --services 2>/dev/null | grep -Fxq "${app_service}" && return 0
+    fi
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+        podman compose ps --status=running --services 2>/dev/null | grep -Fxq "${app_service}" && return 0
+    fi
+
+    return 1
+}
+
 artisan_args=("$@")
 phpunit_config=".ai-harness.phpunit.xml"
 
@@ -35,12 +61,17 @@ if [[ "${1:-}" == "test" && -f "${phpunit_config}" ]] && ! uses_phpunit_configur
     artisan_args=("test" "--configuration=${phpunit_config}" "${@:2}")
 fi
 
-if [[ -x ./vendor/bin/sail ]] && sail_runtime_available; then
+if [[ "${1:-}" == "ai-harness:doctor" && ! -f vendor/autoload.php ]]; then
+    printf 'ai-harness:doctor skipped: provisioning in progress; vendor/autoload.php is missing.\n' >&2
+    exit 0
+fi
+
+if sail_runtime_available; then
     exec ./vendor/bin/sail artisan "${artisan_args[@]}"
 fi
 
-if command -v herd >/dev/null 2>&1; then
-    exec herd php artisan "${artisan_args[@]}"
+if herd_path="$(herd_binary)"; then
+    exec "${herd_path}" php artisan "${artisan_args[@]}"
 fi
 
 exec php artisan "${artisan_args[@]}"

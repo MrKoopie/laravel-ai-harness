@@ -65,7 +65,7 @@ These features are disabled by default:
 
 | Feature | Default | What It Does When Enabled |
 | --- | --- | --- |
-| Herd workspace automation | `AI_HARNESS_HERD=false` | Generated Codex and Claude worktree setup links the worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to that site, provisions isolated app/testing databases, and cleanup removes those owned databases and unlinks the site. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
+| Herd workspace automation | `AI_HARNESS_HERD=false` | Generated Codex and Claude worktree setup links and secures the worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to the HTTPS Herd site, provisions isolated app/testing databases, and cleanup removes those owned databases and unlinks the site. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
 | Docker database bootstrap | `AI_HARNESS_DOCKER=false` | Writes `docker/mysql/init/10-create-testing-database.sh` for creating the testing database with the configured charset and collation. |
 | Polyscope | `AI_HARNESS_POLYSCOPE=false` | Writes `polyscope.json` workspace metadata. |
 
@@ -142,7 +142,7 @@ The GitHub Actions workflow runs Pest against Laravel 11, 12, and 13 dependency 
 
 ## Laravel Sail Compatibility
 
-The generated `.dev/bin/ai-harness` helper detects Sail first. When `./vendor/bin/sail` exists and Docker or Podman is running, harness commands execute through Sail:
+The generated `.dev/bin/ai-harness` helper detects Sail first. When `./vendor/bin/sail` exists and the Sail app service is running in Docker Compose (`APP_SERVICE`, or `laravel.test` by default), harness commands execute through Sail:
 
 ```bash
 ./.dev/bin/ai-harness ai-harness:doctor
@@ -154,7 +154,7 @@ That command resolves to:
 ./vendor/bin/sail artisan ai-harness:doctor
 ```
 
-If Sail is unavailable, the helper falls back to `herd php artisan` when Herd exists, then to plain `php artisan`.
+If the Sail app service is not running, the helper falls back to `herd php artisan` when Herd exists, then to plain `php artisan`.
 
 Sail projects do not need a special install path:
 
@@ -177,7 +177,7 @@ php artisan ai-harness:install --with=herd
 
 The worktree setup entrypoint is `.codex/scripts/local-environment.sh`. Codex calls it through `.codex/environments/environment.toml` when the generated local environment is selected. Claude calls it through `.claude/scripts/worktree-up.sh` and `.claude/scripts/worktree-down.sh`.
 
-With Herd enabled, setup links the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Setup also sets `APP_URL` to that Herd site, configures an isolated app database, creates a companion testing database, runs app and testing migrations, and runs the harness doctor check. The testing database name is written to `.env` as `AI_HARNESS_TEST_DB_DATABASE`, and setup writes `.ai-harness.phpunit.xml`, an ignored generated copy of `phpunit.xml` beside the project config where PHPUnit receives `DB_CONNECTION`, `DB_DATABASE`, and an empty `DB_URL` with `force="true"`. The `.dev/bin/ai-harness test` helper automatically passes that repo-relative generated config unless the caller provides `--configuration`. Cleanup removes the generated config, restores older managed `phpunit.xml` backups when present, removes both isolated databases when they match the generated worktree names, and unlinks the same Herd site. This keeps temporary worktrees addressable in Herd without leaving stale Herd links, databases, or commit noise after teardown.
+With Herd enabled, setup links and secures the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Setup also sets `APP_URL` to `https://<site>.test`, configures an isolated app database, creates a companion testing database, runs app and testing migrations, and runs the harness doctor check. The testing database name is written to `.env` as `AI_HARNESS_TEST_DB_DATABASE`, and setup writes `.ai-harness.phpunit.xml`, an ignored generated copy of `phpunit.xml` beside the project config where PHPUnit receives `DB_CONNECTION`, `DB_DATABASE`, and an empty `DB_URL` with `force="true"`. The `.dev/bin/ai-harness test` helper automatically passes that repo-relative generated config unless the caller provides `--configuration`. Cleanup removes the generated config, restores older managed `phpunit.xml` backups when present, removes both isolated databases when they match the generated worktree names, and unlinks the same Herd site. This keeps temporary worktrees addressable in Herd without leaving stale Herd links, databases, or commit noise after teardown.
 
 For SQLite projects, the isolated app and testing databases are generated files under `database/`. For MySQL or MariaDB projects, the setup hook creates generated database names using the configured database base name plus the worktree checksum, and cleanup drops only those generated database names.
 
@@ -187,7 +187,7 @@ The runtime helper can still use Herd for Artisan commands without enabling work
 ./.dev/bin/ai-harness migrate --env=testing
 ```
 
-When Sail is not active and Herd is installed, this resolves to:
+When the Sail app service is not running and Herd is installed, this resolves to:
 
 ```bash
 herd php artisan migrate --env=testing
