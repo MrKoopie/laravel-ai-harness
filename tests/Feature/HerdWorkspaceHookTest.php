@@ -385,15 +385,7 @@ test('codex cleanup removes generated phpunit config after wiring the generated 
         '',
     ]));
     file_put_contents($path.'/artisan', '');
-    $phpunit = <<<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit>
-    <php>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-    </php>
-</phpunit>
-XML;
+    $phpunit = legacy_phpunit_fixture();
     file_put_contents($path.'/phpunit.xml', $phpunit);
 
     pending_artisan('ai-harness:update', [
@@ -447,15 +439,7 @@ test('codex setup leaves tracked phpunit edits visible in git status', function 
         '',
     ]));
     file_put_contents($path.'/artisan', '');
-    $phpunit = <<<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit>
-    <php>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-    </php>
-</phpunit>
-XML;
+    $phpunit = legacy_phpunit_fixture();
     file_put_contents($path.'/phpunit.xml', $phpunit);
 
     (new Process(['git', 'init'], $path))->mustRun();
@@ -517,15 +501,7 @@ BASH);
 test('codex cleanup restores legacy phpunit backup state', function (): void {
     $path = temp_directory('ai-harness-phpunit-legacy-restore');
 
-    $phpunit = <<<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit>
-    <php>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-    </php>
-</phpunit>
-XML;
+    $phpunit = legacy_phpunit_fixture();
     $patchedPhpunit = str_replace('value=":memory:"', 'value="database/legacy_testing.sqlite" force="true"', $phpunit);
 
     file_put_contents($path.'/phpunit.xml', $patchedPhpunit);
@@ -690,15 +666,7 @@ test('mysql worktree databases are created through sail when sail is available',
         '',
     ]));
     file_put_contents($path.'/artisan', '');
-    file_put_contents($path.'/phpunit.xml', <<<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit>
-    <php>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-    </php>
-</phpunit>
-XML);
+    file_put_contents($path.'/phpunit.xml', legacy_phpunit_fixture());
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
@@ -880,15 +848,7 @@ test('mysql cleanup uses recorded database targets when env changes after setup'
         '',
     ]));
     file_put_contents($path.'/artisan', '');
-    file_put_contents($path.'/phpunit.xml', <<<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<phpunit>
-    <php>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-    </php>
-</phpunit>
-XML);
+    file_put_contents($path.'/phpunit.xml', legacy_phpunit_fixture());
 
     pending_artisan('ai-harness:update', [
         '--path' => $path,
@@ -1039,6 +999,19 @@ function expected_worktree_testing_database_name(string $path): string
     $suffix = '_testing_';
 
     return substr($base, 0, 64 - strlen($hash) - strlen($suffix)).$suffix.$hash;
+}
+
+function legacy_phpunit_fixture(): string
+{
+    return <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit>
+    <php>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+    </php>
+</phpunit>
+XML;
 }
 
 function path_checksum(string $path): string
