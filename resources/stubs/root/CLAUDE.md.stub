@@ -10,6 +10,6 @@ This project uses {{ package_name }} to keep Claude Code guidance, hooks, and sk
 
 ## Worktrees
 
-Fetch origin main before creating worktrees (`git fetch origin main`), then start new worktrees from {{ worktree_base_ref }} unless the project explicitly overrides that policy.
+Fetch {{ worktree_base_ref }} before creating worktrees, then start new worktrees from {{ worktree_base_ref }} unless the project explicitly overrides that policy.
 
 Keep custom Claude-specific notes outside this managed block; this block is refreshed by `php artisan ai-harness:update`.

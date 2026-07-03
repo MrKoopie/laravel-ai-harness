@@ -361,7 +361,32 @@ test('update command prefers origin main over a feature branch remote head', fun
     expect(file_get_contents($path.'/AGENTS.md'))
         ->toContain('Default worktree base: origin/main')
         ->and(file_get_contents($path.'/CLAUDE.md'))
-        ->toContain('Fetch origin main before creating worktrees');
+        ->toContain('Fetch origin/main before creating worktrees');
+});
+
+test('update command detects origin main in packed refs before remote head', function (): void {
+    $path = temp_directory('ai-harness');
+    $remoteDirectory = $path.'/.git/refs/remotes/origin';
+
+    mkdir($remoteDirectory.'/codex', 0755, true);
+    file_put_contents($remoteDirectory.'/HEAD', 'ref: refs/remotes/origin/codex/fix-boost-marker-collision');
+    file_put_contents($remoteDirectory.'/codex/fix-boost-marker-collision', str_repeat('1', 40));
+    file_put_contents($path.'/.git/packed-refs', implode("\n", [
+        '# pack-refs with: peeled fully-peeled sorted',
+        str_repeat('0', 40).' refs/remotes/origin/main',
+        str_repeat('1', 40).' refs/remotes/origin/codex/fix-boost-marker-collision',
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    expect(file_get_contents($path.'/AGENTS.md'))
+        ->toContain('Default worktree base: origin/main')
+        ->toContain('Worktree setup: fetch origin/main before creating a new worktree.')
+        ->and(file_get_contents($path.'/CLAUDE.md'))
+        ->toContain('Fetch origin/main before creating worktrees');
 });
 
 test('update command can override generated project metadata from config', function (): void {
@@ -384,6 +409,9 @@ test('update command can override generated project metadata from config', funct
         ->toContain('App: Billing Desk')
         ->toContain('PHP target: 8.4')
         ->toContain('Default worktree base: upstream/trunk')
+        ->toContain('Worktree setup: fetch upstream/trunk before creating a new worktree.')
+        ->and(file_get_contents($path.'/CLAUDE.md'))
+        ->toContain('Fetch upstream/trunk before creating worktrees')
         ->and(file_get_contents($path.'/.codex/environments/environment.toml'))
         ->toContain('name = "Billing Desk Codex worktree"')
         ->and(file_get_contents($path.'/docker/mysql/init/10-create-testing-database.sh'))

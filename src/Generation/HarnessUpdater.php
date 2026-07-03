@@ -298,14 +298,11 @@ final readonly class HarnessUpdater
             return trim($configured);
         }
 
-        $remoteDirectory = rtrim($basePath, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'.git'.DIRECTORY_SEPARATOR.'refs'.DIRECTORY_SEPARATOR.'remotes'.DIRECTORY_SEPARATOR.'origin';
-        $originMainPath = $remoteDirectory.DIRECTORY_SEPARATOR.'main';
-
-        if (is_readable($originMainPath)) {
+        if ($this->gitRefExists($basePath, 'refs/remotes/origin/main')) {
             return 'origin/main';
         }
 
-        $remoteHeadPath = $remoteDirectory.DIRECTORY_SEPARATOR.'HEAD';
+        $remoteHeadPath = $this->gitPath($basePath, 'refs/remotes/origin/HEAD');
 
         if (is_readable($remoteHeadPath)) {
             $remoteHeadContents = file_get_contents($remoteHeadPath);
@@ -322,5 +319,44 @@ final readonly class HarnessUpdater
         }
 
         return 'origin/main';
+    }
+
+    private function gitRefExists(string $basePath, string $ref): bool
+    {
+        if (is_readable($this->gitPath($basePath, $ref))) {
+            return true;
+        }
+
+        $packedRefsPath = $this->gitPath($basePath, 'packed-refs');
+
+        if (! is_readable($packedRefsPath)) {
+            return false;
+        }
+
+        $lines = file($packedRefsPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+
+        if ($lines === false) {
+            throw new RuntimeException("Unable to read git packed refs [{$packedRefsPath}].");
+        }
+
+        foreach ($lines as $line) {
+            if ($line === '' || str_starts_with($line, '#') || str_starts_with($line, '^')) {
+                continue;
+            }
+
+            $parts = preg_split('/\s+/', $line);
+
+            if (is_array($parts) && ($parts[1] ?? null) === $ref) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function gitPath(string $basePath, string $path): string
+    {
+        return rtrim($basePath, DIRECTORY_SEPARATOR)
+            .DIRECTORY_SEPARATOR.'.git'.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $path);
     }
 }
