@@ -38,6 +38,44 @@ uses_phpunit_configuration() {
     return 1
 }
 
+uses_parallel_flag() {
+    local argument
+
+    for argument in "$@"; do
+        case "${argument}" in
+            --parallel|-p)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+uses_coverage_flag() {
+    local argument
+
+    for argument in "$@"; do
+        case "${argument}" in
+            --coverage|--coverage-*|--type-coverage)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+parallel_disabled() {
+    case "${AI_HARNESS_PARALLEL:-}" in
+        0|false|off|no|FALSE|OFF|NO)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 sail_runtime_available() {
     local app_service="${APP_SERVICE:-laravel.test}"
 
@@ -56,9 +94,42 @@ sail_runtime_available() {
 
 artisan_args=("$@")
 phpunit_config=".ai-harness.phpunit.xml"
+run_test_directly=false
+test_args=()
+test_bin=""
 
-if [[ "${1:-}" == "test" && -f "${phpunit_config}" ]] && ! uses_phpunit_configuration "$@"; then
-    artisan_args=("test" "--configuration=${phpunit_config}" "${@:2}")
+# Collision's `artisan test` always injects its own --configuration, so a second
+# one (ours or the caller's) makes PHPUnit abort; run the test binary directly.
+if [[ "${1:-}" == "test" ]]; then
+    if uses_phpunit_configuration "$@"; then
+        run_test_directly=true
+        test_args=("${@:2}")
+    elif [[ -f "${phpunit_config}" ]]; then
+        run_test_directly=true
+        test_args=("--configuration=${phpunit_config}" "${@:2}")
+    fi
+
+    if [[ "${run_test_directly}" == "true" ]]; then
+        if [[ -x ./vendor/bin/pest ]]; then
+            test_bin="vendor/bin/pest"
+        else
+            test_bin="vendor/bin/phpunit"
+        fi
+
+        # Default Pest runs to parallel. Add --parallel only when Pest is the
+        # runner, paratest is installed, and Pest's plugin registry
+        # (vendor/pest-plugins.json) exists — without that registry the
+        # --parallel option is unregistered and `pest --parallel` aborts with
+        # "Unknown option". Never parallelise the phpunit fallback or a coverage
+        # run, and never double a caller-supplied parallel flag (--parallel/-p).
+        # Opt out with AI_HARNESS_PARALLEL=0.
+        if [[ "${test_bin}" == "vendor/bin/pest" && -x ./vendor/bin/paratest && -f ./vendor/pest-plugins.json ]] \
+            && ! parallel_disabled \
+            && ! uses_parallel_flag "$@" \
+            && ! uses_coverage_flag "$@"; then
+            test_args=("--parallel" "${test_args[@]}")
+        fi
+    fi
 fi
 
 if [[ "${1:-}" == "ai-harness:doctor" && ! -f vendor/autoload.php ]]; then
@@ -67,11 +138,23 @@ if [[ "${1:-}" == "ai-harness:doctor" && ! -f vendor/autoload.php ]]; then
 fi
 
 if sail_runtime_available; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec ./vendor/bin/sail php "${test_bin}" "${test_args[@]}"
+    fi
+
     exec ./vendor/bin/sail artisan "${artisan_args[@]}"
 fi
 
 if herd_path="$(herd_binary)"; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec "${herd_path}" php "${test_bin}" "${test_args[@]}"
+    fi
+
     exec "${herd_path}" php artisan "${artisan_args[@]}"
+fi
+
+if [[ "${run_test_directly}" == "true" ]]; then
+    exec php "${test_bin}" "${test_args[@]}"
 fi
 
 exec php artisan "${artisan_args[@]}"

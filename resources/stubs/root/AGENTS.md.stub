@@ -13,6 +13,6 @@ This project uses {{ package_name }} to keep agent instructions, MCP config, wor
 
 - Prefer Laravel conventions and existing project patterns.
 - Use the generated skills before editing matching domains.
-- In managed worktrees, run tests through `.dev/bin/ai-harness test` so the generated local PHPUnit config applies.
+- In managed worktrees, run tests through `.dev/bin/ai-harness test` so the generated local PHPUnit config applies. It runs Pest in parallel by default when the runner supports it; set `AI_HARNESS_PARALLEL=0` to force a sequential run.
 - Run the smallest relevant tests before reporting work complete.
 - Keep custom project rules outside this managed block; this block is refreshed by `php artisan ai-harness:update`.
