@@ -56,9 +56,28 @@ sail_runtime_available() {
 
 artisan_args=("$@")
 phpunit_config=".ai-harness.phpunit.xml"
+run_test_directly=false
+test_args=()
+test_bin=""
 
-if [[ "${1:-}" == "test" && -f "${phpunit_config}" ]] && ! uses_phpunit_configuration "$@"; then
-    artisan_args=("test" "--configuration=${phpunit_config}" "${@:2}")
+# Collision's `artisan test` always injects its own --configuration, so a second
+# one (ours or the caller's) makes PHPUnit abort; run the test binary directly.
+if [[ "${1:-}" == "test" ]]; then
+    if uses_phpunit_configuration "$@"; then
+        run_test_directly=true
+        test_args=("${@:2}")
+    elif [[ -f "${phpunit_config}" ]]; then
+        run_test_directly=true
+        test_args=("--configuration=${phpunit_config}" "${@:2}")
+    fi
+
+    if [[ "${run_test_directly}" == "true" ]]; then
+        if [[ -x ./vendor/bin/pest ]]; then
+            test_bin="vendor/bin/pest"
+        else
+            test_bin="vendor/bin/phpunit"
+        fi
+    fi
 fi
 
 if [[ "${1:-}" == "ai-harness:doctor" && ! -f vendor/autoload.php ]]; then
@@ -67,11 +86,23 @@ if [[ "${1:-}" == "ai-harness:doctor" && ! -f vendor/autoload.php ]]; then
 fi
 
 if sail_runtime_available; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec ./vendor/bin/sail php "${test_bin}" "${test_args[@]}"
+    fi
+
     exec ./vendor/bin/sail artisan "${artisan_args[@]}"
 fi
 
 if herd_path="$(herd_binary)"; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec "${herd_path}" php "${test_bin}" "${test_args[@]}"
+    fi
+
     exec "${herd_path}" php artisan "${artisan_args[@]}"
+fi
+
+if [[ "${run_test_directly}" == "true" ]]; then
+    exec php "${test_bin}" "${test_args[@]}"
 fi
 
 exec php artisan "${artisan_args[@]}"
