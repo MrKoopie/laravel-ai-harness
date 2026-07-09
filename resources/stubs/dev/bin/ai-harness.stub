@@ -43,7 +43,7 @@ uses_parallel_flag() {
 
     for argument in "$@"; do
         case "${argument}" in
-            --parallel|-p|--processes|--processes=*)
+            --parallel|-p)
                 return 0
                 ;;
         esac
@@ -116,11 +116,14 @@ if [[ "${1:-}" == "test" ]]; then
             test_bin="vendor/bin/phpunit"
         fi
 
-        # Default Pest runs to parallel. Only Pest supports --parallel, and only
-        # with paratest installed; never parallelise the phpunit fallback or a
-        # coverage run, and never double a caller-supplied parallel flag.
+        # Default Pest runs to parallel. Add --parallel only when Pest is the
+        # runner, paratest is installed, and Pest's plugin registry
+        # (vendor/pest-plugins.json) exists — without that registry the
+        # --parallel option is unregistered and `pest --parallel` aborts with
+        # "Unknown option". Never parallelise the phpunit fallback or a coverage
+        # run, and never double a caller-supplied parallel flag (--parallel/-p).
         # Opt out with AI_HARNESS_PARALLEL=0.
-        if [[ "${test_bin}" == "vendor/bin/pest" && -x ./vendor/bin/paratest ]] \
+        if [[ "${test_bin}" == "vendor/bin/pest" && -x ./vendor/bin/paratest && -f ./vendor/pest-plugins.json ]] \
             && ! parallel_disabled \
             && ! uses_parallel_flag "$@" \
             && ! uses_coverage_flag "$@"; then
