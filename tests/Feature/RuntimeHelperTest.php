@@ -252,6 +252,210 @@ BASH);
         ->toBe('sail php vendor/bin/pest --configuration=.ai-harness.phpunit.xml');
 });
 
+test('runtime helper runs pest in parallel by default when paratest is available', function (): void {
+    $path = temp_directory('ai-harness-test-parallel');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    file_put_contents($path.'/.ai-harness.phpunit.xml', '<phpunit/>');
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/pest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/pest', 0755);
+    file_put_contents($path.'/vendor/bin/paratest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/paratest', 0755);
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'test', '--filter=ExampleTest'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php vendor/bin/pest --parallel --configuration=.ai-harness.phpunit.xml --filter=ExampleTest');
+});
+
+test('runtime helper does not double a caller supplied parallel flag', function (): void {
+    $path = temp_directory('ai-harness-test-parallel-explicit');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    file_put_contents($path.'/.ai-harness.phpunit.xml', '<phpunit/>');
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/pest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/pest', 0755);
+    file_put_contents($path.'/vendor/bin/paratest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/paratest', 0755);
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'test', '--parallel'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --parallel');
+});
+
+test('runtime helper does not parallelise a coverage run', function (): void {
+    $path = temp_directory('ai-harness-test-coverage');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    file_put_contents($path.'/.ai-harness.phpunit.xml', '<phpunit/>');
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/pest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/pest', 0755);
+    file_put_contents($path.'/vendor/bin/paratest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/paratest', 0755);
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'test', '--coverage'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --coverage');
+});
+
+test('runtime helper never parallelises the phpunit fallback', function (): void {
+    $path = temp_directory('ai-harness-test-phpunit-no-parallel');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    file_put_contents($path.'/.ai-harness.phpunit.xml', '<phpunit/>');
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/paratest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/paratest', 0755);
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'test', '--filter=ExampleTest'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php vendor/bin/phpunit --configuration=.ai-harness.phpunit.xml --filter=ExampleTest');
+});
+
+test('runtime helper disables parallel when AI_HARNESS_PARALLEL is set to zero', function (): void {
+    $path = temp_directory('ai-harness-test-parallel-opt-out');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    file_put_contents($path.'/.ai-harness.phpunit.xml', '<phpunit/>');
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($path.'/vendor/bin', 0755, true);
+    mkdir($fakeBin, 0755, true);
+
+    file_put_contents($path.'/vendor/bin/pest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/pest', 0755);
+    file_put_contents($path.'/vendor/bin/paratest', "#!/usr/bin/env bash\n");
+    chmod($path.'/vendor/bin/paratest', 0755);
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'test', '--filter=ExampleTest'],
+        $path,
+        [
+            'AI_HARNESS_PARALLEL' => '0',
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --filter=ExampleTest');
+});
+
 test('runtime helper ignores sail when the app service is not running', function (): void {
     $path = temp_directory('ai-harness-herd-runtime');
 

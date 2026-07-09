@@ -38,6 +38,44 @@ uses_phpunit_configuration() {
     return 1
 }
 
+uses_parallel_flag() {
+    local argument
+
+    for argument in "$@"; do
+        case "${argument}" in
+            --parallel|-p|--processes|--processes=*)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+uses_coverage_flag() {
+    local argument
+
+    for argument in "$@"; do
+        case "${argument}" in
+            --coverage|--coverage-*|--type-coverage)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+parallel_disabled() {
+    case "${AI_HARNESS_PARALLEL:-}" in
+        0|false|off|no|FALSE|OFF|NO)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 sail_runtime_available() {
     local app_service="${APP_SERVICE:-laravel.test}"
 
@@ -76,6 +114,17 @@ if [[ "${1:-}" == "test" ]]; then
             test_bin="vendor/bin/pest"
         else
             test_bin="vendor/bin/phpunit"
+        fi
+
+        # Default Pest runs to parallel. Only Pest supports --parallel, and only
+        # with paratest installed; never parallelise the phpunit fallback or a
+        # coverage run, and never double a caller-supplied parallel flag.
+        # Opt out with AI_HARNESS_PARALLEL=0.
+        if [[ "${test_bin}" == "vendor/bin/pest" && -x ./vendor/bin/paratest ]] \
+            && ! parallel_disabled \
+            && ! uses_parallel_flag "$@" \
+            && ! uses_coverage_flag "$@"; then
+            test_args=("--parallel" "${test_args[@]}")
         fi
     fi
 fi
