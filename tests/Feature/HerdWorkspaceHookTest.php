@@ -526,7 +526,7 @@ BASH);
         ->toContain('APP_URL=https://'.$siteName.'.test');
 });
 
-test('codex setup warns and keeps shared app url when herd is enabled but unavailable', function (): void {
+test('codex setup still sets the per-worktree app url when herd is enabled but unavailable', function (): void {
     $path = temp_directory('ai-harness-herd-missing-setup');
     $home = temp_directory('ai-harness-empty-home');
 
@@ -558,11 +558,67 @@ test('codex setup warns and keeps shared app url when herd is enabled but unavai
     ]);
     $process->mustRun();
 
+    // APP_URL is gated on the stable herd_workspace_requested feature flag rather
+    // than the transient herd binary check, so it stays symmetric with the
+    // always-isolated database even when the Herd CLI cannot be resolved during
+    // provisioning. The Herd site itself is only linked once the CLI is available,
+    // so setup records a pending signal the wrapper uses to retry the link later.
     expect($process->getErrorOutput())
-        ->toContain('Herd workspace requested but Herd CLI could not be resolved; worktree will reuse the shared APP_URL.')
+        ->toContain('Herd workspace requested but Herd CLI could not be resolved; the Herd site was not linked. APP_URL already targets the per-worktree Herd site; start Herd and the next session links it automatically.')
+        ->and(file_get_contents($herdLog))
+        ->not()->toContain('link ')
         ->and(file_get_contents($path.'/.env'))
-        ->toContain('APP_URL=http://shared.test')
-        ->not()->toContain('APP_URL=https://');
+        ->toContain('APP_URL=https://'.expected_herd_site_name($path).'.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite')
+        ->not()->toContain('APP_URL=http://shared.test')
+        ->and($path.'/.codex/local-environment-state/herd-link-pending')->toBeFile();
+});
+
+test('codex link-herd links the deferred site and clears the pending signal once herd is available', function (): void {
+    $path = temp_directory('ai-harness-herd-link-retry');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ])->mustRun();
+
+    expect($path.'/.codex/local-environment-state/herd-link-pending')->toBeFile();
+
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'link-herd', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('link '.expected_herd_site_name($path).' --no-interaction')
+        ->toContain('secure '.expected_herd_site_name($path))
+        ->and($path.'/.codex/local-environment-state/herd-link-pending')->not->toBeFile();
 });
 
 test('codex cleanup removes generated phpunit config after wiring the generated testing database', function (): void {
