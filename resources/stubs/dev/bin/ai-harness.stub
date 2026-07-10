@@ -38,32 +38,24 @@ uses_phpunit_configuration() {
     return 1
 }
 
-uses_parallel_flag() {
+parallelizable_run() {
     local argument
 
     for argument in "$@"; do
         case "${argument}" in
-            --parallel|-p)
-                return 0
+            -*)
+                case "${argument}" in
+                    --filter|--filter=*|--group|--group=*|--exclude-group|--exclude-group=*|--testsuite|--testsuite=*|--exclude-testsuite|--exclude-testsuite=*|--processes|--processes=*)
+                        ;;
+                    *)
+                        return 1
+                        ;;
+                esac
                 ;;
         esac
     done
 
-    return 1
-}
-
-uses_coverage_flag() {
-    local argument
-
-    for argument in "$@"; do
-        case "${argument}" in
-            --coverage|--coverage-*|--type-coverage)
-                return 0
-                ;;
-        esac
-    done
-
-    return 1
+    return 0
 }
 
 parallel_disabled() {
@@ -116,17 +108,21 @@ if [[ "${1:-}" == "test" ]]; then
             test_bin="vendor/bin/phpunit"
         fi
 
-        # Default Pest runs to parallel. Add --parallel only when Pest is the
-        # runner, paratest is installed, and Pest's plugin registry
-        # (vendor/pest-plugins.json) exists — without that registry the
-        # --parallel option is unregistered and `pest --parallel` aborts with
-        # "Unknown option". Never parallelise the phpunit fallback or a coverage
-        # run, and never double a caller-supplied parallel flag (--parallel/-p).
-        # Opt out with AI_HARNESS_PARALLEL=0.
+        # Default Pest runs to parallel, but only for a plainly parallelisable
+        # execution run: Pest is the runner, paratest is installed, and Pest's
+        # plugin registry (vendor/pest-plugins.json) exists — without that
+        # registry the --parallel option is unregistered and `pest --parallel`
+        # aborts with "Unknown option". Skip injection whenever the caller
+        # passes any option outside a small parallel-safe allow-list, because
+        # Pest/ParaTest reject or mishandle many flags under --parallel
+        # (--retry and --profile throw, --coverage is unsupported, list/help/
+        # introspection flags are handed to ParaTest which rejects them, and a
+        # caller-supplied --parallel/-p must not be doubled). Leaving those runs
+        # sequential is always correct; parallel is only a speed-up for the
+        # common case. Opt out entirely with AI_HARNESS_PARALLEL=0.
         if [[ "${test_bin}" == "vendor/bin/pest" && -x ./vendor/bin/paratest && -f ./vendor/pest-plugins.json ]] \
             && ! parallel_disabled \
-            && ! uses_parallel_flag "$@" \
-            && ! uses_coverage_flag "$@"; then
+            && parallelizable_run "${@:2}"; then
             test_args=("--parallel" "${test_args[@]}")
         fi
     fi

@@ -544,6 +544,26 @@ BASH);
         ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --filter=ExampleTest');
 });
 
+test('runtime helper does not parallelise a retry run', function (): void {
+    expect(run_parallel_capable_wrapper(['test', '--retry']))
+        ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --retry');
+});
+
+test('runtime helper does not parallelise a profile run', function (): void {
+    expect(run_parallel_capable_wrapper(['test', '--profile']))
+        ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --profile');
+});
+
+test('runtime helper does not parallelise a list-tests run', function (): void {
+    expect(run_parallel_capable_wrapper(['test', '--list-tests']))
+        ->toBe('herd php vendor/bin/pest --configuration=.ai-harness.phpunit.xml --list-tests');
+});
+
+test('runtime helper parallelises a plain path run', function (): void {
+    expect(run_parallel_capable_wrapper(['test', 'tests/Unit/ExampleTest.php']))
+        ->toBe('herd php vendor/bin/pest --parallel --configuration=.ai-harness.phpunit.xml tests/Unit/ExampleTest.php');
+});
+
 test('runtime helper ignores sail when the app service is not running', function (): void {
     $path = temp_directory('ai-harness-herd-runtime');
 
