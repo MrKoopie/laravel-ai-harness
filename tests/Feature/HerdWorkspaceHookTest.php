@@ -552,17 +552,19 @@ test('codex setup still sets the per-worktree app url when herd is enabled but u
     mkdir($fakeBin, 0755, true);
 
     $process = run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'AI_HARNESS_HERD_OS' => 'Darwin',
         'HOME' => $home,
         'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
         'REAL_PHP' => PHP_BINARY,
     ]);
     $process->mustRun();
 
-    // APP_URL is gated on the stable herd_workspace_requested feature flag rather
-    // than the transient herd binary check, so it stays symmetric with the
-    // always-isolated database even when the Herd CLI cannot be resolved during
-    // provisioning. The Herd site itself is only linked once the CLI is available,
-    // so setup records a pending signal the wrapper uses to retry the link later.
+    // On macOS (platform pinned via AI_HARNESS_HERD_OS) APP_URL is gated on the
+    // stable herd_workspace_requested feature flag rather than the transient herd
+    // binary check, so it stays symmetric with the always-isolated database even
+    // when the Herd CLI cannot be resolved during provisioning. The Herd site
+    // itself is only linked once the CLI is available, so setup records a pending
+    // signal the wrapper uses to retry the link later.
     expect($process->getErrorOutput())
         ->toContain('Herd workspace requested but Herd CLI could not be resolved; the Herd site was not linked. APP_URL already targets the per-worktree Herd site; start Herd and the next session links it automatically.')
         ->and(file_get_contents($herdLog))
@@ -600,6 +602,7 @@ test('codex link-herd links the deferred site and clears the pending signal once
     mkdir($fakeBin, 0755, true);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'AI_HARNESS_HERD_OS' => 'Darwin',
         'HOME' => $home,
         'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
         'REAL_PHP' => PHP_BINARY,
@@ -618,6 +621,53 @@ BASH);
     expect(file_get_contents($herdLog))
         ->toContain('link '.expected_herd_site_name($path).' --no-interaction')
         ->toContain('secure '.expected_herd_site_name($path))
+        ->and($path.'/.codex/local-environment-state/herd-link-pending')->not->toBeFile();
+});
+
+test('codex setup keeps the shared app url on a herd-less platform even when the herd feature is enabled', function (): void {
+    $path = temp_directory('ai-harness-herd-linux-setup');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    // Herd only exists on macOS. On a Herd-less host (e.g. Linux/Sail) the shared
+    // APP_URL is the one that can actually be served, so the worktree keeps it —
+    // only the database is isolated — and no link retry or warning is recorded.
+    $process = run_local_environment($path, 'setup', $fakeBin, $herdLog, [
+        'AI_HARNESS_HERD_OS' => 'Linux',
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ]);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())
+        ->not()->toContain('Herd workspace requested but Herd CLI could not be resolved')
+        ->and(file_get_contents($herdLog))
+        ->not()->toContain('link ')
+        ->and(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=http://shared.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite')
+        ->not()->toContain('APP_URL=https://')
         ->and($path.'/.codex/local-environment-state/herd-link-pending')->not->toBeFile();
 });
 
