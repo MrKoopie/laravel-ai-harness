@@ -225,7 +225,7 @@ warn_herd_unavailable() {
     fi
 
     mkdir -p "$(managed_state_dir)"
-    printf 'local-environment: Herd workspace requested but Herd CLI could not be resolved; the Herd site was not linked. APP_URL still targets the per-worktree Herd site; start Herd, then re-provision to link the site.\n' >&2
+    printf 'local-environment: Herd workspace requested but Herd CLI could not be resolved; the Herd site was not linked. APP_URL already targets the per-worktree Herd site; start Herd and the next session links it automatically.\n' >&2
     touch "${warning_file}"
 }
 
@@ -745,6 +745,10 @@ drop_mysql_database() {
     '
 }
 
+herd_link_pending_file() {
+    printf '%s\n' "$(managed_state_dir)/herd-link-pending"
+}
+
 link_herd_workspace() {
     local herd_path site_name
 
@@ -752,6 +756,8 @@ link_herd_workspace() {
 
     if ! herd_path="$(herd_binary)"; then
         warn_herd_unavailable
+        mkdir -p "$(managed_state_dir)"
+        touch "$(herd_link_pending_file)"
 
         return 0
     fi
@@ -760,6 +766,8 @@ link_herd_workspace() {
 
     "${herd_path}" link "${site_name}" --no-interaction
     "${herd_path}" secure "${site_name}"
+
+    rm -f "$(herd_link_pending_file)"
 }
 
 unlink_herd_workspace() {
@@ -851,6 +859,11 @@ case "${action}" in
         fi
 
         clear_current_step
+        ;;
+    link-herd)
+        cd "${repo_root}"
+
+        link_herd_workspace
         ;;
     cleanup)
         cd "${repo_root}"

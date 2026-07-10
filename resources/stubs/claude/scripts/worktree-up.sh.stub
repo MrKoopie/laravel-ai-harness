@@ -126,7 +126,14 @@ if [[ ! -x "${local_environment}" ]]; then
 fi
 
 marker="${worktree_path}/.claude/.ai-harness-worktree-provisioned"
+herd_link_pending="${worktree_path}/.codex/local-environment-state/herd-link-pending"
 if [[ -f "${marker}" ]]; then
+    if [[ -f "${herd_link_pending}" ]]; then
+        WORKTREE_PROFILE=codex \
+        CODEX_WORKTREE_PATH="${worktree_path}" \
+        bash "${local_environment}" link-herd >&2 || true
+    fi
+
     exit 0
 fi
 
