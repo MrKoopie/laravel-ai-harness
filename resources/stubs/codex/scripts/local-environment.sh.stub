@@ -210,9 +210,19 @@ runtime_herd_workspace_enabled() {
     [[ "${herd_workspace_enabled}" == "1" ]]
 }
 
+herd_platform() {
+    printf '%s\n' "${AI_HARNESS_HERD_OS:-$(uname -s)}"
+}
+
 herd_workspace_requested() {
     runtime_herd_workspace_enabled || return 1
     [[ "${WORKTREE_PROFILE:-}" == "codex" ]] || return 1
+
+    # Herd only exists on macOS, so a Herd workspace can only be requested where
+    # Herd can ever run: on Darwin (even when the CLI is transiently unresolvable,
+    # e.g. a minimal-PATH hook) or wherever a herd binary actually resolves. On
+    # Herd-less hosts (Linux/Sail) the shared APP_URL is the servable one.
+    [[ "$(herd_platform)" == "Darwin" ]] || herd_binary >/dev/null 2>&1
 }
 
 warn_herd_unavailable() {
