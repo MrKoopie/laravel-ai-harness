@@ -225,7 +225,7 @@ warn_herd_unavailable() {
     fi
 
     mkdir -p "$(managed_state_dir)"
-    printf 'local-environment: Herd workspace requested but Herd CLI could not be resolved; worktree will reuse the shared APP_URL.\n' >&2
+    printf 'local-environment: Herd workspace requested but Herd CLI could not be resolved; the Herd site was not linked. APP_URL still targets the per-worktree Herd site; start Herd, then re-provision to link the site.\n' >&2
     touch "${warning_file}"
 }
 
@@ -514,7 +514,7 @@ configure_worktree_environment() {
     codex_workspace_requested || return 0
     [[ -f .env ]] || return 0
 
-    if herd_workspace_available; then
+    if herd_workspace_requested; then
         set_env_value APP_URL "https://$(herd_site_name).test"
     fi
 

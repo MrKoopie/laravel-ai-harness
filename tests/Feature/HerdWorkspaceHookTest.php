@@ -526,7 +526,7 @@ BASH);
         ->toContain('APP_URL=https://'.$siteName.'.test');
 });
 
-test('codex setup warns and keeps shared app url when herd is enabled but unavailable', function (): void {
+test('codex setup still sets the per-worktree app url when herd is enabled but unavailable', function (): void {
     $path = temp_directory('ai-harness-herd-missing-setup');
     $home = temp_directory('ai-harness-empty-home');
 
@@ -558,11 +558,18 @@ test('codex setup warns and keeps shared app url when herd is enabled but unavai
     ]);
     $process->mustRun();
 
+    // APP_URL is gated on the stable herd_workspace_requested feature flag rather
+    // than the transient herd binary check, so it stays symmetric with the
+    // always-isolated database even when the Herd CLI cannot be resolved during
+    // provisioning. The Herd site itself is only linked once the CLI is available.
     expect($process->getErrorOutput())
-        ->toContain('Herd workspace requested but Herd CLI could not be resolved; worktree will reuse the shared APP_URL.')
+        ->toContain('Herd workspace requested but Herd CLI could not be resolved; the Herd site was not linked. APP_URL still targets the per-worktree Herd site; start Herd, then re-provision to link the site.')
+        ->and(file_get_contents($herdLog))
+        ->not()->toContain('link ')
         ->and(file_get_contents($path.'/.env'))
-        ->toContain('APP_URL=http://shared.test')
-        ->not()->toContain('APP_URL=https://');
+        ->toContain('APP_URL=https://'.expected_herd_site_name($path).'.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite')
+        ->not()->toContain('APP_URL=http://shared.test');
 });
 
 test('codex cleanup removes generated phpunit config after wiring the generated testing database', function (): void {
