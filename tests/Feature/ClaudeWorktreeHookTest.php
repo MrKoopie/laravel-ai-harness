@@ -65,13 +65,14 @@ test('claude worktree setup retries the herd link when a provisioned worktree st
     $process->mustRun();
 
     expect(file_get_contents($log))
+        ->toContain('action=heal-env')
         ->toContain('action=link-herd')
         ->toContain('profile=codex')
         ->toContain('path='.$worktree)
         ->not()->toContain('action=setup');
 });
 
-test('claude worktree setup skips the herd link retry when no pending signal remains', function (): void {
+test('claude worktree setup heals the environment but skips the herd link retry when no pending signal remains', function (): void {
     $path = temp_directory('ai-harness-claude-link-no-retry');
     $worktree = $path.'/.claude/worktrees/feature-a';
     $log = temp_file('claude-wrapper-log');
@@ -99,7 +100,12 @@ test('claude worktree setup skips the herd link retry when no pending signal rem
     ], JSON_THROW_ON_ERROR));
     $process->mustRun();
 
-    expect(trim((string) file_get_contents($log)))->toBe('');
+    expect(file_get_contents($log))
+        ->toContain('action=heal-env')
+        ->toContain('profile=codex')
+        ->toContain('path='.$worktree)
+        ->not()->toContain('action=link-herd')
+        ->not()->toContain('action=setup');
 });
 
 test('claude worktree cleanup delegates to the generated local environment script', function (): void {
