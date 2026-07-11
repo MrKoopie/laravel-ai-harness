@@ -875,6 +875,11 @@ case "${action}" in
 
         link_herd_workspace
         ;;
+    heal-env)
+        cd "${repo_root}"
+
+        configure_worktree_environment
+        ;;
     cleanup)
         cd "${repo_root}"
 

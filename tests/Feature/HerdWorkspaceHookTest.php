@@ -624,6 +624,62 @@ BASH);
         ->and($path.'/.codex/local-environment-state/herd-link-pending')->not->toBeFile();
 });
 
+test('codex heal-env re-asserts the per-worktree app url and database after a clobbered env', function (): void {
+    $path = temp_directory('ai-harness-heal-env');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    $herdEnvironment = [
+        'AI_HARNESS_HERD_OS' => 'Darwin',
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ];
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, $herdEnvironment)->mustRun();
+
+    expect(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.expected_herd_site_name($path).'.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite');
+
+    // Simulate a recycled worktree: .worktreeinclude re-copies the source
+    // checkout's .env over the provisioned one, reverting the isolated values.
+    file_put_contents($path.'/.env', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog, $herdEnvironment)->mustRun();
+
+    expect(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.expected_herd_site_name($path).'.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite')
+        ->not()->toContain('APP_URL=http://shared.test');
+});
+
 test('codex setup keeps the shared app url on a herd-less platform even when the herd feature is enabled', function (): void {
     $path = temp_directory('ai-harness-herd-linux-setup');
     $home = temp_directory('ai-harness-empty-home');
