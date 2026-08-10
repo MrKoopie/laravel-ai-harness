@@ -121,10 +121,97 @@ test('herd pruner reports verified orphans without changing them in non-interact
     }
 });
 
+test('herd pruner naming stays in parity with the generated provisioner', function (): void {
+    $root = temp_directory('ai-harness-prune-parity');
+    $projectName = str_repeat('Long_Project-Name_', 7);
+    $project = $root.'/source/'.$projectName;
+    $missingPath = $root.'/worktrees/5bab/'.$projectName;
+    $sites = $root.'/herd-sites';
+
+    mkdir($project, 0755, true);
+    mkdir($sites, 0755, true);
+    config(['ai-harness.project.database_name' => str_repeat('Custom_Database-', 7)]);
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $project,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    $script = (string) file_get_contents($project.'/.codex/scripts/local-environment.sh');
+    $caseOffset = strpos($script, "\ncase \"\${action}\" in\n");
+
+    if ($caseOffset === false) {
+        throw new RuntimeException('Unable to isolate the generated naming functions.');
+    }
+
+    $probeScript = $project.'/.codex/scripts/naming-probe.sh';
+    file_put_contents($probeScript, substr($script, 0, $caseOffset));
+
+    $probe = new Process([
+        'bash',
+        '-c',
+        <<<'BASH'
+set -euo pipefail
+source "$SCRIPT"
+herd_site_name
+worktree_database_name
+worktree_testing_database_name
+BASH,
+    ], $project, [
+        'CODEX_WORKTREE_PATH' => $missingPath,
+        'SCRIPT' => $probeScript,
+    ]);
+    $probe->mustRun();
+
+    [$site, $database, $testingDatabase] = array_values(array_filter(explode("\n", trim($probe->getOutput()))));
+    symlink($missingPath, $sites.'/'.$site);
+
+    pending_artisan('ai-harness:prune-herd', [
+        '--path' => $project,
+        '--sites-path' => $sites,
+        '--no-interaction' => true,
+    ])
+        ->expectsOutputToContain($site)
+        ->expectsOutputToContain($database)
+        ->expectsOutputToContain($testingDatabase)
+        ->assertSuccessful();
+});
+
+test('herd pruner reports an unlink failure without claiming the site was removed', function (): void {
+    $fixture = herd_prune_fixture(herdScript: <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_PRUNE_LOG"
+
+if [[ "${1:-}" == "unlink" ]]; then
+    printf 'Herd service is unavailable.\n' >&2
+    exit 37
+fi
+BASH);
+
+    try {
+        pending_artisan('ai-harness:prune-herd', [
+            '--path' => $fixture['project'],
+            '--sites-path' => $fixture['sites'],
+        ])
+            ->expectsChoice('What should be done with this orphan?', 'Remove Herd site only', [
+                'Remove Herd site only',
+                'Keep this site',
+                'Stop reviewing sites',
+            ])
+            ->expectsConfirmation('Apply this permanent cleanup?', 'yes')
+            ->expectsOutputToContain('Herd service is unavailable.')
+            ->expectsOutputToContain("Unable to remove Herd site [{$fixture['site']}].")
+            ->assertFailed();
+    } finally {
+        putenv('PATH='.$fixture['original_path']);
+        putenv('HERD_PRUNE_LOG');
+    }
+});
+
 /**
  * @return array{project: string, sites: string, missing_path: string, site: string, herd_log: string, original_path: string}
  */
-function herd_prune_fixture(?string $site = null): array
+function herd_prune_fixture(?string $site = null, ?string $herdScript = null): array
 {
     $root = temp_directory('ai-harness-prune-herd');
     $project = $root.'/source-project';
@@ -142,10 +229,11 @@ function herd_prune_fixture(?string $site = null): array
     $site ??= prune_expected_herd_site_name($missingPath);
     symlink($missingPath, $sites.'/'.$site);
 
-    file_put_contents($fakeBin.'/herd', <<<'BASH'
+    $herdScript ??= <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERD_PRUNE_LOG"
-BASH);
+BASH;
+    file_put_contents($fakeBin.'/herd', $herdScript);
     chmod($fakeBin.'/herd', 0755);
     putenv('PATH='.$fakeBin.PATH_SEPARATOR.$originalPath);
     putenv('HERD_PRUNE_LOG='.$herdLog);

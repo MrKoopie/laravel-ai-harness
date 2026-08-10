@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Support;
 
+use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -34,14 +35,29 @@ class HerdDatabasePruner
             throw new RuntimeException('The configured database connection does not support external database pruning.');
         }
 
-        $schema = DB::connection($connectionName)->getSchemaBuilder();
+        $connection = $this->connection($connectionName);
+        $activeDatabase = $connection->getDatabaseName();
+        $schema = $connection->getSchemaBuilder();
 
         foreach ($databases as $database) {
             if (preg_match('/^[A-Za-z0-9_]+$/', $database) !== 1) {
                 throw new RuntimeException("Refusing invalid database identifier [{$database}].");
             }
 
+            if ($database === $activeDatabase) {
+                throw new RuntimeException("Refusing to drop the active database [{$database}].");
+            }
+
             $schema->dropDatabaseIfExists($database);
         }
+    }
+
+    /**
+     * Resolve the configured connection once so the safety check and drops use
+     * the same server session.
+     */
+    protected function connection(string $name): Connection
+    {
+        return DB::connection($name);
     }
 }

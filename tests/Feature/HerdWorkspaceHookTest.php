@@ -669,6 +669,50 @@ test('codex setup still sets the per-worktree app url when herd is enabled but u
         ->and($path.'/.codex/local-environment-state/herd-link-pending')->toBeFile();
 });
 
+test('codex cleanup clears a pending herd link when no site was ever linked', function (): void {
+    $path = temp_directory('ai-harness-herd-pending-cleanup');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    $environment = [
+        'AI_HARNESS_HERD_OS' => 'Darwin',
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ];
+
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, $environment)->mustRun();
+
+    expect($path.'/.codex/local-environment-state/herd-link-pending')->toBeFile()
+        ->and($path.'/.codex/local-environment-state/herd-linked-site')->not->toBeFile();
+
+    $cleanup = run_local_environment($path, 'cleanup', $fakeBin, $herdLog, $environment);
+    $cleanup->mustRun();
+
+    expect($cleanup->getErrorOutput())
+        ->not()->toContain('unable to unlink recorded Herd site')
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
 test('codex link-herd links the deferred site and clears the pending signal once herd is available', function (): void {
     $path = temp_directory('ai-harness-herd-link-retry');
     $home = temp_directory('ai-harness-empty-home');

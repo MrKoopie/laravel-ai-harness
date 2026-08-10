@@ -51,6 +51,7 @@ class PruneHerdCommand extends HarnessCommand
             return self::SUCCESS;
         }
 
+        $herd = $this->herdBinary();
         $failed = false;
 
         foreach ($orphans as $orphan) {
@@ -77,7 +78,7 @@ class PruneHerdCommand extends HarnessCommand
                 continue;
             }
 
-            if ($this->herdBinary() === null) {
+            if ($herd === null) {
                 $this->error('Laravel Herd CLI could not be resolved; no resources were removed.');
                 $failed = true;
 
@@ -90,7 +91,7 @@ class PruneHerdCommand extends HarnessCommand
                 continue;
             }
 
-            if (! $this->removeHerdSite($orphan['site'])) {
+            if (! $this->removeHerdSite($herd, $orphan['site'])) {
                 $this->error("Unable to remove Herd site [{$orphan['site']}].");
                 $failed = true;
 
@@ -269,16 +270,8 @@ class PruneHerdCommand extends HarnessCommand
         return true;
     }
 
-    private function removeHerdSite(string $site): bool
+    private function removeHerdSite(string $herd, string $site): bool
     {
-        $herd = $this->herdBinary();
-
-        if ($herd === null) {
-            $this->error('Laravel Herd CLI could not be resolved.');
-
-            return false;
-        }
-
         // Unsecure is best-effort: a site may never have been secured or Herd
         // may already have removed its certificate while retaining the link.
         [$unsecureStatus, $unsecureOutput] = $this->runProcess([$herd, 'unsecure', $site]);

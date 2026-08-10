@@ -837,11 +837,19 @@ link_herd_workspace() {
     remember_linked_herd_site "${site_name}"
     "${herd_path}" secure "${site_name}"
 
-    rm -f "$(herd_link_pending_file)"
+    rm -f "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
+    cleanup_managed_state_dir
 }
 
 unlink_herd_workspace() {
     local herd_path output site_name status unsecure_output unsecure_status
+
+    if [[ -f "$(herd_link_pending_file)" && ! -f "$(herd_linked_site_file)" ]]; then
+        rm -f "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
+        cleanup_managed_state_dir
+
+        return 0
+    fi
 
     if ! site_name="$(linked_herd_site)"; then
         return 0
@@ -872,14 +880,14 @@ unlink_herd_workspace() {
             printf '%s\n' "${output}"
         fi
 
-        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)"
+        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
         cleanup_managed_state_dir
 
         return 0
     fi
 
     if printf '%s\n' "${output}" | grep -Eiq '(not found|not linked|does not exist|no .*link)'; then
-        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)"
+        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
         cleanup_managed_state_dir
 
         return 0
