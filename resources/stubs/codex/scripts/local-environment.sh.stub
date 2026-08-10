@@ -7,6 +7,7 @@ herd_workspace_enabled="${AI_HARNESS_HERD_WORKSPACE_ENABLED:-{{ herd_workspace_e
 database_base_name="{{ database_name }}"
 database_charset="{{ database_charset }}"
 database_collation="{{ database_collation }}"
+worktree_database_created=false
 
 if [[ -z "${repo_root}" ]]; then
     repo_root="$(git rev-parse --show-toplevel)"
@@ -391,10 +392,26 @@ managed_database_state_file() {
 }
 
 remember_database_target() {
-    local role="${1}" connection="${2}" database="${3}" state_file
+    local role="${1}" connection="${2}" database="${3}" state_file target legacy_role legacy_connection legacy_database
 
     mkdir -p "$(managed_state_dir)"
     state_file="$(managed_database_state_file)"
+    target="DATABASE_TARGET=${connection}|${database}"
+
+    if [[ -f "${state_file}" ]] && ! grep -q '^DATABASE_TARGET=' "${state_file}"; then
+        for legacy_role in APP TEST; do
+            legacy_connection="$(file_env_value "${state_file}" "${legacy_role}_DB_CONNECTION" || true)"
+            legacy_database="$(file_env_value "${state_file}" "${legacy_role}_DB_DATABASE" || true)"
+
+            if [[ -n "${legacy_connection}" && -n "${legacy_database}" ]]; then
+                printf 'DATABASE_TARGET=%s|%s\n' "${legacy_connection}" "${legacy_database}" >> "${state_file}"
+            fi
+        done
+    fi
+
+    if [[ ! -f "${state_file}" ]] || ! grep -Fqx "${target}" "${state_file}"; then
+        printf '%s\n' "${target}" >> "${state_file}"
+    fi
 
     set_env_file_value "${state_file}" "${role}_DB_CONNECTION" "${connection}"
     set_env_file_value "${state_file}" "${role}_DB_DATABASE" "${database}"
@@ -531,10 +548,11 @@ sqlite_database_path() {
 }
 
 configure_worktree_environment() {
-    local connection database_name sqlite_path
+    local connection database_name sqlite_path sqlite_full_path
 
     codex_workspace_requested || return 0
     [[ -f .env ]] || return 0
+    worktree_database_created=false
 
     if herd_workspace_requested; then
         set_env_value APP_URL "https://$(herd_site_name).test"
@@ -548,9 +566,13 @@ configure_worktree_environment() {
     case "${connection}" in
         sqlite)
             sqlite_path="database/${database_name}.sqlite"
+            sqlite_full_path="$(sqlite_database_path "${sqlite_path}")"
             set_env_value DB_DATABASE "${sqlite_path}"
-            mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
-            touch "$(sqlite_database_path "${sqlite_path}")"
+            mkdir -p "$(dirname "${sqlite_full_path}")"
+            if [[ ! -f "${sqlite_full_path}" ]]; then
+                worktree_database_created=true
+            fi
+            touch "${sqlite_full_path}"
             remember_database_target APP "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
@@ -568,16 +590,20 @@ configure_worktree_environment() {
 }
 
 configure_worktree_testing_database() {
-    local connection="${1}" testing_database_name sqlite_path
+    local connection="${1}" testing_database_name sqlite_path sqlite_full_path
 
     testing_database_name="$(worktree_testing_database_name)"
 
     case "${connection}" in
         sqlite)
             sqlite_path="database/${testing_database_name}.sqlite"
+            sqlite_full_path="$(sqlite_database_path "${sqlite_path}")"
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${sqlite_path}"
-            mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
-            touch "$(sqlite_database_path "${sqlite_path}")"
+            mkdir -p "$(dirname "${sqlite_full_path}")"
+            if [[ ! -f "${sqlite_full_path}" ]]; then
+                worktree_database_created=true
+            fi
+            touch "${sqlite_full_path}"
             remember_database_target TEST "${connection}" "${sqlite_path}"
             configure_phpunit_database "${connection}" "${sqlite_path}"
             ;;
@@ -614,10 +640,10 @@ migrate_testing_database() {
 }
 
 create_mysql_database() {
-    local database_name="${1}"
+    local database_name="${1}" creation_status
 
     # shellcheck disable=SC2016
-    AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
+    creation_status="$(AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
     AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
     AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
     AI_HARNESS_DB_PASSWORD="$(env_value DB_PASSWORD || true)" \
@@ -644,8 +670,16 @@ create_mysql_database() {
 
         $pdo = new PDO($dsn, getenv("AI_HARNESS_DB_USERNAME") ?: "root", getenv("AI_HARNESS_DB_PASSWORD") ?: "");
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $statement = $pdo->prepare("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?");
+        $statement->execute([$database]);
+        $created = $statement->fetchColumn() === false;
         $pdo->exec(sprintf("CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET %s COLLATE %s", $database, $charset, $collation));
-    '
+        fwrite(STDOUT, $created ? "created\n" : "existing\n");
+    ')"
+
+    if [[ "${creation_status}" == "created" ]]; then
+        worktree_database_created=true
+    fi
 }
 
 drop_worktree_database() {
@@ -658,13 +692,19 @@ drop_worktree_database() {
     if [[ -f "${state_file}" ]]; then
         status=0
 
-        drop_recorded_database \
-            "$(file_env_value "${state_file}" APP_DB_CONNECTION || true)" \
-            "$(file_env_value "${state_file}" APP_DB_DATABASE || true)" || status=$?
+        if grep -q '^DATABASE_TARGET=' "${state_file}"; then
+            while IFS='|' read -r connection configured_database; do
+                drop_recorded_database "${connection}" "${configured_database}" || status=$?
+            done < <(sed -n 's/^DATABASE_TARGET=//p' "${state_file}")
+        else
+            drop_recorded_database \
+                "$(file_env_value "${state_file}" APP_DB_CONNECTION || true)" \
+                "$(file_env_value "${state_file}" APP_DB_DATABASE || true)" || status=$?
 
-        drop_recorded_database \
-            "$(file_env_value "${state_file}" TEST_DB_CONNECTION || true)" \
-            "$(file_env_value "${state_file}" TEST_DB_DATABASE || true)" || status=$?
+            drop_recorded_database \
+                "$(file_env_value "${state_file}" TEST_DB_CONNECTION || true)" \
+                "$(file_env_value "${state_file}" TEST_DB_DATABASE || true)" || status=$?
+        fi
 
         if [[ "${status}" -eq 0 ]]; then
             rm -f "${state_file}"
@@ -964,6 +1004,11 @@ case "${action}" in
         cd "${repo_root}"
 
         configure_worktree_environment
+
+        if [[ "${worktree_database_created}" == true && -f artisan ]]; then
+            DB_URL="" artisan migrate --force --ansi
+            migrate_testing_database
+        fi
         ;;
     cleanup)
         cd "${repo_root}"

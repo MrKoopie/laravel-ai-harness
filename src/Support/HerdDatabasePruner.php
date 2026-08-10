@@ -13,6 +13,9 @@ use RuntimeException;
  */
 class HerdDatabasePruner
 {
+    /**
+     * Determine whether the configured connection supports database removal.
+     */
     public function supported(): bool
     {
         $connection = config('database.default');
@@ -25,6 +28,8 @@ class HerdDatabasePruner
     }
 
     /**
+     * Drop confirmed derived databases while protecting the active database.
+     *
      * @param  list<string>  $databases
      */
     public function drop(array $databases): void

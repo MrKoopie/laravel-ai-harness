@@ -131,12 +131,11 @@ if [[ -f "${marker}" ]]; then
     # Recycled worktrees get .env re-copied from the source checkout via
     # .worktreeinclude AFTER provisioning already ran, reverting APP_URL and
     # DB_DATABASE to the shared source values. The marker path must therefore
-    # re-assert the per-worktree environment. heal-env only rewrites .env and
-    # creates missing databases; it never migrates or seeds, so it is safe on
-    # every session start.
+    # re-assert the per-worktree environment. A healing failure must abort the
+    # session: continuing could expose the worktree to the shared source DB.
     WORKTREE_PROFILE=codex \
     CODEX_WORKTREE_PATH="${worktree_path}" \
-    bash "${local_environment}" heal-env >&2 || true
+    bash "${local_environment}" heal-env >&2
 
     if [[ -f "${herd_link_pending}" ]]; then
         WORKTREE_PROFILE=codex \

@@ -108,6 +108,34 @@ test('claude worktree setup heals the environment but skips the herd link retry 
         ->not()->toContain('action=setup');
 });
 
+test('claude worktree setup propagates a recycled environment healing failure', function (): void {
+    $path = temp_directory('ai-harness-claude-heal-failure');
+    $worktree = $path.'/.claude/worktrees/feature-a';
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    install_failing_local_environment($worktree);
+    mkdir($worktree.'/.claude', 0755, true);
+    file_put_contents($worktree.'/.claude/.ai-harness-worktree-provisioned', '');
+
+    $process = new Process(
+        [$path.'/.claude/scripts/worktree-up.sh'],
+        $path,
+        ['CLAUDE_PROJECT_DIR' => $path],
+    );
+    $process->setInput(json_encode([
+        'tool_response' => [
+            'worktreePath' => $worktree,
+        ],
+    ], JSON_THROW_ON_ERROR));
+    $process->run();
+
+    expect($process->getExitCode())->toBe(37)
+        ->and($process->getErrorOutput())->toContain('simulated provisioning failure');
+});
+
 test('claude worktree cleanup delegates to the generated local environment script', function (): void {
     $path = temp_directory('ai-harness-claude-down');
     $worktree = $path.'/.claude/worktrees/feature-a';

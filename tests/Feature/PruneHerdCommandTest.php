@@ -177,6 +177,29 @@ BASH,
         ->assertSuccessful();
 });
 
+test('herd pruner uses the configured database base for Claude worktrees', function (): void {
+    $root = temp_directory('ai-harness-prune-claude');
+    $project = $root.'/source-project';
+    $missingPath = $project.'/.claude/worktrees/feature-a';
+    $sites = $root.'/herd-sites';
+    $site = prune_expected_herd_site_name($missingPath);
+    $checksum = prune_path_checksum($missingPath);
+
+    mkdir($project, 0755, true);
+    mkdir($sites, 0755, true);
+    symlink($missingPath, $sites.'/'.$site);
+    config(['ai-harness.project.database_name' => 'custom_database']);
+
+    pending_artisan('ai-harness:prune-herd', [
+        '--path' => $project,
+        '--sites-path' => $sites,
+        '--no-interaction' => true,
+    ])
+        ->expectsOutputToContain("custom_database_{$checksum}")
+        ->expectsOutputToContain("custom_database_testing_{$checksum}")
+        ->assertSuccessful();
+});
+
 test('herd pruner reports an unlink failure without claiming the site was removed', function (): void {
     $fixture = herd_prune_fixture(herdScript: <<<'BASH'
 #!/usr/bin/env bash

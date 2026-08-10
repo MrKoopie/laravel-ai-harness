@@ -784,6 +784,76 @@ test('codex heal-env re-asserts the per-worktree app url and database after a cl
         ->not()->toContain('APP_URL=http://shared.test');
 });
 
+test('codex heal-env migrates isolated databases that had to be recreated', function (): void {
+    $path = temp_directory('ai-harness-heal-recreated-databases');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    unlink($path.'/database/'.expected_worktree_database_name($path).'.sqlite');
+    unlink($path.'/database/'.expected_worktree_testing_database_name($path).'.sqlite');
+    file_put_contents($path.'/artisan.log', '');
+
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/artisan.log'))
+        ->toContain('migrate --force --ansi')
+        ->toContain('migrate --env=testing --force --ansi');
+});
+
+test('codex heal-env preserves database targets recorded before a driver change', function (): void {
+    $path = temp_directory('ai-harness-heal-driver-change');
+
+    file_put_contents($path.'/.env', implode("\n", [
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/databases.env', implode("\n", [
+        'APP_DB_CONNECTION=mysql',
+        'APP_DB_DATABASE=previous_app_database',
+        'TEST_DB_CONNECTION=mysql',
+        'TEST_DB_DATABASE=previous_testing_database',
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog)->mustRun();
+
+    $state = file_get_contents($path.'/.codex/local-environment-state/databases.env');
+
+    expect($state)
+        ->toContain('DATABASE_TARGET=mysql|previous_app_database')
+        ->toContain('DATABASE_TARGET=mysql|previous_testing_database')
+        ->toContain('DATABASE_TARGET=sqlite|database/'.expected_worktree_database_name($path).'.sqlite')
+        ->toContain('DATABASE_TARGET=sqlite|database/'.expected_worktree_testing_database_name($path).'.sqlite');
+});
+
 test('codex setup keeps the shared app url on a herd-less platform even when the herd feature is enabled', function (): void {
     $path = temp_directory('ai-harness-herd-linux-setup');
     $home = temp_directory('ai-harness-empty-home');

@@ -27,6 +27,9 @@ class PruneHerdCommand extends HarnessCommand
 
     private const QUIT = 'Stop reviewing sites';
 
+    /**
+     * Review verified dangling Herd links and apply only confirmed removals.
+     */
     public function handle(HarnessUpdater $updater, HerdDatabasePruner $databasePruner): int
     {
         $projectPath = $this->projectPathOption();
@@ -155,7 +158,7 @@ class PruneHerdCommand extends HarnessCommand
                 'path' => $target,
                 'checksum' => $checksum,
                 'databases' => $this->databaseNames(
-                    basename($target) === basename($projectPath) ? $databaseBase : basename($target),
+                    $this->usesProjectDatabaseBase($target, $projectPath) ? $databaseBase : basename($target),
                     $checksum,
                 ),
             ];
@@ -164,6 +167,23 @@ class PruneHerdCommand extends HarnessCommand
         usort($orphans, static fn (array $left, array $right): int => $left['site'] <=> $right['site']);
 
         return $orphans;
+    }
+
+    /**
+     * Determine whether the target was provisioned from the current project.
+     */
+    private function usesProjectDatabaseBase(string $target, string $projectPath): bool
+    {
+        if (basename($target) === basename($projectPath)) {
+            return true;
+        }
+
+        $claudeWorktrees = rtrim($projectPath, DIRECTORY_SEPARATOR)
+            .DIRECTORY_SEPARATOR.'.claude'
+            .DIRECTORY_SEPARATOR.'worktrees'
+            .DIRECTORY_SEPARATOR;
+
+        return str_starts_with($target, $claudeWorktrees);
     }
 
     /**
@@ -181,6 +201,9 @@ class PruneHerdCommand extends HarnessCommand
         ]);
     }
 
+    /**
+     * Resolve Herd's linked-sites directory or the explicit test override.
+     */
     private function sitesPath(): string
     {
         $configured = $this->option('sites-path');
@@ -198,6 +221,9 @@ class PruneHerdCommand extends HarnessCommand
         return $home.'/Library/Application Support/Herd/config/valet/Sites';
     }
 
+    /**
+     * Resolve a symlink target without requiring the target to still exist.
+     */
     private function absoluteLinkTarget(string $link, string $target): string
     {
         if (str_starts_with($target, DIRECTORY_SEPARATOR)) {
@@ -207,6 +233,9 @@ class PruneHerdCommand extends HarnessCommand
         return dirname($link).DIRECTORY_SEPARATOR.$target;
     }
 
+    /**
+     * Reproduce the provisioner's POSIX cksum value for a worktree path.
+     */
     private function pathChecksum(string $path): string
     {
         $output = [];
@@ -220,6 +249,9 @@ class PruneHerdCommand extends HarnessCommand
         return $matches[1];
     }
 
+    /**
+     * Reproduce the deterministic Herd site name used during provisioning.
+     */
     private function herdSiteName(string $path, string $checksum): string
     {
         $project = basename($path);
@@ -270,6 +302,9 @@ class PruneHerdCommand extends HarnessCommand
         return true;
     }
 
+    /**
+     * Unsecure and unlink a confirmed Herd site through Herd's own CLI.
+     */
     private function removeHerdSite(string $herd, string $site): bool
     {
         // Unsecure is best-effort: a site may never have been secured or Herd
@@ -293,6 +328,9 @@ class PruneHerdCommand extends HarnessCommand
         return false;
     }
 
+    /**
+     * Resolve the Herd CLI from PATH or its standard macOS installation path.
+     */
     private function herdBinary(): ?string
     {
         $output = [];
