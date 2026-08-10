@@ -7,6 +7,7 @@ herd_workspace_enabled="${AI_HARNESS_HERD_WORKSPACE_ENABLED:-{{ herd_workspace_e
 database_base_name="{{ database_name }}"
 database_charset="{{ database_charset }}"
 database_collation="{{ database_collation }}"
+worktree_database_created=false
 
 if [[ -z "${repo_root}" ]]; then
     repo_root="$(git rev-parse --show-toplevel)"
@@ -32,6 +33,24 @@ herd_binary() {
     fi
 
     return 1
+}
+
+herd_php_binary() {
+    local herd_path herd_dir herd_php herd_phar output resolved basename
+
+    herd_path="$(herd_binary)" || return 1
+    herd_dir="$(cd -- "$(dirname -- "${herd_path}")" && pwd -P)"
+    herd_php="${herd_dir}/php"
+    herd_phar="${herd_dir}/herd.phar"
+
+    [[ -x "${herd_php}" && -r "${herd_phar}" ]] || return 1
+
+    output="$(cd "${repo_root}" && "${herd_php}" -d 'error_reporting=E_ALL & ~E_DEPRECATED' "${herd_phar}" which-php 2>/dev/null)" || return 1
+    resolved="$(printf '%s\n' "${output}" | awk 'NF { line=$0 } END { print line }')"
+    basename="${resolved##*/}"
+
+    [[ "${resolved}" == "${herd_dir}/"* && -x "${resolved}" && "${basename}" =~ ^php[0-9]+$ ]] || return 1
+    printf '%s\n' "${resolved}"
 }
 
 run_host_php() {
@@ -75,10 +94,16 @@ php_runtime() {
         return
     fi
 
-    local herd_path
+    local herd_php
 
-    if herd_path="$(herd_binary)"; then
-        "${herd_path}" php "$@"
+    if herd_php="$(herd_php_binary)"; then
+        "${herd_php}" "$@"
+
+        return
+    fi
+
+    if command -v php >/dev/null 2>&1; then
+        php "$@"
 
         return
     fi
@@ -87,7 +112,14 @@ php_runtime() {
 }
 
 composer_runtime_available() {
-    sail_runtime_available || herd_binary >/dev/null 2>&1 || command -v composer >/dev/null 2>&1
+    local herd_php herd_composer
+
+    sail_runtime_available && return 0
+    command -v composer >/dev/null 2>&1 && return 0
+
+    herd_php="$(herd_php_binary)" || return 1
+    herd_composer="$(dirname -- "${herd_php}")/composer"
+    [[ -x "${herd_composer}" ]]
 }
 
 composer_runtime() {
@@ -97,10 +129,21 @@ composer_runtime() {
         return
     fi
 
-    local herd_path
+    local herd_php composer_path
 
-    if herd_path="$(herd_binary)"; then
-        "${herd_path}" composer "$@"
+    if herd_php="$(herd_php_binary)"; then
+        composer_path="$(command -v composer || true)"
+        [[ -n "${composer_path}" ]] || composer_path="$(dirname -- "${herd_php}")/composer"
+
+        if [[ -x "${composer_path}" ]]; then
+            "${herd_php}" "${composer_path}" "$@"
+
+            return
+        fi
+    fi
+
+    if command -v composer >/dev/null 2>&1; then
+        composer "$@"
 
         return
     fi
@@ -378,11 +421,50 @@ managed_database_state_file() {
     printf '%s\n' "$(managed_state_dir)/databases.env"
 }
 
+encode_database_state_value() {
+    printf ':%s' "${1}" | base64 | tr -d '\r\n'
+}
+
+decode_database_state_value() {
+    local decoded
+
+    decoded="$(printf '%s' "${1}" | base64 --decode 2>/dev/null || printf '%s' "${1}" | base64 -D 2>/dev/null)" || return 1
+    [[ "${decoded}" == :* ]] || return 1
+    printf '%s' "${decoded#:}"
+}
+
 remember_database_target() {
-    local role="${1}" connection="${2}" database="${3}" state_file
+    local role="${1}" connection="${2}" database="${3}" state_file target legacy_role legacy_connection legacy_database
+    local origin_checksum host port username password
 
     mkdir -p "$(managed_state_dir)"
     state_file="$(managed_database_state_file)"
+    origin_checksum="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
+    host="$(env_value DB_HOST || printf '127.0.0.1')"
+    port="$(env_value DB_PORT || printf '3306')"
+    username="$(env_value DB_USERNAME || printf 'root')"
+    password="$(env_value DB_PASSWORD || true)"
+    target="DATABASE_TARGET=${connection}|${database}|${origin_checksum}|$(encode_database_state_value "${host}")|$(encode_database_state_value "${port}")|$(encode_database_state_value "${username}")|$(encode_database_state_value "${password}")"
+
+    if [[ -f "${state_file}" ]] && ! grep -q '^DATABASE_TARGET=' "${state_file}"; then
+        for legacy_role in APP TEST; do
+            legacy_connection="$(file_env_value "${state_file}" "${legacy_role}_DB_CONNECTION" || true)"
+            legacy_database="$(file_env_value "${state_file}" "${legacy_role}_DB_DATABASE" || true)"
+
+            if [[ -n "${legacy_connection}" && -n "${legacy_database}" ]]; then
+                printf 'DATABASE_TARGET=%s|%s|%s|%s|%s|%s|%s\n' \
+                    "${legacy_connection}" "${legacy_database}" "${origin_checksum}" \
+                    "$(encode_database_state_value "${host}")" \
+                    "$(encode_database_state_value "${port}")" \
+                    "$(encode_database_state_value "${username}")" \
+                    "$(encode_database_state_value "${password}")" >> "${state_file}"
+            fi
+        done
+    fi
+
+    if [[ ! -f "${state_file}" ]] || ! grep -Fqx "${target}" "${state_file}"; then
+        printf '%s\n' "${target}" >> "${state_file}"
+    fi
 
     set_env_file_value "${state_file}" "${role}_DB_CONNECTION" "${connection}"
     set_env_file_value "${state_file}" "${role}_DB_DATABASE" "${database}"
@@ -519,10 +601,11 @@ sqlite_database_path() {
 }
 
 configure_worktree_environment() {
-    local connection database_name sqlite_path
+    local connection database_name sqlite_path sqlite_full_path
 
     codex_workspace_requested || return 0
     [[ -f .env ]] || return 0
+    worktree_database_created=false
 
     if herd_workspace_requested; then
         set_env_value APP_URL "https://$(herd_site_name).test"
@@ -536,9 +619,13 @@ configure_worktree_environment() {
     case "${connection}" in
         sqlite)
             sqlite_path="database/${database_name}.sqlite"
+            sqlite_full_path="$(sqlite_database_path "${sqlite_path}")"
             set_env_value DB_DATABASE "${sqlite_path}"
-            mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
-            touch "$(sqlite_database_path "${sqlite_path}")"
+            mkdir -p "$(dirname "${sqlite_full_path}")"
+            if [[ ! -f "${sqlite_full_path}" ]]; then
+                worktree_database_created=true
+            fi
+            touch "${sqlite_full_path}"
             remember_database_target APP "${connection}" "${sqlite_path}"
             ;;
         mysql|mariadb)
@@ -556,16 +643,20 @@ configure_worktree_environment() {
 }
 
 configure_worktree_testing_database() {
-    local connection="${1}" testing_database_name sqlite_path
+    local connection="${1}" testing_database_name sqlite_path sqlite_full_path
 
     testing_database_name="$(worktree_testing_database_name)"
 
     case "${connection}" in
         sqlite)
             sqlite_path="database/${testing_database_name}.sqlite"
+            sqlite_full_path="$(sqlite_database_path "${sqlite_path}")"
             set_env_value AI_HARNESS_TEST_DB_DATABASE "${sqlite_path}"
-            mkdir -p "$(dirname "$(sqlite_database_path "${sqlite_path}")")"
-            touch "$(sqlite_database_path "${sqlite_path}")"
+            mkdir -p "$(dirname "${sqlite_full_path}")"
+            if [[ ! -f "${sqlite_full_path}" ]]; then
+                worktree_database_created=true
+            fi
+            touch "${sqlite_full_path}"
             remember_database_target TEST "${connection}" "${sqlite_path}"
             configure_phpunit_database "${connection}" "${sqlite_path}"
             ;;
@@ -602,10 +693,10 @@ migrate_testing_database() {
 }
 
 create_mysql_database() {
-    local database_name="${1}"
+    local database_name="${1}" creation_status
 
     # shellcheck disable=SC2016
-    AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
+    creation_status="$(AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
     AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
     AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
     AI_HARNESS_DB_PASSWORD="$(env_value DB_PASSWORD || true)" \
@@ -632,8 +723,16 @@ create_mysql_database() {
 
         $pdo = new PDO($dsn, getenv("AI_HARNESS_DB_USERNAME") ?: "root", getenv("AI_HARNESS_DB_PASSWORD") ?: "");
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $statement = $pdo->prepare("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?");
+        $statement->execute([$database]);
+        $created = $statement->fetchColumn() === false;
         $pdo->exec(sprintf("CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET %s COLLATE %s", $database, $charset, $collation));
-    '
+        fwrite(STDOUT, $created ? "created\n" : "existing\n");
+    ')"
+
+    if [[ "${creation_status}" == "created" ]]; then
+        worktree_database_created=true
+    fi
 }
 
 drop_worktree_database() {
@@ -646,13 +745,20 @@ drop_worktree_database() {
     if [[ -f "${state_file}" ]]; then
         status=0
 
-        drop_recorded_database \
-            "$(file_env_value "${state_file}" APP_DB_CONNECTION || true)" \
-            "$(file_env_value "${state_file}" APP_DB_DATABASE || true)" || status=$?
+        if grep -q '^DATABASE_TARGET=' "${state_file}"; then
+            while IFS='|' read -r connection configured_database origin_checksum encoded_host encoded_port encoded_username encoded_password; do
+                drop_recorded_database "${connection}" "${configured_database}" "${origin_checksum}" \
+                    "${encoded_host}" "${encoded_port}" "${encoded_username}" "${encoded_password}" || status=$?
+            done < <(sed -n 's/^DATABASE_TARGET=//p' "${state_file}")
+        else
+            drop_recorded_database \
+                "$(file_env_value "${state_file}" APP_DB_CONNECTION || true)" \
+                "$(file_env_value "${state_file}" APP_DB_DATABASE || true)" || status=$?
 
-        drop_recorded_database \
-            "$(file_env_value "${state_file}" TEST_DB_CONNECTION || true)" \
-            "$(file_env_value "${state_file}" TEST_DB_DATABASE || true)" || status=$?
+            drop_recorded_database \
+                "$(file_env_value "${state_file}" TEST_DB_CONNECTION || true)" \
+                "$(file_env_value "${state_file}" TEST_DB_DATABASE || true)" || status=$?
+        fi
 
         if [[ "${status}" -eq 0 ]]; then
             rm -f "${state_file}"
@@ -693,47 +799,83 @@ drop_worktree_database() {
 }
 
 remove_recorded_sqlite_database() {
-    local database="${1}" sqlite_path app_path test_path
+    local database="${1}" origin_checksum="${2:-}" sqlite_path database_dir filename suffix prefix
 
     sqlite_path="$(sqlite_database_path "${database}")"
-    app_path="$(sqlite_database_path "database/$(worktree_database_name).sqlite")"
-    test_path="$(sqlite_database_path "database/$(worktree_testing_database_name).sqlite")"
+    database_dir="${repo_root}/database"
 
     case "${sqlite_path}" in
-        "${app_path}"|"${test_path}")
-            rm -f "${sqlite_path}"
+        "${database_dir}/"*)
+            filename="${sqlite_path#"${database_dir}/"}"
             ;;
         *)
             printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
             return 1
             ;;
     esac
+
+    if [[ -z "${origin_checksum}" && "${filename}" =~ _([0-9]+)\.sqlite$ ]]; then
+        origin_checksum="${BASH_REMATCH[1]}"
+    fi
+
+    if [[ ! "${origin_checksum}" =~ ^[0-9]+$ ]]; then
+        printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
+        return 1
+    fi
+
+    suffix="_${origin_checksum}.sqlite"
+
+    if [[ "${filename}" == */* || "${filename}" != *"${suffix}" ]]; then
+        printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
+        return 1
+    fi
+
+    prefix="${filename%"${suffix}"}"
+
+    if [[ ! "${prefix}" =~ ^[a-z0-9_]+$ ]]; then
+        printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
+        return 1
+    fi
+
+    rm -f "${sqlite_path}"
 }
 
 drop_recorded_database() {
-    local connection="${1}" database="${2}"
+    local connection="${1}" database="${2}" origin_checksum="${3:-}"
+    local encoded_host="${4:-}" encoded_port="${5:-}" encoded_username="${6:-}" encoded_password="${7:-}"
 
     [[ -n "${connection}" ]] || return 0
     [[ -n "${database}" ]] || return 0
 
     case "${connection}" in
         sqlite)
-            remove_recorded_sqlite_database "${database}"
+            remove_recorded_sqlite_database "${database}" "${origin_checksum}"
             ;;
         mysql|mariadb)
-            drop_mysql_database "${database}"
+            drop_mysql_database "${database}" "${encoded_host}" "${encoded_port}" "${encoded_username}" "${encoded_password}"
             ;;
     esac
 }
 
 drop_mysql_database() {
-    local database_name="${1}"
+    local database_name="${1}" encoded_host="${2:-}" encoded_port="${3:-}" encoded_username="${4:-}" encoded_password="${5:-}"
+    local host port username password
+
+    host="$(env_value DB_HOST || printf '127.0.0.1')"
+    port="$(env_value DB_PORT || printf '3306')"
+    username="$(env_value DB_USERNAME || printf 'root')"
+    password="$(env_value DB_PASSWORD || true)"
+
+    [[ -z "${encoded_host}" ]] || host="$(decode_database_state_value "${encoded_host}")"
+    [[ -z "${encoded_port}" ]] || port="$(decode_database_state_value "${encoded_port}")"
+    [[ -z "${encoded_username}" ]] || username="$(decode_database_state_value "${encoded_username}")"
+    [[ -z "${encoded_password}" ]] || password="$(decode_database_state_value "${encoded_password}")"
 
     # shellcheck disable=SC2016
-    AI_HARNESS_DB_HOST="$(env_value DB_HOST || printf '127.0.0.1')" \
-    AI_HARNESS_DB_PORT="$(env_value DB_PORT || printf '3306')" \
-    AI_HARNESS_DB_USERNAME="$(env_value DB_USERNAME || printf 'root')" \
-    AI_HARNESS_DB_PASSWORD="$(env_value DB_PASSWORD || true)" \
+    AI_HARNESS_DB_HOST="${host}" \
+    AI_HARNESS_DB_PORT="${port}" \
+    AI_HARNESS_DB_USERNAME="${username}" \
+    AI_HARNESS_DB_PASSWORD="${password}" \
     AI_HARNESS_DB_DATABASE="${database_name}" \
     php_runtime -r '
         $database = getenv("AI_HARNESS_DB_DATABASE");
@@ -759,8 +901,63 @@ herd_link_pending_file() {
     printf '%s\n' "$(managed_state_dir)/herd-link-pending"
 }
 
+herd_linked_site_file() {
+    printf '%s\n' "$(managed_state_dir)/herd-linked-site"
+}
+
+remember_linked_herd_site() {
+    mkdir -p "$(managed_state_dir)"
+    printf '%s\n' "${1}" > "$(herd_linked_site_file)"
+}
+
+valid_recorded_herd_site() {
+    local site_name="${1}"
+
+    [[ ${#site_name} -le 63 && "${site_name}" =~ ^[a-z0-9][a-z0-9-]*-[0-9]+$ ]]
+}
+
+linked_herd_site() {
+    local expected_site site_file site_name app_url
+
+    expected_site="$(herd_site_name)"
+    site_file="$(herd_linked_site_file)"
+
+    if [[ -f "${site_file}" ]]; then
+        site_name="$(head -n 1 "${site_file}")"
+
+        # The marker is written only after a successful Herd link. Keep using
+        # that independently validated ownership record if the worktree moved.
+        if valid_recorded_herd_site "${site_name}"; then
+            printf '%s\n' "${site_name}"
+
+            return 0
+        fi
+    fi
+
+    # Older generated scripts did not record a linked-site marker. Preserve
+    # cleanup for those worktrees when their managed APP_URL still identifies
+    # the deterministic Herd site, even if the Herd feature is now disabled.
+    app_url="$(env_value APP_URL || true)"
+
+    case "${app_url}" in
+        "http://${expected_site}.test"|"https://${expected_site}.test")
+            printf '%s\n' "${expected_site}"
+
+            return 0
+            ;;
+    esac
+
+    if herd_workspace_requested; then
+        printf '%s\n' "${expected_site}"
+
+        return 0
+    fi
+
+    return 1
+}
+
 link_herd_workspace() {
-    local herd_path site_name
+    local herd_path site_name recorded_site
 
     herd_workspace_requested || return 0
 
@@ -774,43 +971,75 @@ link_herd_workspace() {
 
     site_name="$(herd_site_name)"
 
+    if recorded_site="$(linked_herd_site)" && [[ "${recorded_site}" != "${site_name}" ]]; then
+        # A moved/recycled worktree can already own the site recorded for its
+        # previous path. Remove that verified link before replacing the marker.
+        unlink_herd_workspace
+    fi
+
     "${herd_path}" link "${site_name}" --no-interaction
+    remember_linked_herd_site "${site_name}"
     "${herd_path}" secure "${site_name}"
 
-    rm -f "$(herd_link_pending_file)"
+    rm -f "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
+    cleanup_managed_state_dir
 }
 
 unlink_herd_workspace() {
-    if herd_workspace_requested; then
-        local herd_path output site_name status
+    local herd_path output site_name status unsecure_output unsecure_status
 
-        if ! herd_path="$(herd_binary)"; then
-            return 0
-        fi
+    if [[ -f "$(herd_link_pending_file)" && ! -f "$(herd_linked_site_file)" ]]; then
+        rm -f "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
+        cleanup_managed_state_dir
 
-        site_name="$(herd_site_name)"
-
-        set +e
-        output="$("${herd_path}" unlink "${site_name}" 2>&1)"
-        status=$?
-        set -e
-
-        if [[ "${status}" -eq 0 ]]; then
-            if [[ -n "${output}" ]]; then
-                printf '%s\n' "${output}"
-            fi
-
-            return 0
-        fi
-
-        if printf '%s\n' "${output}" | grep -Eiq '(not found|not linked|does not exist|no .*link)'; then
-            return 0
-        fi
-
-        printf '%s\n' "${output}" >&2
-
-        return "${status}"
+        return 0
     fi
+
+    if ! site_name="$(linked_herd_site)"; then
+        return 0
+    fi
+
+    if ! herd_path="$(herd_binary)"; then
+        printf 'local-environment: unable to unlink recorded Herd site %s because the Herd CLI is unavailable.\n' "${site_name}" >&2
+
+        return 1
+    fi
+
+    set +e
+    unsecure_output="$("${herd_path}" unsecure "${site_name}" 2>&1)"
+    unsecure_status=$?
+    set -e
+
+    if [[ "${unsecure_status}" -ne 0 ]] && ! printf '%s\n' "${unsecure_output}" | grep -Eiq '(not secured|not found|does not exist|no .*certificate)'; then
+        printf 'local-environment: Herd could not fully unsecure %s: %s\n' "${site_name}" "${unsecure_output}" >&2
+    fi
+
+    set +e
+    output="$("${herd_path}" unlink "${site_name}" 2>&1)"
+    status=$?
+    set -e
+
+    if [[ "${status}" -eq 0 ]]; then
+        if [[ -n "${output}" ]]; then
+            printf '%s\n' "${output}"
+        fi
+
+        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
+        cleanup_managed_state_dir
+
+        return 0
+    fi
+
+    if printf '%s\n' "${output}" | grep -Eiq '(not found|not linked|does not exist|no .*link)'; then
+        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)" "$(managed_state_dir)/herd-warning-emitted"
+        cleanup_managed_state_dir
+
+        return 0
+    fi
+
+    printf '%s\n' "${output}" >&2
+
+    return "${status}"
 }
 
 app_key_missing() {
@@ -874,6 +1103,20 @@ case "${action}" in
         cd "${repo_root}"
 
         link_herd_workspace
+        ;;
+    heal-env)
+        cd "${repo_root}"
+
+        configure_worktree_environment
+
+        if [[ -f artisan ]] && app_key_missing; then
+            artisan key:generate --ansi
+        fi
+
+        if [[ "${worktree_database_created}" == true && -f artisan ]]; then
+            DB_URL="" artisan migrate --force --ansi
+            migrate_testing_database
+        fi
         ;;
     cleanup)
         cd "${repo_root}"

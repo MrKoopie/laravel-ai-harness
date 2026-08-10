@@ -24,6 +24,24 @@ herd_binary() {
     return 1
 }
 
+herd_php_binary() {
+    local herd_path herd_dir herd_php herd_phar output resolved basename
+
+    herd_path="$(herd_binary)" || return 1
+    herd_dir="$(cd -- "$(dirname -- "${herd_path}")" && pwd -P)"
+    herd_php="${herd_dir}/php"
+    herd_phar="${herd_dir}/herd.phar"
+
+    [[ -x "${herd_php}" && -r "${herd_phar}" ]] || return 1
+
+    output="$(cd "${repo_root}" && "${herd_php}" -d 'error_reporting=E_ALL & ~E_DEPRECATED' "${herd_phar}" which-php 2>/dev/null)" || return 1
+    resolved="$(printf '%s\n' "${output}" | awk 'NF { line=$0 } END { print line }')"
+    basename="${resolved##*/}"
+
+    [[ "${resolved}" == "${herd_dir}/"* && -x "${resolved}" && "${basename}" =~ ^php[0-9]+$ ]] || return 1
+    printf '%s\n' "${resolved}"
+}
+
 uses_phpunit_configuration() {
     local argument
 
@@ -139,6 +157,25 @@ if sail_runtime_available; then
     fi
 
     exec ./vendor/bin/sail artisan "${artisan_args[@]}"
+fi
+
+# Resolve Herd's site-isolated PHP through its PHAR, then execute that validated
+# version binary directly. This retains the configured PHP version without the
+# warning-sensitive nested command substitution in Herd's shell wrapper.
+if [[ "${WORKTREE_PROFILE:-}" == "codex" ]] && herd_php="$(herd_php_binary)"; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec "${herd_php}" "${test_bin}" "${test_args[@]}"
+    fi
+
+    exec "${herd_php}" artisan "${artisan_args[@]}"
+fi
+
+if [[ "${WORKTREE_PROFILE:-}" == "codex" ]] && command -v php >/dev/null 2>&1; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec php "${test_bin}" "${test_args[@]}"
+    fi
+
+    exec php artisan "${artisan_args[@]}"
 fi
 
 if herd_path="$(herd_binary)"; then

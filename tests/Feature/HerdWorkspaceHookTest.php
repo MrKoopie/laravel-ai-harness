@@ -11,19 +11,7 @@ test('codex setup and cleanup link and unlink herd workspaces when herd is enabl
     ])->assertSuccessful();
 
     $herdLog = temp_file('herd-log');
-    $fakeBin = $path.'/fake-bin';
-
-    mkdir($fakeBin, 0755, true);
-    file_put_contents($fakeBin.'/herd', <<<'BASH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERD_LOG"
-
-if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
-    shift
-    "$REAL_PHP" "$@"
-fi
-BASH);
-    chmod($fakeBin.'/herd', 0755);
+    $fakeBin = write_fake_herd($path);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog, [
         'REAL_PHP' => PHP_BINARY,
@@ -36,7 +24,102 @@ BASH);
     expect($log)
         ->toContain('link '.$siteName.' --no-interaction')
         ->toContain('secure '.$siteName)
+        ->toContain('unsecure '.$siteName)
         ->toContain('unlink '.$siteName);
+});
+
+test('codex cleanup unlinks a recorded herd site after the feature is disabled', function (): void {
+    $path = temp_directory('ai-harness-herd-disabled-cleanup');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    expect($path.'/.codex/local-environment-state/herd-linked-site')->toBeFile();
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog, [
+        'AI_HARNESS_HERD' => 'false',
+    ])->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unlink '.expected_herd_site_name($path))
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
+test('codex cleanup uses recorded herd and sqlite ownership after a worktree move', function (): void {
+    $path = temp_directory('ai-harness-herd-before-move');
+    $movedPath = $path.'-moved';
+
+    file_put_contents($path.'/.env.example', "APP_KEY=base64:already-set\nDB_CONNECTION=sqlite\nDB_DATABASE=database/database.sqlite\n");
+    pending_artisan('ai-harness:update', ['--path' => $path, '--with' => ['herd']])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path);
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    $oldSite = expected_herd_site_name($path);
+    $oldDatabase = $path.'/database/'.expected_worktree_database_name($path).'.sqlite';
+    rename($path, $movedPath);
+    $movedDatabase = $movedPath.substr($oldDatabase, strlen($path));
+
+    run_local_environment($movedPath, 'cleanup', $movedPath.'/fake-bin', $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))->toContain('unlink '.$oldSite)
+        ->and($movedDatabase)->not->toBeFile()
+        ->and($movedPath.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
+test('codex cleanup uses a legacy managed app url when no linked-site marker exists', function (): void {
+    $path = temp_directory('ai-harness-herd-legacy-cleanup');
+    $site = expected_herd_site_name($path);
+
+    file_put_contents($path.'/.env', "APP_URL=https://{$site}.test\nDB_CONNECTION=sqlite\n");
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unsecure '.$site)
+        ->toContain('unlink '.$site);
+});
+
+test('codex cleanup unlinks when secure fails after herd link succeeds', function (): void {
+    $path = temp_directory('ai-harness-herd-secure-failure');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path, <<<'BASH'
+if [[ "${1:-}" == "secure" ]]; then
+    exit 37
+fi
+BASH);
+
+    $setup = run_local_environment($path, 'setup', $fakeBin, $herdLog);
+    $setup->run();
+
+    expect($setup->getExitCode())->toBe(37)
+        ->and($path.'/.codex/local-environment-state/herd-linked-site')->toBeFile();
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unlink '.expected_herd_site_name($path));
 });
 
 test('herd workspace automation is disabled by default', function (): void {
@@ -576,6 +659,50 @@ test('codex setup still sets the per-worktree app url when herd is enabled but u
         ->and($path.'/.codex/local-environment-state/herd-link-pending')->toBeFile();
 });
 
+test('codex cleanup clears a pending herd link when no site was ever linked', function (): void {
+    $path = temp_directory('ai-harness-herd-pending-cleanup');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    $environment = [
+        'AI_HARNESS_HERD_OS' => 'Darwin',
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ];
+
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, $environment)->mustRun();
+
+    expect($path.'/.codex/local-environment-state/herd-link-pending')->toBeFile()
+        ->and($path.'/.codex/local-environment-state/herd-linked-site')->not->toBeFile();
+
+    $cleanup = run_local_environment($path, 'cleanup', $fakeBin, $herdLog, $environment);
+    $cleanup->mustRun();
+
+    expect($cleanup->getErrorOutput())
+        ->not()->toContain('unable to unlink recorded Herd site')
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
 test('codex link-herd links the deferred site and clears the pending signal once herd is available', function (): void {
     $path = temp_directory('ai-harness-herd-link-retry');
     $home = temp_directory('ai-harness-empty-home');
@@ -622,6 +749,152 @@ BASH);
         ->toContain('link '.expected_herd_site_name($path).' --no-interaction')
         ->toContain('secure '.expected_herd_site_name($path))
         ->and($path.'/.codex/local-environment-state/herd-link-pending')->not->toBeFile();
+});
+
+test('codex heal-env re-asserts the per-worktree app url and database after a clobbered env', function (): void {
+    $path = temp_directory('ai-harness-heal-env');
+    $home = temp_directory('ai-harness-empty-home');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+
+    $herdEnvironment = [
+        'AI_HARNESS_HERD_OS' => 'Darwin',
+        'HOME' => $home,
+        'PATH' => $fakeBin.PATH_SEPARATOR.'/usr/bin:/bin:/usr/sbin:/sbin',
+        'REAL_PHP' => PHP_BINARY,
+    ];
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog, $herdEnvironment)->mustRun();
+
+    expect(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.expected_herd_site_name($path).'.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite');
+
+    // Simulate a recycled worktree: .worktreeinclude re-copies the source
+    // checkout's .env over the provisioned one, reverting the isolated values.
+    file_put_contents($path.'/.env', implode("\n", [
+        'APP_URL=http://shared.test',
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog, $herdEnvironment)->mustRun();
+
+    expect(file_get_contents($path.'/.env'))
+        ->toContain('APP_URL=https://'.expected_herd_site_name($path).'.test')
+        ->toContain('DB_DATABASE=database/'.expected_worktree_database_name($path).'.sqlite')
+        ->not()->toContain('APP_URL=http://shared.test');
+});
+
+test('codex heal-env migrates isolated databases that had to be recreated', function (): void {
+    $path = temp_directory('ai-harness-heal-recreated-databases');
+
+    file_put_contents($path.'/.env.example', implode("\n", [
+        'APP_KEY=base64:already-set',
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    unlink($path.'/database/'.expected_worktree_database_name($path).'.sqlite');
+    unlink($path.'/database/'.expected_worktree_testing_database_name($path).'.sqlite');
+    file_put_contents($path.'/artisan.log', '');
+
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/artisan.log'))
+        ->toContain('migrate --force --ansi')
+        ->toContain('migrate --env=testing --force --ansi');
+});
+
+test('codex heal-env regenerates an empty application key', function (): void {
+    $path = temp_directory('ai-harness-heal-app-key');
+    file_put_contents($path.'/.env.example', "APP_KEY=\nDB_CONNECTION=sqlite\nDB_DATABASE=database/database.sqlite\n");
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', ['--path' => $path])->assertSuccessful();
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    file_put_contents($path.'/.env', preg_replace('/^APP_KEY=.*$/m', 'APP_KEY=', (string) file_get_contents($path.'/.env')));
+    file_put_contents($path.'/artisan.log', '');
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/artisan.log'))->toContain('key:generate --ansi');
+});
+
+test('codex heal-env preserves database targets recorded before a driver change', function (): void {
+    $path = temp_directory('ai-harness-heal-driver-change');
+
+    file_put_contents($path.'/.env', implode("\n", [
+        'DB_CONNECTION=sqlite',
+        'DB_DATABASE=database/database.sqlite',
+        '',
+    ]));
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/databases.env', implode("\n", [
+        'APP_DB_CONNECTION=mysql',
+        'APP_DB_DATABASE=previous_app_database',
+        'TEST_DB_CONNECTION=mysql',
+        'TEST_DB_DATABASE=previous_testing_database',
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog)->mustRun();
+
+    $state = file_get_contents($path.'/.codex/local-environment-state/databases.env');
+
+    expect($state)
+        ->toContain('DATABASE_TARGET=mysql|previous_app_database')
+        ->toContain('DATABASE_TARGET=mysql|previous_testing_database')
+        ->toContain('DATABASE_TARGET=sqlite|database/'.expected_worktree_database_name($path).'.sqlite')
+        ->toContain('DATABASE_TARGET=sqlite|database/'.expected_worktree_testing_database_name($path).'.sqlite');
 });
 
 test('codex setup keeps the shared app url on a herd-less platform even when the herd feature is enabled', function (): void {
@@ -954,6 +1227,37 @@ test('codex cleanup refuses recorded sqlite paths outside the managed worktree d
         ->and($path.'/.codex/local-environment-state/databases.env')->toBeFile();
 });
 
+test('codex cleanup removes checksum-verified sqlite targets recorded before a database base change', function (): void {
+    $path = temp_directory('ai-harness-cleanup-renamed-sqlite');
+    $checksum = path_checksum($path);
+    $oldAppDatabase = "database/old_database_base_{$checksum}.sqlite";
+    $oldTestingDatabase = "database/old_database_base_testing_{$checksum}.sqlite";
+
+    mkdir($path.'/database', 0755, true);
+    file_put_contents($path.'/'.$oldAppDatabase, '');
+    file_put_contents($path.'/'.$oldTestingDatabase, '');
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/databases.env', implode("\n", [
+        'DATABASE_TARGET=sqlite|'.$oldAppDatabase,
+        'DATABASE_TARGET=sqlite|'.$oldTestingDatabase,
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect($path.'/'.$oldAppDatabase)->not->toBeFile()
+        ->and($path.'/'.$oldTestingDatabase)->not->toBeFile()
+        ->and($path.'/.codex/local-environment-state/databases.env')->not->toBeFile();
+});
+
 test('mysql worktree databases are created through sail when sail is available', function (): void {
     $path = temp_directory('ai-harness-sail-database');
 
@@ -1093,6 +1397,66 @@ BASH);
         ->toContain('composer install --no-interaction --prefer-dist');
 });
 
+test('composer runtime uses herd composer when site linking is disabled and no standalone composer exists', function (): void {
+    $path = temp_directory('ai-harness-herd-composer-without-linking');
+    pending_artisan('ai-harness:update', ['--path' => $path])->assertSuccessful();
+
+    $script = (string) file_get_contents($path.'/.codex/scripts/local-environment.sh');
+    $caseOffset = strpos($script, "\ncase \"\${action}\" in\n");
+    expect($caseOffset)->not->toBeFalse();
+    file_put_contents($path.'/runtime-probe.sh', substr($script, 0, (int) $caseOffset)."\ncomposer_runtime install\n");
+
+    $herdBin = $path.'/herd-bin';
+    $runtimeLog = temp_file('herd-composer-log');
+    mkdir($herdBin, 0755, true);
+    file_put_contents($herdBin.'/herd.phar', 'fixture');
+    file_put_contents($herdBin.'/herd', "#!/usr/bin/env bash\n");
+    file_put_contents($herdBin.'/php', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$HERD_SELECTED_PHP"
+BASH);
+    file_put_contents($herdBin.'/php84', <<<'BASH'
+#!/usr/bin/env bash
+printf 'selected-php %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    file_put_contents($herdBin.'/composer', "#!/usr/bin/env bash\n");
+    foreach (['herd', 'php', 'php84', 'composer'] as $binary) {
+        chmod($herdBin.'/'.$binary, 0755);
+    }
+    $resolvedHerdBin = (string) realpath($herdBin);
+
+    (new Process(['/bin/bash', $path.'/runtime-probe.sh'], $path, [
+        'CODEX_WORKTREE_PATH' => $path,
+        'HERD_SELECTED_PHP' => $resolvedHerdBin.'/php84',
+        'PATH' => $herdBin.':/usr/bin:/bin',
+        'RUNTIME_LOG' => $runtimeLog,
+        'WORKTREE_PROFILE' => 'codex',
+    ]))->mustRun();
+
+    expect(file_get_contents($runtimeLog))->toContain('selected-php '.$resolvedHerdBin.'/composer install');
+});
+
+test('link-herd replaces a recorded site after the worktree moves', function (): void {
+    $path = temp_directory('ai-harness-herd-link-before-move');
+    $movedPath = $path.'-moved';
+    pending_artisan('ai-harness:update', ['--path' => $path, '--with' => ['herd']])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path);
+    run_local_environment($path, 'link-herd', $fakeBin, $herdLog)->mustRun();
+    $oldSite = expected_herd_site_name($path);
+
+    rename($path, $movedPath);
+    run_local_environment($movedPath, 'link-herd', $movedPath.'/fake-bin', $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unsecure '.$oldSite)
+        ->toContain('unlink '.$oldSite)
+        ->toContain('link '.expected_herd_site_name($movedPath).' --no-interaction')
+        ->and(trim((string) file_get_contents($movedPath.'/.codex/local-environment-state/herd-linked-site')))
+        ->toBe(expected_herd_site_name($movedPath));
+});
+
 test('mysql worktree app and testing databases are dropped through sail during cleanup', function (): void {
     $path = temp_directory('ai-harness-sail-database-cleanup');
 
@@ -1199,6 +1563,7 @@ BASH);
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SAIL_LOG"
 printf 'database=%s\n' "${AI_HARNESS_DB_DATABASE:-}" >> "$SAIL_LOG"
+printf 'server=%s:%s user=%s password=%s\n' "${AI_HARNESS_DB_HOST:-}" "${AI_HARNESS_DB_PORT:-}" "${AI_HARNESS_DB_USERNAME:-}" "${AI_HARNESS_DB_PASSWORD:-}" >> "$SAIL_LOG"
 
 if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
     shift
@@ -1215,11 +1580,11 @@ BASH);
     file_put_contents($sailLog, '');
     file_put_contents($path.'/.env', implode("\n", [
         'DB_CONNECTION=mysql',
-        'DB_HOST=mysql',
-        'DB_PORT=3306',
+        'DB_HOST=replacement-mysql',
+        'DB_PORT=3307',
         'DB_DATABASE=changed_app_database',
-        'DB_USERNAME=sail',
-        'DB_PASSWORD=password',
+        'DB_USERNAME=replacement-user',
+        'DB_PASSWORD=replacement-password',
         'AI_HARNESS_TEST_DB_DATABASE=changed_testing_database',
         '',
     ]));
@@ -1232,6 +1597,8 @@ BASH);
     expect(file_get_contents($sailLog))
         ->toContain('database='.expected_worktree_database_name($path))
         ->toContain('database='.expected_worktree_testing_database_name($path))
+        ->toContain('server=mysql:3306 user=sail password=password')
+        ->not()->toContain('server=replacement-mysql:3307')
         ->not()->toContain('database=changed_app_database')
         ->not()->toContain('database=changed_testing_database')
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
@@ -1269,6 +1636,31 @@ function run_local_environment(string $path, string $action, string $fakeBin, st
         $path,
         array_merge($defaults, $environment),
     );
+}
+
+function write_fake_herd(string $path, string $extra = ''): string
+{
+    $fakeBin = $path.'/fake-bin';
+    $script = <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+
+BASH;
+
+    $script .= $extra;
+    $script .= <<<'BASH'
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
+BASH;
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', $script);
+    chmod($fakeBin.'/herd', 0755);
+
+    return $fakeBin;
 }
 
 function expected_herd_site_name(string $path): string
