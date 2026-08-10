@@ -40,6 +40,42 @@ BASH);
         ->toBe('php artisan migrate');
 });
 
+test('runtime helper executes the php version selected by herd without using the herd wrapper', function (): void {
+    $path = temp_directory('ai-harness-selected-herd-php');
+
+    pending_artisan('ai-harness:update', ['--path' => $path])->assertSuccessful();
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/herd-bin';
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd.phar', 'fixture');
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd-wrapper %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    file_put_contents($fakeBin.'/php', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$HERD_SELECTED_PHP"
+BASH);
+    file_put_contents($fakeBin.'/php84', <<<'BASH'
+#!/usr/bin/env bash
+printf 'php84 %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+    chmod($fakeBin.'/php', 0755);
+    chmod($fakeBin.'/php84', 0755);
+
+    (new Process([$path.'/.dev/bin/ai-harness', 'migrate'], $path, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'RUNTIME_LOG' => $runtimeLog,
+        'HERD_SELECTED_PHP' => $fakeBin.'/php84',
+        'WORKTREE_PROFILE' => 'codex',
+    ]))->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('php84 artisan migrate');
+});
+
 test('runtime helper prefers sail only when the sail app service is running', function (): void {
     $path = temp_directory('ai-harness-sail');
 

@@ -61,7 +61,11 @@ class PruneHerdCommand extends HarnessCommand
             $this->renderOrphan($orphan);
             $choices = [self::REMOVE_SITE, self::KEEP, self::QUIT];
 
-            if ($databasePruner->supported()) {
+            $selectedProjectOwnsOrphan = $databasePruner->supported()
+                && $this->confirm("Did this orphan belong to the selected project [{$projectPath}]?", false);
+
+            if ($selectedProjectOwnsOrphan) {
+                $this->renderDerivedDatabases($orphan);
                 array_unshift($choices, self::REMOVE_ALL);
             }
 
@@ -176,8 +180,17 @@ class PruneHerdCommand extends HarnessCommand
             ['Herd site', $orphan['site']],
             ['Missing path', $orphan['path']],
             ['Verified checksum', $orphan['checksum']],
-            ['Application database', $orphan['databases'][0]],
-            ['Testing database', $orphan['databases'][1]],
+        ]);
+    }
+
+    /**
+     * @param  array{site: string, path: string, checksum: string, databases: list<string>}  $orphan
+     */
+    private function renderDerivedDatabases(array $orphan): void
+    {
+        $this->table(['Selected-project database', 'Value'], [
+            ['Selected-project application database', $orphan['databases'][0]],
+            ['Selected-project testing database', $orphan['databases'][1]],
         ]);
     }
 

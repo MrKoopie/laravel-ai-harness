@@ -52,6 +52,29 @@ test('codex cleanup unlinks a recorded herd site after the feature is disabled',
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
 });
 
+test('codex cleanup uses recorded herd and sqlite ownership after a worktree move', function (): void {
+    $path = temp_directory('ai-harness-herd-before-move');
+    $movedPath = $path.'-moved';
+
+    file_put_contents($path.'/.env.example', "APP_KEY=base64:already-set\nDB_CONNECTION=sqlite\nDB_DATABASE=database/database.sqlite\n");
+    pending_artisan('ai-harness:update', ['--path' => $path, '--with' => ['herd']])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path);
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    $oldSite = expected_herd_site_name($path);
+    $oldDatabase = $path.'/database/'.expected_worktree_database_name($path).'.sqlite';
+    rename($path, $movedPath);
+    $movedDatabase = $movedPath.substr($oldDatabase, strlen($path));
+
+    run_local_environment($movedPath, 'cleanup', $movedPath.'/fake-bin', $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))->toContain('unlink '.$oldSite)
+        ->and($movedDatabase)->not->toBeFile()
+        ->and($movedPath.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
 test('codex cleanup uses a legacy managed app url when no linked-site marker exists', function (): void {
     $path = temp_directory('ai-harness-herd-legacy-cleanup');
     $site = expected_herd_site_name($path);
@@ -818,6 +841,26 @@ test('codex heal-env migrates isolated databases that had to be recreated', func
         ->toContain('migrate --env=testing --force --ansi');
 });
 
+test('codex heal-env regenerates an empty application key', function (): void {
+    $path = temp_directory('ai-harness-heal-app-key');
+    file_put_contents($path.'/.env.example', "APP_KEY=\nDB_CONNECTION=sqlite\nDB_DATABASE=database/database.sqlite\n");
+    file_put_contents($path.'/artisan', '');
+
+    pending_artisan('ai-harness:update', ['--path' => $path])->assertSuccessful();
+    fake_artisan_helper($path);
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    file_put_contents($path.'/.env', preg_replace('/^APP_KEY=.*$/m', 'APP_KEY=', (string) file_get_contents($path.'/.env')));
+    file_put_contents($path.'/artisan.log', '');
+    run_local_environment($path, 'heal-env', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($path.'/artisan.log'))->toContain('key:generate --ansi');
+});
+
 test('codex heal-env preserves database targets recorded before a driver change', function (): void {
     $path = temp_directory('ai-harness-heal-driver-change');
 
@@ -1460,6 +1503,7 @@ BASH);
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SAIL_LOG"
 printf 'database=%s\n' "${AI_HARNESS_DB_DATABASE:-}" >> "$SAIL_LOG"
+printf 'server=%s:%s user=%s password=%s\n' "${AI_HARNESS_DB_HOST:-}" "${AI_HARNESS_DB_PORT:-}" "${AI_HARNESS_DB_USERNAME:-}" "${AI_HARNESS_DB_PASSWORD:-}" >> "$SAIL_LOG"
 
 if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
     shift
@@ -1476,11 +1520,11 @@ BASH);
     file_put_contents($sailLog, '');
     file_put_contents($path.'/.env', implode("\n", [
         'DB_CONNECTION=mysql',
-        'DB_HOST=mysql',
-        'DB_PORT=3306',
+        'DB_HOST=replacement-mysql',
+        'DB_PORT=3307',
         'DB_DATABASE=changed_app_database',
-        'DB_USERNAME=sail',
-        'DB_PASSWORD=password',
+        'DB_USERNAME=replacement-user',
+        'DB_PASSWORD=replacement-password',
         'AI_HARNESS_TEST_DB_DATABASE=changed_testing_database',
         '',
     ]));
@@ -1493,6 +1537,8 @@ BASH);
     expect(file_get_contents($sailLog))
         ->toContain('database='.expected_worktree_database_name($path))
         ->toContain('database='.expected_worktree_testing_database_name($path))
+        ->toContain('server=mysql:3306 user=sail password=password')
+        ->not()->toContain('server=replacement-mysql:3307')
         ->not()->toContain('database=changed_app_database')
         ->not()->toContain('database=changed_testing_database')
         ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();

@@ -64,6 +64,7 @@ test('herd pruner can remove the databases derived from the worktree checksum', 
         ])
             ->expectsOutputToContain("custom_database_{$checksum}")
             ->expectsOutputToContain("custom_database_testing_{$checksum}")
+            ->expectsConfirmation("Did this orphan belong to the selected project [{$fixture['project']}]?", 'yes')
             ->expectsChoice('What should be done with this orphan?', 'Remove Herd site and derived databases', [
                 'Remove Herd site and derived databases',
                 'Remove Herd site only',
@@ -77,6 +78,43 @@ test('herd pruner can remove the databases derived from the worktree checksum', 
             "custom_database_{$checksum}",
             "custom_database_testing_{$checksum}",
         ]);
+    } finally {
+        putenv('PATH='.$fixture['original_path']);
+        putenv('HERD_PRUNE_LOG');
+    }
+});
+
+test('herd pruner does not offer selected project databases for an unassociated orphan', function (): void {
+    $fixture = herd_prune_fixture();
+    $databasePruner = new class extends HerdDatabasePruner
+    {
+        public function supported(): bool
+        {
+            return true;
+        }
+
+        public function drop(array $databases): void
+        {
+            throw new RuntimeException('Database cleanup must not run.');
+        }
+    };
+
+    app()->instance(HerdDatabasePruner::class, $databasePruner);
+
+    try {
+        pending_artisan('ai-harness:prune-herd', [
+            '--path' => $fixture['project'],
+            '--sites-path' => $fixture['sites'],
+        ])
+            ->expectsConfirmation("Did this orphan belong to the selected project [{$fixture['project']}]?", 'no')
+            ->expectsChoice('What should be done with this orphan?', 'Keep this site', [
+                'Remove Herd site only',
+                'Keep this site',
+                'Stop reviewing sites',
+            ])
+            ->assertSuccessful();
+
+        expect(trim((string) file_get_contents($fixture['herd_log'])))->toBe('');
     } finally {
         putenv('PATH='.$fixture['original_path']);
         putenv('HERD_PRUNE_LOG');
@@ -165,15 +203,22 @@ BASH,
 
     [$site, $database, $testingDatabase] = array_values(array_filter(explode("\n", trim($probe->getOutput()))));
     symlink($missingPath, $sites.'/'.$site);
+    app()->instance(HerdDatabasePruner::class, supported_prune_database_pruner());
 
     pending_artisan('ai-harness:prune-herd', [
         '--path' => $project,
         '--sites-path' => $sites,
-        '--no-interaction' => true,
     ])
         ->expectsOutputToContain($site)
+        ->expectsConfirmation("Did this orphan belong to the selected project [{$project}]?", 'yes')
         ->expectsOutputToContain($database)
         ->expectsOutputToContain($testingDatabase)
+        ->expectsChoice('What should be done with this orphan?', 'Keep this site', [
+            'Remove Herd site and derived databases',
+            'Remove Herd site only',
+            'Keep this site',
+            'Stop reviewing sites',
+        ])
         ->assertSuccessful();
 });
 
@@ -189,14 +234,21 @@ test('herd pruner uses the configured database base for arbitrary worktree direc
     mkdir($sites, 0755, true);
     symlink($missingPath, $sites.'/'.$site);
     config(['ai-harness.project.database_name' => 'custom_database']);
+    app()->instance(HerdDatabasePruner::class, supported_prune_database_pruner());
 
     pending_artisan('ai-harness:prune-herd', [
         '--path' => $project,
         '--sites-path' => $sites,
-        '--no-interaction' => true,
     ])
+        ->expectsConfirmation("Did this orphan belong to the selected project [{$project}]?", 'yes')
         ->expectsOutputToContain("custom_database_{$checksum}")
         ->expectsOutputToContain("custom_database_testing_{$checksum}")
+        ->expectsChoice('What should be done with this orphan?', 'Keep this site', [
+            'Remove Herd site and derived databases',
+            'Remove Herd site only',
+            'Keep this site',
+            'Stop reviewing sites',
+        ])
         ->assertSuccessful();
 });
 
@@ -279,6 +331,19 @@ function prune_expected_herd_site_name(string $path): string
     $base = rtrim(substr($base, 0, 63 - strlen($checksum) - 1), '-');
 
     return ($base !== '' ? $base : 'codex-worktree').'-'.$checksum;
+}
+
+function supported_prune_database_pruner(): HerdDatabasePruner
+{
+    return new class extends HerdDatabasePruner
+    {
+        public function supported(): bool
+        {
+            return true;
+        }
+
+        public function drop(array $databases): void {}
+    };
 }
 
 function prune_path_checksum(string $path): string
