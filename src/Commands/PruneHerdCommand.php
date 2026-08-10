@@ -34,7 +34,7 @@ class PruneHerdCommand extends HarnessCommand
     {
         $projectPath = $this->projectPathOption();
         $databaseBase = $updater->databaseBaseName($projectPath);
-        $orphans = $this->orphanedSites($this->sitesPath(), $projectPath, $databaseBase);
+        $orphans = $this->orphanedSites($this->sitesPath(), $databaseBase);
 
         if ($orphans === []) {
             $this->info('No orphaned AI Harness Herd sites were found.');
@@ -110,7 +110,7 @@ class PruneHerdCommand extends HarnessCommand
     /**
      * @return list<array{site: string, path: string, checksum: string, databases: list<string>}>
      */
-    private function orphanedSites(string $sitesPath, string $projectPath, string $databaseBase): array
+    private function orphanedSites(string $sitesPath, string $databaseBase): array
     {
         if (! is_dir($sitesPath)) {
             return [];
@@ -157,33 +157,13 @@ class PruneHerdCommand extends HarnessCommand
                 'site' => $site,
                 'path' => $target,
                 'checksum' => $checksum,
-                'databases' => $this->databaseNames(
-                    $this->usesProjectDatabaseBase($target, $projectPath) ? $databaseBase : basename($target),
-                    $checksum,
-                ),
+                'databases' => $this->databaseNames($databaseBase, $checksum),
             ];
         }
 
         usort($orphans, static fn (array $left, array $right): int => $left['site'] <=> $right['site']);
 
         return $orphans;
-    }
-
-    /**
-     * Determine whether the target was provisioned from the current project.
-     */
-    private function usesProjectDatabaseBase(string $target, string $projectPath): bool
-    {
-        if (basename($target) === basename($projectPath)) {
-            return true;
-        }
-
-        $claudeWorktrees = rtrim($projectPath, DIRECTORY_SEPARATOR)
-            .DIRECTORY_SEPARATOR.'.claude'
-            .DIRECTORY_SEPARATOR.'worktrees'
-            .DIRECTORY_SEPARATOR;
-
-        return str_starts_with($target, $claudeWorktrees);
     }
 
     /**

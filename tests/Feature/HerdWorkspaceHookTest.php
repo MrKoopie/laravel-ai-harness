@@ -1184,6 +1184,37 @@ test('codex cleanup refuses recorded sqlite paths outside the managed worktree d
         ->and($path.'/.codex/local-environment-state/databases.env')->toBeFile();
 });
 
+test('codex cleanup removes checksum-verified sqlite targets recorded before a database base change', function (): void {
+    $path = temp_directory('ai-harness-cleanup-renamed-sqlite');
+    $checksum = path_checksum($path);
+    $oldAppDatabase = "database/old_database_base_{$checksum}.sqlite";
+    $oldTestingDatabase = "database/old_database_base_testing_{$checksum}.sqlite";
+
+    mkdir($path.'/database', 0755, true);
+    file_put_contents($path.'/'.$oldAppDatabase, '');
+    file_put_contents($path.'/'.$oldTestingDatabase, '');
+    mkdir($path.'/.codex/local-environment-state', 0755, true);
+    file_put_contents($path.'/.codex/local-environment-state/databases.env', implode("\n", [
+        'DATABASE_TARGET=sqlite|'.$oldAppDatabase,
+        'DATABASE_TARGET=sqlite|'.$oldTestingDatabase,
+        '',
+    ]));
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect($path.'/'.$oldAppDatabase)->not->toBeFile()
+        ->and($path.'/'.$oldTestingDatabase)->not->toBeFile()
+        ->and($path.'/.codex/local-environment-state/databases.env')->not->toBeFile();
+});
+
 test('mysql worktree databases are created through sail when sail is available', function (): void {
     $path = temp_directory('ai-harness-sail-database');
 

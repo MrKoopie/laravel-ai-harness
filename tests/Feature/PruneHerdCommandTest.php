@@ -177,10 +177,10 @@ BASH,
         ->assertSuccessful();
 });
 
-test('herd pruner uses the configured database base for Claude worktrees', function (): void {
-    $root = temp_directory('ai-harness-prune-claude');
+test('herd pruner uses the configured database base for arbitrary worktree directory names', function (): void {
+    $root = temp_directory('ai-harness-prune-arbitrary-worktree');
     $project = $root.'/source-project';
-    $missingPath = $project.'/.claude/worktrees/feature-a';
+    $missingPath = $root.'/external-worktrees/feature-a';
     $sites = $root.'/herd-sites';
     $site = prune_expected_herd_site_name($missingPath);
     $checksum = prune_path_checksum($missingPath);

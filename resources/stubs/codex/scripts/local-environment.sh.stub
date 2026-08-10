@@ -745,21 +745,36 @@ drop_worktree_database() {
 }
 
 remove_recorded_sqlite_database() {
-    local database="${1}" sqlite_path app_path test_path
+    local database="${1}" sqlite_path database_dir filename path_hash suffix prefix
 
     sqlite_path="$(sqlite_database_path "${database}")"
-    app_path="$(sqlite_database_path "database/$(worktree_database_name).sqlite")"
-    test_path="$(sqlite_database_path "database/$(worktree_testing_database_name).sqlite")"
+    database_dir="${repo_root}/database"
+    path_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
+    suffix="_${path_hash}.sqlite"
 
     case "${sqlite_path}" in
-        "${app_path}"|"${test_path}")
-            rm -f "${sqlite_path}"
+        "${database_dir}/"*)
+            filename="${sqlite_path#"${database_dir}/"}"
             ;;
         *)
             printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
             return 1
             ;;
     esac
+
+    if [[ "${filename}" == */* || "${filename}" != *"${suffix}" ]]; then
+        printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
+        return 1
+    fi
+
+    prefix="${filename%"${suffix}"}"
+
+    if [[ ! "${prefix}" =~ ^[a-z0-9_]+$ ]]; then
+        printf 'local-environment: refusing to remove unmanaged sqlite database path: %s\n' "${sqlite_path}" >&2
+        return 1
+    fi
+
+    rm -f "${sqlite_path}"
 }
 
 drop_recorded_database() {
