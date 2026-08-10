@@ -96,7 +96,7 @@ php_runtime() {
 
     local herd_php
 
-    if herd_workspace_requested && herd_php="$(herd_php_binary)"; then
+    if herd_php="$(herd_php_binary)"; then
         "${herd_php}" "$@"
 
         return
@@ -131,7 +131,7 @@ composer_runtime() {
 
     local herd_php composer_path
 
-    if herd_workspace_requested && herd_php="$(herd_php_binary)"; then
+    if herd_php="$(herd_php_binary)"; then
         composer_path="$(command -v composer || true)"
         [[ -n "${composer_path}" ]] || composer_path="$(dirname -- "${herd_php}")/composer"
 
@@ -957,7 +957,7 @@ linked_herd_site() {
 }
 
 link_herd_workspace() {
-    local herd_path site_name
+    local herd_path site_name recorded_site
 
     herd_workspace_requested || return 0
 
@@ -970,6 +970,12 @@ link_herd_workspace() {
     fi
 
     site_name="$(herd_site_name)"
+
+    if recorded_site="$(linked_herd_site)" && [[ "${recorded_site}" != "${site_name}" ]]; then
+        # A moved/recycled worktree can already own the site recorded for its
+        # previous path. Remove that verified link before replacing the marker.
+        unlink_herd_workspace
+    fi
 
     "${herd_path}" link "${site_name}" --no-interaction
     remember_linked_herd_site "${site_name}"

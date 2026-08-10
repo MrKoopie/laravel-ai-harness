@@ -126,7 +126,6 @@ if [[ ! -x "${local_environment}" ]]; then
 fi
 
 marker="${worktree_path}/.claude/.ai-harness-worktree-provisioned"
-herd_link_pending="${worktree_path}/.codex/local-environment-state/herd-link-pending"
 if [[ -f "${marker}" ]]; then
     # Recycled worktrees get .env re-copied from the source checkout via
     # .worktreeinclude AFTER provisioning already ran, reverting APP_URL and
@@ -137,11 +136,12 @@ if [[ -f "${marker}" ]]; then
     CODEX_WORKTREE_PATH="${worktree_path}" \
     bash "${local_environment}" heal-env >&2
 
-    if [[ -f "${herd_link_pending}" ]]; then
-        WORKTREE_PROFILE=codex \
-        CODEX_WORKTREE_PATH="${worktree_path}" \
-        bash "${local_environment}" link-herd >&2 || true
-    fi
+    # Reconcile Herd after healing. The local environment action is a no-op
+    # when Herd is disabled, creates newly enabled links, retries deferred
+    # links, and replaces a recorded link when the worktree path has moved.
+    WORKTREE_PROFILE=codex \
+    CODEX_WORKTREE_PATH="${worktree_path}" \
+    bash "${local_environment}" link-herd >&2 || true
 
     exit 0
 fi

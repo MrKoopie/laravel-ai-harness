@@ -252,6 +252,36 @@ test('herd pruner uses the configured database base for arbitrary worktree direc
         ->assertSuccessful();
 });
 
+test('herd pruner falls back to the worktree basename when the configured database base sanitizes empty', function (): void {
+    $root = temp_directory('ai-harness-prune-empty-base');
+    $project = $root.'/source-project';
+    $missingPath = $root.'/external-worktrees/feature-a';
+    $sites = $root.'/herd-sites';
+    $site = prune_expected_herd_site_name($missingPath);
+    $checksum = prune_path_checksum($missingPath);
+
+    mkdir($project, 0755, true);
+    mkdir($sites, 0755, true);
+    symlink($missingPath, $sites.'/'.$site);
+    config(['ai-harness.project.database_name' => '!!!']);
+    app()->instance(HerdDatabasePruner::class, supported_prune_database_pruner());
+
+    pending_artisan('ai-harness:prune-herd', [
+        '--path' => $project,
+        '--sites-path' => $sites,
+    ])
+        ->expectsConfirmation("Did this orphan belong to the selected project [{$project}]?", 'yes')
+        ->expectsOutputToContain("feature_a_{$checksum}")
+        ->expectsOutputToContain("feature_a_testing_{$checksum}")
+        ->expectsChoice('What should be done with this orphan?', 'Keep this site', [
+            'Remove Herd site and derived databases',
+            'Remove Herd site only',
+            'Keep this site',
+            'Stop reviewing sites',
+        ])
+        ->assertSuccessful();
+});
+
 test('herd pruner reports an unlink failure without claiming the site was removed', function (): void {
     $fixture = herd_prune_fixture(herdScript: <<<'BASH'
 #!/usr/bin/env bash

@@ -161,7 +161,7 @@ class PruneHerdCommand extends HarnessCommand
                 'site' => $site,
                 'path' => $target,
                 'checksum' => $checksum,
-                'databases' => $this->databaseNames($databaseBase, $checksum),
+                'databases' => $this->databaseNames($databaseBase, $target, $checksum),
             ];
         }
 
@@ -260,10 +260,16 @@ class PruneHerdCommand extends HarnessCommand
     /**
      * @return list<string>
      */
-    private function databaseNames(string $databaseBase, string $checksum): array
+    private function databaseNames(string $databaseBase, string $path, string $checksum): array
     {
         $base = strtolower((string) preg_replace('/[^a-z0-9]+/i', '_', $databaseBase));
         $base = trim($base, '_');
+
+        if ($base === '') {
+            $base = strtolower((string) preg_replace('/[^a-z0-9]+/i', '_', basename($path)));
+            $base = trim($base, '_');
+        }
+
         $appBase = substr($base, 0, 64 - strlen($checksum) - 1);
         $testingSuffix = '_testing_';
         $testingBase = substr($base, 0, 64 - strlen($checksum) - strlen($testingSuffix));

@@ -1397,6 +1397,66 @@ BASH);
         ->toContain('composer install --no-interaction --prefer-dist');
 });
 
+test('composer runtime uses herd composer when site linking is disabled and no standalone composer exists', function (): void {
+    $path = temp_directory('ai-harness-herd-composer-without-linking');
+    pending_artisan('ai-harness:update', ['--path' => $path])->assertSuccessful();
+
+    $script = (string) file_get_contents($path.'/.codex/scripts/local-environment.sh');
+    $caseOffset = strpos($script, "\ncase \"\${action}\" in\n");
+    expect($caseOffset)->not->toBeFalse();
+    file_put_contents($path.'/runtime-probe.sh', substr($script, 0, (int) $caseOffset)."\ncomposer_runtime install\n");
+
+    $herdBin = $path.'/herd-bin';
+    $runtimeLog = temp_file('herd-composer-log');
+    mkdir($herdBin, 0755, true);
+    file_put_contents($herdBin.'/herd.phar', 'fixture');
+    file_put_contents($herdBin.'/herd', "#!/usr/bin/env bash\n");
+    file_put_contents($herdBin.'/php', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$HERD_SELECTED_PHP"
+BASH);
+    file_put_contents($herdBin.'/php84', <<<'BASH'
+#!/usr/bin/env bash
+printf 'selected-php %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    file_put_contents($herdBin.'/composer', "#!/usr/bin/env bash\n");
+    foreach (['herd', 'php', 'php84', 'composer'] as $binary) {
+        chmod($herdBin.'/'.$binary, 0755);
+    }
+    $resolvedHerdBin = (string) realpath($herdBin);
+
+    (new Process(['/bin/bash', $path.'/runtime-probe.sh'], $path, [
+        'CODEX_WORKTREE_PATH' => $path,
+        'HERD_SELECTED_PHP' => $resolvedHerdBin.'/php84',
+        'PATH' => $herdBin.':/usr/bin:/bin',
+        'RUNTIME_LOG' => $runtimeLog,
+        'WORKTREE_PROFILE' => 'codex',
+    ]))->mustRun();
+
+    expect(file_get_contents($runtimeLog))->toContain('selected-php '.$resolvedHerdBin.'/composer install');
+});
+
+test('link-herd replaces a recorded site after the worktree moves', function (): void {
+    $path = temp_directory('ai-harness-herd-link-before-move');
+    $movedPath = $path.'-moved';
+    pending_artisan('ai-harness:update', ['--path' => $path, '--with' => ['herd']])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = write_fake_herd($path);
+    run_local_environment($path, 'link-herd', $fakeBin, $herdLog)->mustRun();
+    $oldSite = expected_herd_site_name($path);
+
+    rename($path, $movedPath);
+    run_local_environment($movedPath, 'link-herd', $movedPath.'/fake-bin', $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unsecure '.$oldSite)
+        ->toContain('unlink '.$oldSite)
+        ->toContain('link '.expected_herd_site_name($movedPath).' --no-interaction')
+        ->and(trim((string) file_get_contents($movedPath.'/.codex/local-environment-state/herd-linked-site')))
+        ->toBe(expected_herd_site_name($movedPath));
+});
+
 test('mysql worktree app and testing databases are dropped through sail during cleanup', function (): void {
     $path = temp_directory('ai-harness-sail-database-cleanup');
 
