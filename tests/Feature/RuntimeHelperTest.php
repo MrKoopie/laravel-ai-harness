@@ -2,6 +2,44 @@
 
 use Symfony\Component\Process\Process;
 
+test('runtime helper bypasses herd php in managed agent worktrees', function (): void {
+    $path = temp_directory('ai-harness-agent-php');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $runtimeLog = temp_file('runtime-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/php', <<<'BASH'
+#!/usr/bin/env bash
+printf 'php %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/php', 0755);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf 'herd %s\n' "$*" >> "$RUNTIME_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $process = new Process(
+        [$path.'/.dev/bin/ai-harness', 'migrate'],
+        $path,
+        [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'RUNTIME_LOG' => $runtimeLog,
+            'WORKTREE_PROFILE' => 'codex',
+        ],
+    );
+
+    $process->mustRun();
+
+    expect(trim((string) file_get_contents($runtimeLog)))
+        ->toBe('php artisan migrate');
+});
+
 test('runtime helper prefers sail only when the sail app service is running', function (): void {
     $path = temp_directory('ai-harness-sail');
 

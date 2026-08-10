@@ -75,6 +75,12 @@ php_runtime() {
         return
     fi
 
+    if command -v php >/dev/null 2>&1; then
+        php "$@"
+
+        return
+    fi
+
     local herd_path
 
     if herd_path="$(herd_binary)"; then
@@ -87,12 +93,18 @@ php_runtime() {
 }
 
 composer_runtime_available() {
-    sail_runtime_available || herd_binary >/dev/null 2>&1 || command -v composer >/dev/null 2>&1
+    sail_runtime_available || command -v composer >/dev/null 2>&1 || herd_binary >/dev/null 2>&1
 }
 
 composer_runtime() {
     if sail_runtime_available; then
         ./vendor/bin/sail composer "$@"
+
+        return
+    fi
+
+    if command -v composer >/dev/null 2>&1; then
+        composer "$@"
 
         return
     fi
@@ -759,6 +771,53 @@ herd_link_pending_file() {
     printf '%s\n' "$(managed_state_dir)/herd-link-pending"
 }
 
+herd_linked_site_file() {
+    printf '%s\n' "$(managed_state_dir)/herd-linked-site"
+}
+
+remember_linked_herd_site() {
+    mkdir -p "$(managed_state_dir)"
+    printf '%s\n' "${1}" > "$(herd_linked_site_file)"
+}
+
+linked_herd_site() {
+    local expected_site site_file site_name app_url
+
+    expected_site="$(herd_site_name)"
+    site_file="$(herd_linked_site_file)"
+
+    if [[ -f "${site_file}" ]]; then
+        site_name="$(head -n 1 "${site_file}")"
+
+        if [[ "${site_name}" == "${expected_site}" ]]; then
+            printf '%s\n' "${site_name}"
+
+            return 0
+        fi
+    fi
+
+    # Older generated scripts did not record a linked-site marker. Preserve
+    # cleanup for those worktrees when their managed APP_URL still identifies
+    # the deterministic Herd site, even if the Herd feature is now disabled.
+    app_url="$(env_value APP_URL || true)"
+
+    case "${app_url}" in
+        "http://${expected_site}.test"|"https://${expected_site}.test")
+            printf '%s\n' "${expected_site}"
+
+            return 0
+            ;;
+    esac
+
+    if herd_workspace_requested; then
+        printf '%s\n' "${expected_site}"
+
+        return 0
+    fi
+
+    return 1
+}
+
 link_herd_workspace() {
     local herd_path site_name
 
@@ -775,42 +834,60 @@ link_herd_workspace() {
     site_name="$(herd_site_name)"
 
     "${herd_path}" link "${site_name}" --no-interaction
+    remember_linked_herd_site "${site_name}"
     "${herd_path}" secure "${site_name}"
 
     rm -f "$(herd_link_pending_file)"
 }
 
 unlink_herd_workspace() {
-    if herd_workspace_requested; then
-        local herd_path output site_name status
+    local herd_path output site_name status unsecure_output unsecure_status
 
-        if ! herd_path="$(herd_binary)"; then
-            return 0
-        fi
-
-        site_name="$(herd_site_name)"
-
-        set +e
-        output="$("${herd_path}" unlink "${site_name}" 2>&1)"
-        status=$?
-        set -e
-
-        if [[ "${status}" -eq 0 ]]; then
-            if [[ -n "${output}" ]]; then
-                printf '%s\n' "${output}"
-            fi
-
-            return 0
-        fi
-
-        if printf '%s\n' "${output}" | grep -Eiq '(not found|not linked|does not exist|no .*link)'; then
-            return 0
-        fi
-
-        printf '%s\n' "${output}" >&2
-
-        return "${status}"
+    if ! site_name="$(linked_herd_site)"; then
+        return 0
     fi
+
+    if ! herd_path="$(herd_binary)"; then
+        printf 'local-environment: unable to unlink recorded Herd site %s because the Herd CLI is unavailable.\n' "${site_name}" >&2
+
+        return 1
+    fi
+
+    set +e
+    unsecure_output="$("${herd_path}" unsecure "${site_name}" 2>&1)"
+    unsecure_status=$?
+    set -e
+
+    if [[ "${unsecure_status}" -ne 0 ]] && ! printf '%s\n' "${unsecure_output}" | grep -Eiq '(not secured|not found|does not exist|no .*certificate)'; then
+        printf 'local-environment: Herd could not fully unsecure %s: %s\n' "${site_name}" "${unsecure_output}" >&2
+    fi
+
+    set +e
+    output="$("${herd_path}" unlink "${site_name}" 2>&1)"
+    status=$?
+    set -e
+
+    if [[ "${status}" -eq 0 ]]; then
+        if [[ -n "${output}" ]]; then
+            printf '%s\n' "${output}"
+        fi
+
+        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)"
+        cleanup_managed_state_dir
+
+        return 0
+    fi
+
+    if printf '%s\n' "${output}" | grep -Eiq '(not found|not linked|does not exist|no .*link)'; then
+        rm -f "$(herd_linked_site_file)" "$(herd_link_pending_file)"
+        cleanup_managed_state_dir
+
+        return 0
+    fi
+
+    printf '%s\n' "${output}" >&2
+
+    return "${status}"
 }
 
 app_key_missing() {

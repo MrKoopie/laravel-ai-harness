@@ -36,7 +36,100 @@ BASH);
     expect($log)
         ->toContain('link '.$siteName.' --no-interaction')
         ->toContain('secure '.$siteName)
+        ->toContain('unsecure '.$siteName)
         ->toContain('unlink '.$siteName);
+});
+
+test('codex cleanup unlinks a recorded herd site after the feature is disabled', function (): void {
+    $path = temp_directory('ai-harness-herd-disabled-cleanup');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
+
+    expect($path.'/.codex/local-environment-state/herd-linked-site')->toBeFile();
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog, [
+        'AI_HARNESS_HERD' => 'false',
+    ])->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unlink '.expected_herd_site_name($path))
+        ->and($path.'/.codex/local-environment-state')->not->toBeDirectory();
+});
+
+test('codex cleanup uses a legacy managed app url when no linked-site marker exists', function (): void {
+    $path = temp_directory('ai-harness-herd-legacy-cleanup');
+    $site = expected_herd_site_name($path);
+
+    file_put_contents($path.'/.env', "APP_URL=https://{$site}.test\nDB_CONNECTION=sqlite\n");
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unsecure '.$site)
+        ->toContain('unlink '.$site);
+});
+
+test('codex cleanup unlinks when secure fails after herd link succeeds', function (): void {
+    $path = temp_directory('ai-harness-herd-secure-failure');
+
+    pending_artisan('ai-harness:update', [
+        '--path' => $path,
+        '--with' => ['herd'],
+    ])->assertSuccessful();
+
+    $herdLog = temp_file('herd-log');
+    $fakeBin = $path.'/fake-bin';
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+
+if [[ "${1:-}" == "secure" ]]; then
+    exit 37
+fi
+BASH);
+    chmod($fakeBin.'/herd', 0755);
+
+    $setup = run_local_environment($path, 'setup', $fakeBin, $herdLog);
+    $setup->run();
+
+    expect($setup->getExitCode())->toBe(37)
+        ->and($path.'/.codex/local-environment-state/herd-linked-site')->toBeFile();
+
+    run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
+
+    expect(file_get_contents($herdLog))
+        ->toContain('unlink '.expected_herd_site_name($path));
 });
 
 test('herd workspace automation is disabled by default', function (): void {

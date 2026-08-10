@@ -6,6 +6,7 @@ namespace MrKoopie\LaravelAiHarness;
 
 use MrKoopie\LaravelAiHarness\Commands\DoctorCommand;
 use MrKoopie\LaravelAiHarness\Commands\InstallCommand;
+use MrKoopie\LaravelAiHarness\Commands\PruneHerdCommand;
 use MrKoopie\LaravelAiHarness\Commands\UpdateCommand;
 use MrKoopie\LaravelAiHarness\Drivers\DriverRegistry;
 use MrKoopie\LaravelAiHarness\Generation\HarnessManifest;
@@ -32,6 +33,7 @@ class LaravelAiHarnessServiceProvider extends PackageServiceProvider
                 InstallCommand::class,
                 UpdateCommand::class,
                 DoctorCommand::class,
+                PruneHerdCommand::class,
             ]);
     }
 

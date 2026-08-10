@@ -193,6 +193,29 @@ When the Sail app service is not running and Herd is installed, this resolves to
 herd php artisan migrate --env=testing
 ```
 
+During generated Codex/Claude worktree provisioning, the helper prefers the
+direct `php` and `composer` executables on `PATH`. This avoids Herd's nested
+`which-php` resolution being corrupted by PHP warnings in non-interactive agent
+shells. Outside managed worktree provisioning, the helper retains Herd's
+site-isolated PHP behavior.
+
+### Pruning Orphaned Herd Sites
+
+Deleted or failed worktrees can be reviewed interactively:
+
+```bash
+php artisan ai-harness:prune-herd
+```
+
+The command only considers dangling Herd links whose site name exactly matches
+the harness name regenerated from the recorded target path and its checksum.
+For each match it shows the missing path and derived application/testing
+database names, then asks whether to keep it, remove only the Herd site, remove
+the Herd site plus MySQL/MariaDB databases, or stop. Every removal requires a
+second confirmation. Non-interactive execution reports candidates without
+making changes. Herd's own `unsecure` and `unlink` commands remove HTTPS and
+site configuration; the harness never edits global Herd files directly.
+
 ## Generated Files
 
 Default files:

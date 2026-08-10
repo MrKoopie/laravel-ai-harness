@@ -141,6 +141,18 @@ if sail_runtime_available; then
     exec ./vendor/bin/sail artisan "${artisan_args[@]}"
 fi
 
+# Herd's `herd php` wrapper resolves a site-specific PHP executable through a
+# nested command substitution. Warnings emitted by Herd/PHP can corrupt that
+# executable path in non-interactive agent shells, while Herd's PHP binary on
+# PATH remains usable. Prefer that direct binary for managed worktree setup.
+if [[ "${WORKTREE_PROFILE:-}" == "codex" ]] && command -v php >/dev/null 2>&1; then
+    if [[ "${run_test_directly}" == "true" ]]; then
+        exec php "${test_bin}" "${test_args[@]}"
+    fi
+
+    exec php artisan "${artisan_args[@]}"
+fi
+
 if herd_path="$(herd_binary)"; then
     if [[ "${run_test_directly}" == "true" ]]; then
         exec "${herd_path}" php "${test_bin}" "${test_args[@]}"

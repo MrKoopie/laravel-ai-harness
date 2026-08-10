@@ -57,6 +57,14 @@ final readonly class HarnessUpdater
         return $this->withTrailingNewline($this->renderer->render($this->stub($entry), $this->variables($basePath, $features)));
     }
 
+    /**
+     * Resolve the stable database prefix baked into generated worktree scripts.
+     */
+    public function databaseBaseName(string $basePath): string
+    {
+        return $this->databaseName($this->appSlug($this->appName($basePath)));
+    }
+
     private function writeFile(string $target, string $content): void
     {
         $directory = dirname($target);
@@ -102,7 +110,7 @@ final readonly class HarnessUpdater
     {
         $appName = $this->appName($basePath);
         $appSlug = $this->appSlug($appName);
-        $database = $this->databaseName($appSlug);
+        $database = $this->databaseBaseName($basePath);
 
         return [
             'app_name' => $appName,
