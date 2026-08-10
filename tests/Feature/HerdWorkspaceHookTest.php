@@ -11,19 +11,7 @@ test('codex setup and cleanup link and unlink herd workspaces when herd is enabl
     ])->assertSuccessful();
 
     $herdLog = temp_file('herd-log');
-    $fakeBin = $path.'/fake-bin';
-
-    mkdir($fakeBin, 0755, true);
-    file_put_contents($fakeBin.'/herd', <<<'BASH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERD_LOG"
-
-if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
-    shift
-    "$REAL_PHP" "$@"
-fi
-BASH);
-    chmod($fakeBin.'/herd', 0755);
+    $fakeBin = write_fake_herd($path);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog, [
         'REAL_PHP' => PHP_BINARY,
@@ -49,14 +37,7 @@ test('codex cleanup unlinks a recorded herd site after the feature is disabled',
     ])->assertSuccessful();
 
     $herdLog = temp_file('herd-log');
-    $fakeBin = $path.'/fake-bin';
-
-    mkdir($fakeBin, 0755, true);
-    file_put_contents($fakeBin.'/herd', <<<'BASH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERD_LOG"
-BASH);
-    chmod($fakeBin.'/herd', 0755);
+    $fakeBin = write_fake_herd($path);
 
     run_local_environment($path, 'setup', $fakeBin, $herdLog)->mustRun();
 
@@ -82,14 +63,7 @@ test('codex cleanup uses a legacy managed app url when no linked-site marker exi
     ])->assertSuccessful();
 
     $herdLog = temp_file('herd-log');
-    $fakeBin = $path.'/fake-bin';
-
-    mkdir($fakeBin, 0755, true);
-    file_put_contents($fakeBin.'/herd', <<<'BASH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERD_LOG"
-BASH);
-    chmod($fakeBin.'/herd', 0755);
+    $fakeBin = write_fake_herd($path);
 
     run_local_environment($path, 'cleanup', $fakeBin, $herdLog)->mustRun();
 
@@ -107,18 +81,11 @@ test('codex cleanup unlinks when secure fails after herd link succeeds', functio
     ])->assertSuccessful();
 
     $herdLog = temp_file('herd-log');
-    $fakeBin = $path.'/fake-bin';
-
-    mkdir($fakeBin, 0755, true);
-    file_put_contents($fakeBin.'/herd', <<<'BASH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERD_LOG"
-
+    $fakeBin = write_fake_herd($path, <<<'BASH'
 if [[ "${1:-}" == "secure" ]]; then
     exit 37
 fi
 BASH);
-    chmod($fakeBin.'/herd', 0755);
 
     $setup = run_local_environment($path, 'setup', $fakeBin, $herdLog);
     $setup->run();
@@ -1462,6 +1429,31 @@ function run_local_environment(string $path, string $action, string $fakeBin, st
         $path,
         array_merge($defaults, $environment),
     );
+}
+
+function write_fake_herd(string $path, string $extra = ''): string
+{
+    $fakeBin = $path.'/fake-bin';
+    $script = <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+
+BASH;
+
+    $script .= $extra;
+    $script .= <<<'BASH'
+
+if [[ "${1:-}" == "php" && -n "${AI_HARNESS_TEST_DB_DATABASE:-}" ]]; then
+    shift
+    "$REAL_PHP" "$@"
+fi
+BASH;
+
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($fakeBin.'/herd', $script);
+    chmod($fakeBin.'/herd', 0755);
+
+    return $fakeBin;
 }
 
 function expected_herd_site_name(string $path): string
