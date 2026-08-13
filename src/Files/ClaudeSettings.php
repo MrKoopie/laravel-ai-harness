@@ -58,9 +58,15 @@ final readonly class ClaudeSettings
         }
 
         try {
-            $encoded = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $encoded = json_encode((object) $settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
             throw new FileException('Unable to encode Claude settings: '.$exception->getMessage(), previous: $exception);
+        }
+
+        $normalized = str_ends_with($encoded, "\n") ? $encoded : $encoded."\n";
+
+        if (is_file($path) && file_get_contents($path) === $normalized) {
+            return;
         }
 
         $this->writer->write($root, '.claude/settings.json', $encoded);
@@ -93,7 +99,7 @@ final readonly class ClaudeSettings
             throw new FileException('Invalid Claude settings JSON: '.$exception->getMessage(), previous: $exception);
         }
 
-        if (! is_array($settings) || array_is_list($settings)) {
+        if (! is_array($settings) || ($settings !== [] && array_is_list($settings))) {
             throw new FileException("Claude settings [{$path}] must contain a JSON object.");
         }
 

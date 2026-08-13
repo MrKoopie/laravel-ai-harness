@@ -69,3 +69,19 @@ PHP);
     expect(json_decode((string) file_get_contents($log), true, flags: JSON_THROW_ON_ERROR))
         ->toBe(['test', '--help']);
 });
+
+test('runtime commands forward standard input to the configured tool', function (): void {
+    $root = temp_directory('harness-cli-stdin');
+    $log = temp_file('harness-stdin-log');
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=none\nagents=\n");
+    file_put_contents($root.'/read-stdin.php', <<<'PHP'
+<?php
+file_put_contents((string) getenv('RUNTIME_LOG'), stream_get_contents(STDIN));
+PHP);
+
+    $process = harness_process(['php', 'read-stdin.php'], $root, ['RUNTIME_LOG' => $log]);
+    $process->setInput("from the calling terminal\n");
+    $process->mustRun();
+
+    expect(file_get_contents($log))->toBe("from the calling terminal\n");
+});

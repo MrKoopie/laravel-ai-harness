@@ -23,10 +23,26 @@ final class SafeWriter
             throw new FileException("Refusing to overwrite symbolic link [{$target}].");
         }
 
+        $resolvedDirectory = realpath($directory);
+
+        if ($resolvedDirectory === false) {
+            throw new FileException("Unable to resolve managed directory [{$directory}].");
+        }
+
         $temporary = tempnam($directory, '.ai-harness-');
 
         if ($temporary === false) {
             throw new FileException("Unable to create a temporary file in [{$directory}].");
+        }
+
+        $temporaryDirectory = realpath(dirname($temporary));
+
+        if ($temporaryDirectory === false || $temporaryDirectory !== $resolvedDirectory) {
+            if ((file_exists($temporary) || is_link($temporary)) && ! unlink($temporary)) {
+                throw new FileException("Unable to remove unsafe temporary file [{$temporary}].");
+            }
+
+            throw new FileException("Temporary file [{$temporary}] escapes managed directory [{$resolvedDirectory}].");
         }
 
         try {
@@ -40,11 +56,15 @@ final class SafeWriter
                 throw new FileException("Unable to set permissions on [{$temporary}].");
             }
 
+            if (realpath($directory) !== $resolvedDirectory) {
+                throw new FileException("Managed directory [{$directory}] changed while writing [{$target}].");
+            }
+
             if (! rename($temporary, $target)) {
                 throw new FileException("Unable to replace file [{$target}].");
             }
         } finally {
-            if (file_exists($temporary)) {
+            if (file_exists($temporary) || is_link($temporary)) {
                 unlink($temporary);
             }
         }
@@ -83,7 +103,7 @@ final class SafeWriter
 
         if ($startCount === 1) {
             $pattern = '/'.preg_quote($start, '/').'.*?'.preg_quote($end, '/').'/s';
-            $updated = preg_replace($pattern, $managed, $existing, 1, $count);
+            $updated = preg_replace_callback($pattern, static fn (array $_): string => $managed, $existing, 1, $count);
 
             if ($updated === null || $count !== 1) {
                 throw new FileException("Unable to update the managed block in [{$target}].");

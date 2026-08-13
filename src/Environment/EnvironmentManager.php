@@ -84,15 +84,17 @@ final readonly class EnvironmentManager
 
         if ($this->state->herdSecured($root)) {
             $output->writeln("<info>Removing HTTPS from Herd site {$site}</info>");
-            $status = $this->processes->run($this->commands->herd('unsecure', $root, $site), $root, $output);
+            $status = $this->processes->run($this->commands->herd('unsecure', $site), $root, $output);
 
             if ($status !== 0) {
                 return $status;
             }
+
+            $this->state->clearHerdSecured($root);
         }
 
         $output->writeln("<info>Unlinking Herd site {$site}</info>");
-        $status = $this->processes->run($this->commands->herd('unlink', $root, $site), $root, $output);
+        $status = $this->processes->run($this->commands->herd('unlink', $site), $root, $output);
 
         if ($status === 0) {
             $this->state->clearHerdSite($root);
@@ -138,7 +140,7 @@ final readonly class EnvironmentManager
 
         if ($ownedSite === null) {
             $output->writeln("<info>Linking Herd site {$site}</info>");
-            $status = $this->processes->run($this->commands->herd('link', $root, $site, '--no-interaction'), $root, $output);
+            $status = $this->processes->run($this->commands->herd('link', $site, '--no-interaction'), $root, $output);
 
             if ($status !== 0) {
                 return $status;
@@ -148,16 +150,18 @@ final readonly class EnvironmentManager
         }
 
         if ($config->herdSecure) {
-            $status = $this->processes->run($this->commands->herd('secure', $root, $site), $root, $output);
+            if (! $this->state->herdSecured($root)) {
+                $status = $this->processes->run($this->commands->herd('secure', $site), $root, $output);
 
-            if ($status !== 0) {
-                return $status;
+                if ($status !== 0) {
+                    return $status;
+                }
+
+                $this->state->recordHerdSecured($root);
             }
-
-            $this->state->recordHerdSecured($root);
         } elseif ($this->state->herdSecured($root)) {
             $output->writeln("<info>Removing HTTPS from Herd site {$site}</info>");
-            $status = $this->processes->run($this->commands->herd('unsecure', $root, $site), $root, $output);
+            $status = $this->processes->run($this->commands->herd('unsecure', $site), $root, $output);
 
             if ($status !== 0) {
                 return $status;
@@ -167,7 +171,7 @@ final readonly class EnvironmentManager
         }
 
         if ($config->herdPhp !== null) {
-            return $this->processes->run($this->commands->herd('isolate', $root, $config->herdPhp), $root, $output);
+            return $this->processes->run($this->commands->herd('isolate', $config->herdPhp), $root, $output);
         }
 
         return 0;

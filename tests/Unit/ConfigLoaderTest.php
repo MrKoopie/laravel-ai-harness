@@ -55,21 +55,26 @@ test('configuration has conservative internal defaults', function (): void {
         ->and($config->sourceFiles)->toBe([]);
 });
 
-test('unknown and duplicate configuration keys fail clearly', function (string $contents, string $message): void {
-    $root = temp_directory('harness-invalid');
-    file_put_contents($root.'/.ai-harness.config', $contents);
+test('unknown and duplicate configuration keys fail clearly', function (): void {
+    foreach ([
+        ['runtim=herd', 'Unknown configuration key [runtim]'],
+        ["runtime=herd\nruntime=sail", 'Duplicate configuration key [runtime]'],
+        ['herd_secure=perhaps', 'herd_secure must be true or false'],
+        ['herd_php=latest', 'herd_php must be empty or a major.minor version'],
+        ['agents=codex,cursor', 'Unsupported agent [cursor]'],
+        ["services=none\nsail_services=mysql", 'sail_services may only be set when services=sail'],
+        ['sail_services=mysql,,redis', 'sail_services contains an empty list item'],
+        ['runtime="herd', 'Unterminated quoted value'],
+        ['runtime=docker', 'runtime must be one of: native, herd, sail'],
+        ['services=podman', 'services must be one of: none, sail'],
+        ["services=sail\nsail_services=my db", 'Invalid Sail service name [my db]'],
+    ] as [$contents, $message]) {
+        $root = temp_directory('harness-invalid');
+        file_put_contents($root.'/.ai-harness.config', $contents);
 
-    expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, $message);
-})->with([
-    ['runtim=herd', 'Unknown configuration key [runtim]'],
-    ["runtime=herd\nruntime=sail", 'Duplicate configuration key [runtime]'],
-    ['herd_secure=perhaps', 'herd_secure must be true or false'],
-    ['herd_php=latest', 'herd_php must be empty or a major.minor version'],
-    ['agents=codex,cursor', 'Unsupported agent [cursor]'],
-    ["services=none\nsail_services=mysql", 'sail_services may only be set when services=sail'],
-    ['sail_services=mysql,,redis', 'sail_services contains an empty list item'],
-    ['runtime="herd', 'Unterminated quoted value'],
-]);
+        expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, $message);
+    }
+});
 
 test('configuration files are size bounded', function (): void {
     $root = temp_directory('harness-large-config');

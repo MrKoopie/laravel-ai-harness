@@ -22,6 +22,12 @@ final class ProjectPath
             throw new RuntimeException("Project directory [{$candidate}] does not exist.");
         }
 
-        return rtrim($resolved, DIRECTORY_SEPARATOR);
+        $trimmed = rtrim($resolved, DIRECTORY_SEPARATOR);
+
+        if ($trimmed === '' || preg_match('/^[A-Za-z]:[\\\\\/]$/', $resolved) === 1) {
+            return $resolved;
+        }
+
+        return $trimmed;
     }
 }

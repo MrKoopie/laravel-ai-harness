@@ -12,6 +12,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\StreamableInputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 final class RuntimeCommand extends Command
@@ -44,10 +45,13 @@ final class RuntimeCommand extends Command
         }
 
         /** @var list<string> $arguments */
+        $stream = $input instanceof StreamableInputInterface ? $input->getStream() : null;
+
         return $this->processes->run(
             $this->commands->runtime($config, $this->tool, $arguments, $root),
             $root,
             $output,
+            input: is_resource($stream) ? $stream : STDIN,
         );
     }
 }

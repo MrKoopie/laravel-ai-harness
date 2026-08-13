@@ -46,13 +46,17 @@ test('project installation writes only the thin bootstrap and native agent files
 
     $settings = json_decode((string) file_get_contents($root.'/.claude/settings.json'), true, flags: JSON_THROW_ON_ERROR);
     $encoded = json_encode($settings, JSON_THROW_ON_ERROR);
+    $settingsShape = json_decode((string) file_get_contents($root.'/.claude/settings.json'), flags: JSON_THROW_ON_ERROR);
 
     expect($settings['permissions'])->toBe(['allow' => ['Read']])
         ->and($encoded)->toContain('echo custom')
         ->and(substr_count($encoded, 'hook claude session-start'))->toBe(1)
         ->and(substr_count($encoded, 'hook claude enter-worktree'))->toBe(1)
         ->and(substr_count($encoded, 'hook claude exit-worktree'))->toBe(1)
-        ->and(substr_count($encoded, 'hook claude worktree-remove'))->toBe(1);
+        ->and(substr_count($encoded, 'hook claude worktree-remove'))->toBe(1)
+        ->and($settingsShape->permissions->allow)->toBeArray()
+        ->and($settingsShape->hooks->SessionStart)->toBeArray()
+        ->and($settingsShape->hooks->SessionStart[0]->hooks)->toBeArray();
 });
 
 test('worktree false removes only harness-owned Claude hooks', function (): void {
@@ -88,6 +92,30 @@ test('managed project files never follow symbolic links', function (): void {
 
     expect(fn () => $writer->managedBlock($root, 'AGENTS.md', 'managed'))
         ->toThrow(FileException::class, 'Refusing to edit symbolic link');
+});
+
+test('managed blocks preserve literal replacement characters', function (): void {
+    $root = temp_directory('harness-managed-literals');
+    $writer = new SafeWriter;
+    $block = 'Literal \\1 and $1 stay unchanged.';
+
+    $writer->managedBlock($root, 'AGENTS.md', $block);
+    $writer->managedBlock($root, 'AGENTS.md', $block);
+
+    expect(file_get_contents($root.'/AGENTS.md'))->toContain($block);
+});
+
+test('an empty Claude settings object remains a valid object when hooks are disabled', function (): void {
+    $root = temp_directory('harness-empty-claude-settings');
+    mkdir($root.'/.claude', 0755, true);
+    file_put_contents($root.'/.ai-harness.config', "agents=\nworktrees=false\n");
+    file_put_contents($root.'/.claude/settings.json', "{}\n");
+
+    $writer = new SafeWriter;
+    $installer = new ProjectInstaller($writer, new ClaudeSettings($writer));
+    $installer->install($root, (new ConfigLoader)->load($root));
+
+    expect(file_get_contents($root.'/.claude/settings.json'))->toBe("{}\n");
 });
 
 test('disabling agents removes only package-owned integration content', function (): void {

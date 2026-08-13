@@ -14,10 +14,14 @@ final class ProcessRunner
      * @param  non-empty-list<string>  $command
      * @param  array<string, string|false>  $environment
      */
-    public function run(array $command, string $workingDirectory, OutputInterface $output, array $environment = []): int
+    public function run(array $command, string $workingDirectory, OutputInterface $output, array $environment = [], mixed $input = null): int
     {
         $process = new Process($command, $workingDirectory, $environment === [] ? null : $environment);
         $process->setTimeout(null);
+
+        if ($input !== null) {
+            $process->setInput($input);
+        }
 
         return $process->run(function (string $type, string $buffer) use ($output): void {
             $target = $output;

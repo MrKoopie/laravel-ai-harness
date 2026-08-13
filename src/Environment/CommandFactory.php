@@ -63,7 +63,7 @@ final readonly class CommandFactory
     }
 
     /** @return non-empty-list<string> */
-    public function herd(string $action, string $root, string ...$arguments): array
+    public function herd(string $action, string ...$arguments): array
     {
         $herd = $this->executables->herd();
 

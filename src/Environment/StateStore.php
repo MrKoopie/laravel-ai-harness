@@ -12,6 +12,8 @@ final readonly class StateStore
 {
     private const MAX_FILE_SIZE = 16_384;
 
+    private const STATE_FILE = '.ai-harness.state.json';
+
     public function __construct(private SafeWriter $writer) {}
 
     public function herdSite(string $root): ?string
@@ -61,7 +63,7 @@ final readonly class StateStore
     {
         $state = $this->read($root);
         unset($state['herd_site'], $state['herd_secured']);
-        $path = $root.'/.ai-harness.state.json';
+        $path = $root.'/'.self::STATE_FILE;
 
         if ($state !== []) {
             $this->write($root, $state);
@@ -81,7 +83,7 @@ final readonly class StateStore
     /** @return array<string, mixed> */
     private function read(string $root): array
     {
-        $path = $root.'/.ai-harness.state.json';
+        $path = $root.'/'.self::STATE_FILE;
 
         if (is_link($path)) {
             throw new FileException("Refusing to read symbolic link [{$path}].");
@@ -109,7 +111,7 @@ final readonly class StateStore
             throw new FileException('Invalid AI Harness state: '.$exception->getMessage(), previous: $exception);
         }
 
-        if (! is_array($state) || array_is_list($state)) {
+        if (! is_array($state) || ($state !== [] && array_is_list($state))) {
             throw new FileException("State file [{$path}] must contain a JSON object.");
         }
 
@@ -120,11 +122,11 @@ final readonly class StateStore
     private function write(string $root, array $state): void
     {
         try {
-            $encoded = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $encoded = json_encode((object) $state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
             throw new FileException('Unable to encode AI Harness state: '.$exception->getMessage(), previous: $exception);
         }
 
-        $this->writer->write($root, '.ai-harness.state.json', $encoded);
+        $this->writer->write($root, self::STATE_FILE, $encoded);
     }
 }

@@ -139,6 +139,77 @@ BASH);
         ->toBe(['herd_site' => $site, 'herd_secured' => true]);
 });
 
+test('cleanup records successful HTTPS removal before a failed Herd unlink', function (): void {
+    $root = temp_directory('harness-unlink-failure');
+    $fakeBin = $root.'/fake-bin';
+    $herdLog = temp_file('herd-unlink-log');
+    $site = SiteName::forPath($root);
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.state.json', json_encode([
+        'herd_site' => $site,
+        'herd_secured' => true,
+    ], JSON_THROW_ON_ERROR));
+    write_executable($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HERD_LOG}"
+if [[ "$1" == "unlink" && "${FAIL_UNLINK:-}" == "1" ]]; then
+    exit 19
+fi
+BASH);
+
+    $first = harness_process(['cleanup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HERD_LOG' => $herdLog,
+        'FAIL_UNLINK' => '1',
+    ]);
+    $first->run();
+
+    expect($first->getExitCode())->toBe(19)
+        ->and(json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))
+        ->toBe(['herd_site' => $site]);
+
+    harness_process(['cleanup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HERD_LOG' => $herdLog,
+        'FAIL_UNLINK' => '0',
+    ])->mustRun();
+
+    expect(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe([
+        'unsecure '.$site,
+        'unlink '.$site,
+        'unlink '.$site,
+    ])->and($root.'/.ai-harness.state.json')->not->toBeFile();
+});
+
+test('repeated Herd setup does not reissue a harness-owned certificate', function (): void {
+    $root = temp_directory('harness-repeat-secure');
+    $fakeBin = $root.'/fake-bin';
+    $herdLog = temp_file('herd-repeat-secure-log');
+    $site = SiteName::forPath($root);
+    mkdir($fakeBin, 0755, true);
+    mkdir($root.'/vendor', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    write_executable($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HERD_LOG}"
+BASH);
+
+    $environment = [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HERD_LOG' => $herdLog,
+    ];
+
+    harness_process(['setup'], $root, $environment)->mustRun();
+    harness_process(['setup'], $root, $environment)->mustRun();
+
+    expect(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe([
+        'link '.$site.' --no-interaction',
+        'secure '.$site,
+    ]);
+});
+
 test('cleanup refuses a state file that names a Herd site not derived from this project', function (): void {
     $root = temp_directory('harness-cleanup-guard');
     $fakeBin = $root.'/fake-bin';

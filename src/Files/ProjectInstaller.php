@@ -71,7 +71,7 @@ final readonly class ProjectInstaller
     private function resource(string $relativePath): string
     {
         $path = dirname(__DIR__, 2).'/resources/'.$relativePath;
-        $contents = file_get_contents($path);
+        $contents = is_file($path) ? file_get_contents($path) : false;
 
         if ($contents === false) {
             throw new FileException("Unable to read package resource [{$path}].");

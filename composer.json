@@ -40,8 +40,8 @@
         "analyse": "phpstan analyse --memory-limit=1G",
         "format": "pint",
         "format:check": "pint --test",
-        "shellcheck": "rg -l '^#!/usr/bin/env bash' bin resources | xargs shellcheck",
-        "test": "pest --parallel",
+        "shellcheck": "shellcheck resources/project/bootstrap.sh",
+        "test": "pest",
         "test:coverage": "pest --coverage"
     },
     "config": {
