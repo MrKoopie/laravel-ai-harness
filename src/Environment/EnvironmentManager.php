@@ -35,6 +35,13 @@ final readonly class EnvironmentManager
             $output->writeln('<info>Created .env from .env.example</info>');
         }
 
+        $usesMySql = $config->services === Services::Sail && in_array('mysql', $config->sailServices, true);
+
+        if ($usesMySql) {
+            $this->environmentFile->configureMySql($root, $config->runtime === Runtime::Sail);
+            $output->writeln('<info>Configured MySQL environment values</info>');
+        }
+
         if ($this->requiresSail($config)) {
             $output->writeln('<info>Starting configured Sail containers</info>');
             $status = $this->processes->run($this->commands->servicesUp($config, $root), $root, $output);
@@ -69,8 +76,21 @@ final readonly class EnvironmentManager
             }
         }
 
-        if (is_file($root.'/artisan') && $this->environmentFile->ensureTesting($root)) {
-            $output->writeln('<info>Created .env.testing with isolated Laravel test defaults</info>');
+        if (is_file($root.'/artisan')) {
+            $createdTesting = $usesMySql
+                ? $this->environmentFile->ensureMySqlTesting($root, $config->runtime === Runtime::Sail)
+                : $this->environmentFile->ensureTesting($root);
+
+            if ($createdTesting) {
+                $message = $usesMySql
+                    ? 'Created .env.testing with the Sail testing database'
+                    : 'Created .env.testing with isolated Laravel test defaults';
+                $output->writeln("<info>{$message}</info>");
+            }
+        }
+
+        if ($usesMySql && $this->environmentFile->configurePhpUnitMySql($root)) {
+            $output->writeln('<info>Configured PHPUnit to use the Sail testing database</info>');
         }
 
         return 0;

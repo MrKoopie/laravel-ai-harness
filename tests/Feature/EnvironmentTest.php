@@ -12,7 +12,8 @@ test('setup composes Herd with selected Sail services and cleanup only unlinks o
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
     file_put_contents($root.'/artisan', "<?php\n");
-    file_put_contents($root.'/.env.example', "APP_KEY=\n");
+    file_put_contents($root.'/.env.example', "APP_KEY=\nFORWARD_DB_PORT=3310\n");
+    file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=herd',
         'services=sail',
@@ -54,10 +55,19 @@ BASH);
         ->and($root.'/.env.testing')->toBeFile()
         ->and((string) file_get_contents($root.'/.env'))->toContain('APP_URL=https://'.$site.'.test')
         ->and((string) file_get_contents($root.'/.env.testing'))->toContain('APP_ENV=testing')
-        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE=:memory:')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('DB_CONNECTION=mysql')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('DB_HOST=127.0.0.1')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('DB_PORT=3310')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE=testing')
         ->and((string) file_get_contents($root.'/.env.testing'))->toContain('CACHE_STORE=array')
         ->and((string) file_get_contents($root.'/.env.testing'))->toContain('SESSION_DRIVER=array')
-        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('QUEUE_CONNECTION=sync');
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('QUEUE_CONNECTION=sync')
+        ->and((string) file_get_contents($root.'/.env'))->toContain('DB_CONNECTION=mysql')
+        ->and((string) file_get_contents($root.'/.env'))->toContain('DB_HOST=127.0.0.1')
+        ->and((string) file_get_contents($root.'/.env'))->toContain('DB_PORT=3310')
+        ->and((string) file_get_contents($root.'/.env'))->toContain('DB_DATABASE=laravel')
+        ->and((string) file_get_contents($root.'/phpunit.xml'))->toContain('name="DB_CONNECTION" value="mysql"')
+        ->and((string) file_get_contents($root.'/phpunit.xml'))->toContain('name="DB_DATABASE" value="testing"');
 
     harness_process(['cleanup'], $root, $environment)->mustRun();
 
@@ -113,6 +123,43 @@ BASH);
             $expectedDown,
         ]);
     }
+});
+
+test('setup migrates existing Laravel test environment to Sail MySQL values', function (): void {
+    $root = temp_directory('harness-existing-testing-environment');
+    $sailLog = temp_file('sail-existing-testing-environment-log');
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/artisan', "<?php\n");
+    file_put_contents($root.'/.env', "APP_KEY=present\nFORWARD_DB_PORT=3310\nDB_CONNECTION=sqlite\n");
+    file_put_contents($root.'/.env.testing', "APP_ENV=testing\nDB_CONNECTION=sqlite\nDB_DATABASE=:memory:\n");
+    file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=\nsail_services=mysql\n");
+    write_executable($root.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SAIL_LOG}"
+BASH);
+    $fakeBin = $root.'/fake-bin';
+    mkdir($fakeBin, 0755, true);
+    write_executable($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+exit 0
+BASH);
+
+    harness_process(['setup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'SAIL_LOG' => $sailLog,
+    ])->mustRun();
+
+    expect((string) file_get_contents($root.'/.env.testing'))
+        ->toContain('DB_CONNECTION=mysql')
+        ->toContain('DB_HOST=127.0.0.1')
+        ->toContain('DB_PORT=3310')
+        ->toContain('DB_DATABASE=testing')
+        ->and((string) file_get_contents($root.'/.env'))->toContain('DB_PORT=3310')
+        ->and((string) file_get_contents($root.'/.env'))->toContain('DB_DATABASE=laravel')
+        ->and((string) file_get_contents($root.'/phpunit.xml'))->toContain('name="DB_CONNECTION" value="mysql"')
+        ->and((string) file_get_contents($root.'/phpunit.xml'))->toContain('name="DB_DATABASE" value="testing"');
 });
 
 test('cleanup preserves Herd ownership state when removing HTTPS fails', function (): void {
@@ -274,7 +321,7 @@ BASH);
         ->toBe(['herd_site' => $site]);
 });
 
-test('setup does not run migrations or alter test configuration', function (): void {
+test('setup does not run migrations or alter PHPUnit configuration outside Sail MySQL', function (): void {
     $root = temp_directory('harness-no-migrations');
     mkdir($root.'/vendor', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
