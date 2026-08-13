@@ -56,7 +56,15 @@ final class HookCommand extends Command
         }
 
         $root = ProjectPath::resolve($path);
-        $this->assertClaudeWorktree($root);
+
+        try {
+            $this->assertClaudeWorktree($root);
+        } catch (RuntimeException $exception) {
+            $output->writeln('<error>'.$exception->getMessage().'</error>');
+
+            return self::FAILURE;
+        }
+
         $config = $this->configLoader->load($root);
 
         if (! $config->worktrees) {
