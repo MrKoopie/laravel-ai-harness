@@ -50,7 +50,14 @@ BASH);
             'isolate 8.4',
             'php '.$root.'/artisan key:generate --ansi',
         ])
-        ->and($root.'/.env')->toBeFile();
+        ->and($root.'/.env')->toBeFile()
+        ->and($root.'/.env.testing')->toBeFile()
+        ->and((string) file_get_contents($root.'/.env'))->toContain('APP_URL=https://'.$site.'.test')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('APP_ENV=testing')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE=:memory:')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('CACHE_STORE=array')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('SESSION_DRIVER=array')
+        ->and((string) file_get_contents($root.'/.env.testing'))->toContain('QUEUE_CONNECTION=sync');
 
     harness_process(['cleanup'], $root, $environment)->mustRun();
 

@@ -39,6 +39,8 @@ test('project installation writes only the thin bootstrap and native agent files
         ->and(file_get_contents($root.'/AGENTS.md'))->toStartWith('User-owned Codex guidance.')
         ->and(substr_count((string) file_get_contents($root.'/CLAUDE.md'), '<!-- ai-harness:start -->'))->toBe(1)
         ->and($root.'/.codex/environments/environment.toml')->toBeFile()
+        ->and((string) file_get_contents($root.'/.gitignore'))->toContain('!/.codex/environments/environment.toml')
+        ->and((string) file_get_contents($root.'/.gitignore'))->toContain('.env.testing')
         ->and($root.'/.claude/settings.json')->toBeFile()
         ->and($root.'/.dev/bin/ai-harness')->not->toBeFile()
         ->and($root.'/.codex/scripts/local-environment.sh')->not->toBeFile()

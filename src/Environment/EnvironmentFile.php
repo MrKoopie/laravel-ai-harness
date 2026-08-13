@@ -11,6 +11,19 @@ final readonly class EnvironmentFile
 {
     private const MAX_FILE_SIZE = 1_048_576;
 
+    /** @var array<string, string> */
+    private const TESTING_VALUES = [
+        'APP_ENV' => 'testing',
+        'APP_URL' => 'http://localhost',
+        'BROADCAST_CONNECTION' => 'null',
+        'CACHE_STORE' => 'array',
+        'DB_CONNECTION' => 'sqlite',
+        'DB_DATABASE' => ':memory:',
+        'MAIL_MAILER' => 'array',
+        'QUEUE_CONNECTION' => 'sync',
+        'SESSION_DRIVER' => 'array',
+    ];
+
     public function __construct(private SafeWriter $writer) {}
 
     public function ensure(string $root): bool
@@ -52,6 +65,72 @@ final readonly class EnvironmentFile
         }
 
         return trim(trim($matches[1]), "\"'") === '';
+    }
+
+    public function setAppUrl(string $root, string $url): void
+    {
+        $this->replaceValues($root, '.env', ['APP_URL' => $url]);
+    }
+
+    public function ensureTesting(string $root): bool
+    {
+        $target = $root.'/.env.testing';
+
+        if (is_file($target)) {
+            return false;
+        }
+
+        if (is_link($target)) {
+            throw new FileException("Refusing to replace symbolic link [{$target}].");
+        }
+
+        $source = $root.'/.env';
+
+        if (! is_file($source)) {
+            return false;
+        }
+
+        $this->writer->write($root, '.env.testing', $this->withValues($this->read($source), self::TESTING_VALUES));
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, string>  $values
+     */
+    private function replaceValues(string $root, string $filename, array $values): void
+    {
+        $path = $root.'/'.$filename;
+
+        if (! is_file($path)) {
+            return;
+        }
+
+        if (is_link($path)) {
+            throw new FileException("Refusing to edit symbolic link [{$path}].");
+        }
+
+        $this->writer->write($root, $filename, $this->withValues($this->read($path), $values));
+    }
+
+    /**
+     * @param  array<string, string>  $values
+     */
+    private function withValues(string $contents, array $values): string
+    {
+        foreach ($values as $key => $value) {
+            $pattern = '/^'.preg_quote($key, '/').'=.*/m';
+            $replacement = $key.'='.$value;
+            $updated = preg_replace($pattern, $replacement, $contents, 1, $count);
+
+            if ($updated === null) {
+                throw new FileException("Unable to update environment value [{$key}].");
+            }
+
+            $contents = $count === 1 ? $updated : rtrim($contents)."\n".$replacement."\n";
+        }
+
+        return $contents;
     }
 
     private function read(string $path): string

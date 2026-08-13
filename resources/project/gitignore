@@ -1,2 +1,7 @@
 .ai-harness.config.local
 .ai-harness.state.json
+.env.testing
+!/.codex/
+/.codex/*
+!/.codex/environments/
+!/.codex/environments/environment.toml

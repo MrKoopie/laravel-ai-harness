@@ -22,7 +22,6 @@ final readonly class EnvironmentManager
     public function setup(string $root, OutputInterface $output): int
     {
         $config = $this->configLoader->load($root);
-
         if (! is_file($root.'/vendor/autoload.php')) {
             $output->writeln('<info>Installing Composer dependencies</info>');
             $status = $this->processes->run($this->commands->bootstrapComposer(), $root, $output);
@@ -51,16 +50,27 @@ final readonly class EnvironmentManager
             if ($status !== 0) {
                 return $status;
             }
+
+            $this->environmentFile->setAppUrl($root, 'https://'.SiteName::forPath($root).'.test');
+            $output->writeln('<info>Configured APP_URL for the Herd site</info>');
         }
 
         if (is_file($root.'/artisan') && $this->environmentFile->appKeyMissing($root)) {
             $output->writeln('<info>Generating Laravel application key</info>');
 
-            return $this->processes->run(
+            $status = $this->processes->run(
                 $this->commands->runtime($config, 'artisan', ['key:generate', '--ansi'], $root),
                 $root,
                 $output,
             );
+
+            if ($status !== 0) {
+                return $status;
+            }
+        }
+
+        if (is_file($root.'/artisan') && $this->environmentFile->ensureTesting($root)) {
+            $output->writeln('<info>Created .env.testing with isolated Laravel test defaults</info>');
         }
 
         return 0;
