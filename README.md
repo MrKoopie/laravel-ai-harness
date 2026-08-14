@@ -1,235 +1,162 @@
 # Laravel AI Harness
 
-Laravel AI Harness installs and refreshes the files that make AI agents useful in a Laravel project: agent instructions, MCP configuration, local runtime helpers, worktree setup hooks, and repeatable quality guidance.
+Laravel AI Harness is a small Composer development tool that gives Codex and Claude one stable command for Laravel projects running through native PHP, Laravel Herd, or Laravel Sail.
 
-The package is intentionally conservative. Human-editable files receive managed blocks, generated scripts/config files are package-owned, and optional workspace features such as Herd linking, Docker database bootstrap files, and Polyscope metadata are opt-in.
+All execution logic stays in the Composer package. A consuming project receives only a tiny `.ai-harness` bootstrap, a strict project configuration file, concise agent instructions, and native Codex/Claude lifecycle configuration.
 
 ## Requirements
 
-- PHP `^8.2`
-- Laravel / Illuminate `^11.0`, `^12.0`, or `^13.0`
-- Composer 2
-- Optional: Laravel Sail, Laravel Herd, Docker or Podman, and Polyscope
+- PHP 8.2 or newer.
+- Composer 2.2 or newer.
+- Bash on macOS, Linux, or WSL for the project bootstrap.
+- Optional: Laravel Herd.
+- Optional: Laravel Sail and Docker.
 
-## Installation
+## Install
 
-```bash
-composer require mrkoopie/laravel-ai-harness --dev
-php artisan ai-harness:install
-```
-
-The install command writes the initial harness files and adds this guarded command to Composer `post-install-cmd` and `post-update-cmd`:
+Add the package once and initialize the project files:
 
 ```bash
-@php -r "if (file_exists('vendor/mrkoopie/laravel-ai-harness')) { passthru(escapeshellarg(PHP_BINARY).' artisan ai-harness:update --ansi', $code); exit($code); }"
+composer require --dev mrkoopie/laravel-ai-harness
+./vendor/bin/ai-harness init
 ```
 
-After the first install, Composer refreshes managed harness files on every `composer install` and `composer update`. The guard lets production `composer install --no-dev` skip the harness when the package is installed as a development dependency.
-
-## Where To Configure Everything
-
-Most teams configure the harness in four places:
-
-- `config/ai-harness.php`: publish it when you want committed package defaults.
-- `.env`: use `AI_HARNESS_*` variables for local or environment-specific overrides.
-- User-owned guidance outside managed blocks in `AGENTS.md` and `CLAUDE.md`: keep project-specific rules there so updates do not replace them.
-- `.gitignore`: keep the generated AI Harness unignore block so package-managed `.codex`, `.claude`, `.ai`, `.agents`, and `.dev` files can be committed.
-
-Publish the config file with Laravel's vendor publishing workflow:
+Commit the generated project files. From then on, people and coding agents use:
 
 ```bash
-php artisan vendor:publish --tag=ai-harness-config
+./.ai-harness doctor
 ```
 
-The config file controls default features, project naming, generated database names, PHP version hints, and the default worktree base ref. One-off features can also be selected per run:
+When `vendor/bin/ai-harness` is missing, `.ai-harness` runs `composer install --no-interaction --prefer-dist`, falling back to `herd composer install` when Composer is not on `PATH`. It never adds or updates package requirements. After dependencies exist, the bootstrap executes Composer's `vendor/bin/ai-harness` proxy.
 
-```bash
-php artisan ai-harness:install --with=herd --with=docker --with=polyscope
-php artisan ai-harness:update --with=herd --with=docker --with=polyscope
+## Project Files
+
+The default installation manages only:
+
+```text
+.ai-harness
+.ai-harness.config
+.gitignore                 # one managed block
+AGENTS.md                  # one managed block
+CLAUDE.md                  # one managed block
+.codex/environments/environment.toml
+.claude/settings.json      # merges only package-owned hooks
 ```
 
-When `ai-harness:install` is run with `--with=*` flags, those flags are preserved in the Composer hook.
+The package does not copy runtime executors, database scripts, skills, MCP configuration, or per-agent shell scripts into projects.
 
-## Defaults
+## Configuration
 
-These features are enabled by default:
+Configuration is strict `key=value` data:
 
-| Feature | Default | What It Does |
-| --- | --- | --- |
-| Base guidance | Always on | Writes managed blocks to `AGENTS.md`, `CLAUDE.md`, and `.gitignore`; writes shared MCP config to `.ai/mcp/mcp.json`; writes the runtime helper to `.dev/bin/ai-harness`. |
-| Codex | `AI_HARNESS_CODEX=true` | Writes a managed block to `.codex/config.toml` and writes `.codex/environments/environment.toml`, `.codex/hooks.json`, and `.codex/scripts/local-environment.sh`. When the generated Codex local environment is selected for a worktree, setup copies `.env.example` to `.env`, configures a per-worktree `APP_URL`, app database, and companion testing database, runs `composer install` when `vendor/` is missing, generates `APP_KEY` when needed, runs app and testing migrations, writes an ignored generated PHPUnit config for the testing database, and runs `ai-harness:doctor`. Cleanup removes the generated PHPUnit config, restores legacy managed PHPUnit patches when present, and removes isolated app/testing databases when they are owned by the worktree. The generated `SessionStart` hook is a fallback that provisions Codex-managed worktrees only after the project hook is trusted. |
-| Claude | `AI_HARNESS_CLAUDE=true` | Writes `.claude/settings.json` plus `.claude/scripts/worktree-up.sh` and `.claude/scripts/worktree-down.sh`. Claude `EnterWorktree`, `ExitWorktree`, and worktree `SessionStart` hooks delegate to the same generated local-environment script used by Codex. Main-checkout session starts are guarded and only run the doctor check. Claude-local harness skill files are written when skills are enabled. |
-| Skills | `AI_HARNESS_SKILLS=true` | Writes local skill documentation to `.agents/skills/laravel-ai-harness/SKILL.md` and `.claude/skills/laravel-ai-harness/SKILL.md`. |
+```ini
+runtime=herd
+services=sail
+agents=codex,claude
 
-These features are disabled by default:
-
-| Feature | Default | What It Does When Enabled |
-| --- | --- | --- |
-| Herd workspace automation | `AI_HARNESS_HERD=false` | Generated Codex and Claude worktree setup links and secures the worktree in Laravel Herd with a deterministic site name, sets `APP_URL` to the HTTPS Herd site, provisions isolated app/testing databases, and cleanup removes those owned databases and unlinks the site. The runtime helper can still use `herd php artisan` as a fallback even when this automation is disabled. |
-| Docker database bootstrap | `AI_HARNESS_DOCKER=false` | Writes `docker/mysql/init/10-create-testing-database.sh` for creating the testing database with the configured charset and collation. |
-| Polyscope | `AI_HARNESS_POLYSCOPE=false` | Writes `polyscope.json` workspace metadata. |
-
-## Configuration Reference
-
-```dotenv
-AI_HARNESS_CODEX=true
-AI_HARNESS_CLAUDE=true
-AI_HARNESS_SKILLS=true
-AI_HARNESS_HERD=false
-AI_HARNESS_DOCKER=false
-AI_HARNESS_POLYSCOPE=false
+sail_services=mysql,redis,mailpit
+herd_secure=true
+herd_php=8.4
+worktrees=true
 ```
 
-Generated project metadata is derived from existing harness context before falling back to the directory name. Pin it when the generated names should not change across machines or worktree paths:
+Files are loaded from lowest to highest priority:
 
-```dotenv
-AI_HARNESS_PROJECT_NAME="bill-it"
-AI_HARNESS_PROJECT_SLUG="bill-it"
-AI_HARNESS_DATABASE_NAME="bill_it"
-AI_HARNESS_DATABASE_CHARSET="utf8mb4"
-AI_HARNESS_DATABASE_COLLATION="utf8mb4_uca1400_ai_ci"
-AI_HARNESS_PHP_VERSION="8.3"
-AI_HARNESS_WORKTREE_BASE_REF="origin/main"
-```
+1. `.ai-harness.config.dist`
+2. `.ai-harness.config`
+3. `.ai-harness.config.local`
 
-`AI_HARNESS_WORKTREE_BASE_REF` defaults to an available `origin/main` ref. If that ref is absent, it uses the repository's `origin/HEAD` target, falling back to the literal `origin/main` ref when no remote metadata exists.
+The local file and harness state file are ignored automatically. Unknown keys, invalid values, duplicate keys within one file, and oversized configuration files fail clearly. Configuration files are parsed as data and are never sourced as shell scripts.
+
+### Runtimes
+
+`runtime` selects where PHP-related commands execute:
+
+| Runtime | Artisan | Composer | PHP | npm |
+| --- | --- | --- | --- | --- |
+| `native` | `php artisan` | `composer` | `php` | `npm` |
+| `herd` | `herd php artisan` | `herd composer` | `herd php` | `npm` |
+| `sail` | `sail artisan` | `sail composer` | `sail php` | `sail npm` |
+
+There is no automatic runtime fallback. `doctor` reports when the configured runtime is unavailable.
+
+### Services
+
+`services=sail` lets Sail manage supporting containers independently of the PHP runtime. This supports both full Sail projects and Herd PHP with Sail-provided MySQL, Redis, or Mailpit.
+
+An empty `sail_services` value starts and stops the full stack. A comma-separated list starts only those services; `down` then uses `sail stop` for that selected subset. With `runtime=sail`, the harness always includes Sail's `laravel.test` application container, even when `services=none`. The harness never deletes Docker volumes.
+
+When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standard Sail `FORWARD_DB_PORT` value in `.env` (default `3306`). Set `FORWARD_DB_PORT=3307`, for example, when another local MySQL service already uses port 3306. The harness derives a MySQL-safe database name from the checkout path plus a short hash, and uses a `_testing` suffix for the isolated test database. This makes every worktree distinct without querying Git or agent metadata.
 
 ## Commands
 
 ```bash
-php artisan ai-harness:install
-php artisan ai-harness:update
-php artisan ai-harness:doctor
+./.ai-harness init
+./.ai-harness doctor
+
+./.ai-harness artisan migrate
+./.ai-harness composer install
+./.ai-harness php -v
+./.ai-harness npm run build
+./.ai-harness test --filter=ExampleTest
+
+./.ai-harness up
+./.ai-harness down
+./.ai-harness setup
+./.ai-harness cleanup
 ```
 
-`ai-harness:install` writes the harness and patches Composer scripts.
+Runtime arguments are executed as an argument array, not through a shell command string. Options, spaces, and shell metacharacters are forwarded unchanged.
 
-`ai-harness:update` refreshes package-managed files and blocks.
+`init`, `doctor`, `setup`, `cleanup`, `up`, and `down` accept `--path=/path/to/project`; runtime commands operate in the current directory.
 
-`ai-harness:doctor` checks whether the selected harness surface exists and prints the registered agent/runtime drivers.
+## Setup and Cleanup
 
-All commands accept `--path=/path/to/project` for validation apps, tests, or non-standard project roots.
+`setup` performs only predictable local preparation:
 
-## Development Workflow
+1. Run Composer install when the target checkout has no `vendor/autoload.php`.
+2. Copy `.env.example` to `.env` when `.env` is absent.
+3. Configure and normalize MySQL values when Sail manages its `mysql` service, using `127.0.0.1` for native or Herd runtime and `mysql` for Sail runtime. Commented database defaults are activated rather than duplicated.
+4. Start configured Sail services and ensure the checkout-specific development and testing databases exist.
+5. Link the directory in Herd when `runtime=herd` and set its path-derived HTTPS URL.
+6. Secure the Herd site and isolate its PHP version when configured.
+7. Generate `APP_KEY` when the project has an empty key.
+8. Create `.env.testing` when absent, using Sail's `testing` database for MySQL or isolated SQLite defaults otherwise; update the default SQLite entries in `phpunit.xml` to Sail's MySQL testing database.
 
-For a Laravel application using this package:
+It does not run migrations, rewrite `compose.yaml`, or inject test-runner options. It creates only its checkout-specific Sail MySQL databases and updates PHPUnit's selected test database when Sail manages MySQL. `cleanup` drops only those deterministic, harness-owned databases after validating the recorded Herd site; Codex worktree cleanup then stops the configured Sail services without deleting Docker volumes.
 
-1. Install the package with Composer and run `php artisan ai-harness:install`.
-2. Publish `config/ai-harness.php` if the team wants committed defaults.
-3. Put local overrides in `.env`.
-4. Keep custom instructions outside the `<!-- ai-harness:start -->` / `<!-- ai-harness:end -->` blocks.
-5. Commit the generated harness files before creating Codex or Claude worktrees. Git worktrees are created from a commit, so an uncommitted package install in the main checkout will not exist in new worktrees.
-6. Run `php artisan ai-harness:doctor` after changing feature flags.
-7. Let Composer refresh managed files during `composer install` and `composer update`, or run `php artisan ai-harness:update` manually after package upgrades.
+`cleanup` only removes HTTPS and unlinks a Herd site previously recorded as harness-owned. Before each action, it verifies that the recorded site name is the deterministic name for the current project path. Sail shutdown is always the explicit `down` command.
 
-For Codex App worktrees, choose the generated local environment named `<app name> Codex worktree` in the new thread view. Codex runs `.codex/environments/environment.toml` as the worktree setup/cleanup environment. If you rely on `.codex/hooks.json` instead, review and trust the project hook first; Codex skips untrusted project command hooks. The hook is guarded so it only runs full setup under `$CODEX_HOME/worktrees/*` and does not provision the source checkout. Codex local-environment selection and project-hook trust are user/app security state; the package cannot preselect or trust them from committed project files.
+## Codex
 
-For Claude Code worktrees, the generated `.claude/settings.json` hooks call `.claude/scripts/worktree-up.sh` after `EnterWorktree`, call `.claude/scripts/worktree-down.sh` before `ExitWorktree` removal, and retry setup once on worktree `SessionStart` if the provision marker is missing.
+`init` adds concise runtime instructions to `AGENTS.md`. With `worktrees=true`, it also writes one Codex local environment whose setup and cleanup scripts call `./.ai-harness setup` and `./.ai-harness cleanup` directly.
 
-For package development in this repository:
+There are no duplicate SessionStart fallbacks or Codex-specific executor scripts. Select the generated `Laravel AI Harness` local environment in Codex when creating a worktree.
+
+## Claude Code
+
+`init` adds concise runtime instructions to `CLAUDE.md`. With `worktrees=true`, it merges four package-owned command hooks into `.claude/settings.json`:
+
+- `SessionStart` prepares an existing Claude worktree.
+- `PostToolUse` with `EnterWorktree` prepares the worktree reported by Claude.
+- `PreToolUse` with `ExitWorktree` cleans the worktree before removal.
+- `WorktreeRemove` cleans `--worktree` and isolated-subagent worktrees before Claude removes them.
+
+Every hook calls `.ai-harness hook claude ...`; JSON payload parsing and lifecycle logic stay in the Composer package. Existing settings and unrelated hooks are preserved. Disabling worktree automation removes only the package-owned hooks on the next `init`.
+
+## Git Scope
+
+The harness does not create, remove, update, or select Git branches or worktrees. It never runs `git fetch`, `pull`, `checkout`, `switch`, `branch`, `rebase`, or `worktree`. Codex or Claude provides the current directory; the harness only prepares that directory.
+
+## Development
 
 ```bash
 composer install
 composer test
-composer analyse
 composer format:check
+composer analyse
+composer shellcheck
 composer validate --strict
 ```
 
-PHPStan uses Larastan. Run it through `composer analyse`, which passes `--memory-limit=1G` for Laravel package analysis.
-
-The GitHub Actions workflow runs Pest against Laravel 11, 12, and 13 dependency lines, includes PHP 8.5 coverage on the latest Laravel line, then runs Composer validation, Pint, and PHPStan in a separate quality job.
-
-## Laravel Sail Compatibility
-
-The generated `.dev/bin/ai-harness` helper detects Sail first. When `./vendor/bin/sail` exists and the Sail app service is running in Docker Compose (`APP_SERVICE`, or `laravel.test` by default), harness commands execute through Sail:
-
-```bash
-./.dev/bin/ai-harness ai-harness:doctor
-```
-
-That command resolves to:
-
-```bash
-./vendor/bin/sail artisan ai-harness:doctor
-```
-
-If the Sail app service is not running, the helper falls back to `herd php artisan` when Herd exists, then to plain `php artisan`.
-
-Sail projects do not need a special install path:
-
-```bash
-composer require mrkoopie/laravel-ai-harness --dev
-php artisan ai-harness:install
-./vendor/bin/sail artisan ai-harness:doctor
-./vendor/bin/sail test
-```
-
-The package does not rewrite `compose.yaml`. If you enable the Docker database bootstrap file with `--with=docker`, mount or copy `docker/mysql/init/10-create-testing-database.sh` into your Sail MySQL service only if your project wants MySQL to create the testing database during container startup.
-
-## Worktree Automation
-
-Herd workspace automation is opt-in:
-
-```bash
-php artisan ai-harness:install --with=herd
-```
-
-The worktree setup entrypoint is `.codex/scripts/local-environment.sh`. Codex calls it through `.codex/environments/environment.toml` when the generated local environment is selected. Claude calls it through `.claude/scripts/worktree-up.sh` and `.claude/scripts/worktree-down.sh`.
-
-With Herd enabled, setup links and secures the worktree using a deterministic name based on the worktree directory, its parent directory, and a checksum of the full worktree path. Setup also sets `APP_URL` to `https://<site>.test`, configures an isolated app database, creates a companion testing database, runs app and testing migrations, and runs the harness doctor check. The testing database name is written to `.env` as `AI_HARNESS_TEST_DB_DATABASE`, and setup writes `.ai-harness.phpunit.xml`, an ignored generated copy of `phpunit.xml` beside the project config where PHPUnit receives `DB_CONNECTION`, `DB_DATABASE`, and an empty `DB_URL` with `force="true"`. The `.dev/bin/ai-harness test` helper automatically passes that repo-relative generated config unless the caller provides `--configuration`. Cleanup removes the generated config, restores older managed `phpunit.xml` backups when present, removes both isolated databases when they match the generated worktree names, and unlinks the same Herd site. This keeps temporary worktrees addressable in Herd without leaving stale Herd links, databases, or commit noise after teardown.
-
-For SQLite projects, the isolated app and testing databases are generated files under `database/`. For MySQL or MariaDB projects, the setup hook creates generated database names using the configured database base name plus the worktree checksum, and cleanup drops only those generated database names.
-
-The runtime helper can still use Herd for Artisan commands without enabling workspace automation:
-
-```bash
-./.dev/bin/ai-harness migrate --env=testing
-```
-
-When the Sail app service is not running and Herd is installed, this resolves to:
-
-```bash
-herd php artisan migrate --env=testing
-```
-
-## Generated Files
-
-Default files:
-
-- `AGENTS.md`
-- `CLAUDE.md`
-- `.gitignore` managed unignore block
-- `.ai/mcp/mcp.json`
-- `.dev/bin/ai-harness`
-- `.codex/config.toml`
-- `.codex/environments/environment.toml`
-- `.codex/hooks.json`
-- `.codex/scripts/local-environment.sh`
-- `.claude/settings.json`
-- `.claude/scripts/worktree-up.sh`
-- `.claude/scripts/worktree-down.sh`
-- `.agents/skills/laravel-ai-harness/SKILL.md`
-- `.claude/skills/laravel-ai-harness/SKILL.md`
-
-Optional files:
-
-- `docker/mysql/init/10-create-testing-database.sh`
-- `polyscope.json`
-
-## Laravel Boost
-
-This package ships Laravel Boost resources for package discovery:
-
-- `resources/boost/guidelines/core.blade.php`
-- `resources/boost/skills/laravel-ai-harness/SKILL.md`
-
-After installing Laravel Boost, run `php artisan boost:install` or `php artisan boost:update --discover` and select `mrkoopie/laravel-ai-harness` when Boost asks for third-party guidelines or skills.
-
-Boost and AI Harness own different generated regions. Boost refreshes its `<laravel-boost-guidelines>` block, while AI Harness refreshes its own `<!-- ai-harness:start -->` blocks and generated harness files.
-
-## Documentation
-
-- [Feature Set](docs/feature-set.md)
-- [Drivers](docs/drivers.md)
-- [Managed Files](docs/managed-files.md)
+The test suite covers configuration layering, command mapping, argument-injection resistance, safe managed-file writes, bootstrap recovery, Herd/Sail composition, ownership-checked cleanup, Claude hook payloads, Codex/Claude installation, and the no-Git invariant.

@@ -1,0 +1,24 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use MrKoopie\LaravelAiHarness\Application;
+
+$autoload = $_composer_autoload_path ?? dirname(__DIR__).'/vendor/autoload.php';
+
+if (! is_file($autoload)) {
+    fwrite(STDERR, "Unable to find Composer's autoloader. Run composer install first.\n");
+    exit(1);
+}
+
+require $autoload;
+
+$passthrough = ['artisan', 'composer', 'php', 'test', 'npm'];
+
+if (isset($argv[1]) && in_array($argv[1], $passthrough, true) && ($argv[2] ?? null) !== '--') {
+    array_splice($argv, 2, 0, ['--']);
+    $_SERVER['argv'] = $argv;
+}
+
+exit((new Application)->run());
