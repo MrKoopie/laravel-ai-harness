@@ -35,7 +35,7 @@ final readonly class EnvironmentManager
             $output->writeln('<info>Created .env from .env.example</info>');
         }
 
-        $usesMySql = $config->services === Services::Sail && in_array('mysql', $config->sailServices, true);
+        $usesMySql = $this->usesMySql($config);
 
         if ($usesMySql) {
             $this->environmentFile->configureMySql($root, $config->runtime === Runtime::Sail);
@@ -58,6 +58,8 @@ final readonly class EnvironmentManager
             if ($status !== 0) {
                 return $status;
             }
+
+            $this->state->recordMySqlDatabases($root);
         }
 
         if ($config->runtime === Runtime::Herd) {
@@ -107,18 +109,37 @@ final readonly class EnvironmentManager
 
     public function cleanup(string $root, OutputInterface $output): int
     {
+        $config = $this->configLoader->load($root);
         $site = $this->state->herdSite($root);
 
-        if ($site === null) {
-            $output->writeln('<info>No harness-owned resources need cleanup.</info>');
+        if ($site !== null) {
+            $expected = SiteName::forPath($root);
 
-            return 0;
+            if (! hash_equals($expected, $site)) {
+                throw new EnvironmentException("Refusing to unlink unexpected Herd site [{$site}]; expected [{$expected}].");
+            }
         }
 
-        $expected = SiteName::forPath($root);
+        $ownsMySql = $this->state->ownsMySqlDatabases($root)
+            || ($site !== null && $this->usesMySql($config));
 
-        if (! hash_equals($expected, $site)) {
-            throw new EnvironmentException("Refusing to unlink unexpected Herd site [{$site}]; expected [{$expected}].");
+        if ($ownsMySql) {
+            $output->writeln('<info>Dropping harness-owned MySQL databases</info>');
+            $status = $this->processes->run($this->commands->dropMySqlDatabases($root), $root, $output);
+
+            if ($status !== 0) {
+                return $status;
+            }
+
+            if ($this->state->ownsMySqlDatabases($root)) {
+                $this->state->clearMySqlDatabases($root);
+            }
+        }
+
+        if ($site === null) {
+            $output->writeln('<info>No harness-owned Herd site needs cleanup.</info>');
+
+            return 0;
         }
 
         if ($this->state->herdSecured($root)) {
@@ -219,5 +240,10 @@ final readonly class EnvironmentManager
     private function requiresSail(Config $config): bool
     {
         return $config->runtime === Runtime::Sail || $config->services === Services::Sail;
+    }
+
+    private function usesMySql(Config $config): bool
+    {
+        return $config->services === Services::Sail && in_array('mysql', $config->sailServices, true);
     }
 }

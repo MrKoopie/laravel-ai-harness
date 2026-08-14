@@ -8,5 +8,5 @@ script = '''
 
 [cleanup]
 script = '''
-./.ai-harness cleanup
+./.ai-harness cleanup && ./.ai-harness down
 '''

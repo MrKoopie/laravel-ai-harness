@@ -63,6 +63,33 @@ final readonly class StateStore
     {
         $state = $this->read($root);
         unset($state['herd_site'], $state['herd_secured']);
+
+        $this->writeOrRemove($root, $state);
+    }
+
+    public function ownsMySqlDatabases(string $root): bool
+    {
+        return ($this->read($root)['mysql_databases'] ?? false) === true;
+    }
+
+    public function recordMySqlDatabases(string $root): void
+    {
+        $state = $this->read($root);
+        $state['mysql_databases'] = true;
+        $this->write($root, $state);
+    }
+
+    public function clearMySqlDatabases(string $root): void
+    {
+        $state = $this->read($root);
+        unset($state['mysql_databases']);
+
+        $this->writeOrRemove($root, $state);
+    }
+
+    /** @param array<string, mixed> $state */
+    private function writeOrRemove(string $root, array $state): void
+    {
         $path = $root.'/'.self::STATE_FILE;
 
         if ($state !== []) {

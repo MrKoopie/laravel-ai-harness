@@ -123,7 +123,7 @@ Runtime arguments are executed as an argument array, not through a shell command
 7. Generate `APP_KEY` when the project has an empty key.
 8. Create `.env.testing` when absent, using Sail's `testing` database for MySQL or isolated SQLite defaults otherwise; update the default SQLite entries in `phpunit.xml` to Sail's MySQL testing database.
 
-It does not run migrations, drop databases, rewrite `compose.yaml`, or inject test-runner options. It creates only its checkout-specific Sail MySQL databases and updates PHPUnit's selected test database when Sail manages MySQL.
+It does not run migrations, rewrite `compose.yaml`, or inject test-runner options. It creates only its checkout-specific Sail MySQL databases and updates PHPUnit's selected test database when Sail manages MySQL. `cleanup` drops only those deterministic, harness-owned databases after validating the recorded Herd site; Codex worktree cleanup then stops the configured Sail services without deleting Docker volumes.
 
 `cleanup` only removes HTTPS and unlinks a Herd site previously recorded as harness-owned. Before each action, it verifies that the recorded site name is the deterministic name for the current project path. Sail shutdown is always the explicit `down` command.
 

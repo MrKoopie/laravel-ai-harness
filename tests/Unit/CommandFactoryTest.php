@@ -72,6 +72,18 @@ test('Sail database setup uses deterministic checkout-specific names', function 
         ->and($command[6])->toContain('CREATE DATABASE IF NOT EXISTS `'.DatabaseName::testingForPath($root).'`');
 });
 
+test('Sail database cleanup drops only deterministic checkout-specific names', function (): void {
+    $root = temp_directory('harness-mysql-database-cleanup');
+    mkdir($root.'/vendor/bin', 0755, true);
+    write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
+
+    $command = (new CommandFactory(new ExecutableLocator))->dropMySqlDatabases($root);
+
+    expect($command)->toHaveCount(7)
+        ->and($command[6])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::forPath($root).'`')
+        ->and($command[6])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::testingForPath($root).'`');
+});
+
 test('an empty sail service list controls the full stack', function (): void {
     $root = temp_directory('harness-full-stack');
     mkdir($root.'/vendor/bin', 0755, true);

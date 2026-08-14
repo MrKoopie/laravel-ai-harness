@@ -79,6 +79,20 @@ final readonly class CommandFactory
     }
 
     /** @return non-empty-list<string> */
+    public function dropMySqlDatabases(string $root): array
+    {
+        $database = DatabaseName::forPath($root);
+        $testing = DatabaseName::testingForPath($root);
+        $statement = sprintf(
+            'for attempt in {1..30}; do MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --user=root ping --silent && break; sleep 1; done; MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --execute=\'DROP DATABASE IF EXISTS `%s`; DROP DATABASE IF EXISTS `%s`;\'',
+            $database,
+            $testing,
+        );
+
+        return [$this->sail($root), 'exec', '-T', 'mysql', 'bash', '-c', $statement];
+    }
+
+    /** @return non-empty-list<string> */
     public function herd(string $action, string ...$arguments): array
     {
         $herd = $this->executables->herd();

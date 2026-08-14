@@ -16,3 +16,20 @@ test('an empty state object remains readable after clearing TLS state', function
         ->and($store->herdSecured($root))->toBeFalse()
         ->and($store->herdSite($root))->toBeNull();
 });
+
+test('MySQL ownership state survives Herd cleanup and is removable independently', function (): void {
+    $root = temp_directory('harness-mysql-state');
+    $store = new StateStore(new SafeWriter);
+
+    $store->recordHerdSite($root, 'example-site');
+    $store->recordMySqlDatabases($root);
+    $store->clearHerdSite($root);
+
+    expect($store->ownsMySqlDatabases($root))->toBeTrue()
+        ->and(json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))
+        ->toBe(['mysql_databases' => true]);
+
+    $store->clearMySqlDatabases($root);
+
+    expect($root.'/.ai-harness.state.json')->not->toBeFile();
+});

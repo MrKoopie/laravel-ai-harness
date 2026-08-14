@@ -58,7 +58,7 @@ BASH);
     $database = DatabaseName::forPath($root);
     $testingDatabase = DatabaseName::testingForPath($root);
 
-    expect($state)->toBe(['herd_site' => $site, 'herd_secured' => true])
+    expect($state)->toBe(['mysql_databases' => true, 'herd_site' => $site, 'herd_secured' => true])
         ->and(environment_log_lines($sailLog)[0])->toBe('up -d mysql redis')
         ->and(environment_log_lines($sailLog)[1])->toStartWith('exec -T mysql bash -c for attempt')
         ->and(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe([
@@ -98,13 +98,15 @@ BASH);
         'unlink '.$site,
     ])
         ->and($root.'/.ai-harness.state.json')->not->toBeFile()
-        ->and(environment_log_lines($sailLog))->toHaveCount(2);
+        ->and(environment_log_lines($sailLog))->toHaveCount(3)
+        ->and(environment_log_lines($sailLog)[2])->toContain('DROP DATABASE IF EXISTS `'.$database.'`');
 
     harness_process(['down'], $root, $environment)->mustRun();
 
     expect(environment_log_lines($sailLog))->toBe([
         'up -d mysql redis',
         environment_log_lines($sailLog)[1],
+        environment_log_lines($sailLog)[2],
         'stop mysql redis',
     ]);
 });
@@ -222,6 +224,57 @@ BASH);
         ->and(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe(['unsecure '.$site])
         ->and(json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))
         ->toBe(['herd_site' => $site, 'herd_secured' => true]);
+});
+
+test('cleanup removes harness-owned MySQL databases without a Herd site', function (): void {
+    $root = temp_directory('harness-mysql-cleanup');
+    $sailLog = temp_file('sail-mysql-cleanup-log');
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
+    write_executable($root.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SAIL_LOG}"
+BASH);
+
+    harness_process(['cleanup'], $root, ['SAIL_LOG' => $sailLog])->mustRun();
+
+    expect($root.'/.ai-harness.state.json')->not->toBeFile()
+        ->and(environment_log_lines($sailLog))->toHaveCount(1)
+        ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::forPath($root).'`')
+        ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::testingForPath($root).'`');
+});
+
+test('cleanup migrates legacy Herd state to MySQL database cleanup', function (): void {
+    $root = temp_directory('harness-legacy-mysql-cleanup');
+    $sailLog = temp_file('sail-legacy-mysql-cleanup-log');
+    $herdLog = temp_file('herd-legacy-mysql-cleanup-log');
+    $fakeBin = $root.'/fake-bin';
+    $site = SiteName::forPath($root);
+    mkdir($fakeBin, 0755, true);
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.state.json', json_encode(['herd_site' => $site], JSON_THROW_ON_ERROR));
+    write_executable($root.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SAIL_LOG}"
+BASH);
+    write_executable($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HERD_LOG}"
+BASH);
+
+    harness_process(['cleanup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'SAIL_LOG' => $sailLog,
+        'HERD_LOG' => $herdLog,
+    ])->mustRun();
+
+    expect($root.'/.ai-harness.state.json')->not->toBeFile()
+        ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::forPath($root).'`')
+        ->and(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe(['unlink '.$site]);
 });
 
 test('cleanup records successful HTTPS removal before a failed Herd unlink', function (): void {
