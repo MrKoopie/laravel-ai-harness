@@ -143,7 +143,7 @@ final readonly class EnvironmentFile
         $updated = str_replace('<env name="DB_CONNECTION" value="sqlite"/>', '<env name="DB_CONNECTION" value="mysql"/>', $contents);
         $updated = preg_replace(
             '/(<env\s+name="DB_DATABASE"\s+value=")[^"]*("\s*\/>)/',
-            '$1'.DatabaseName::testingForPath($root).'$2',
+            '${1}'.DatabaseName::testingForPath($root).'${2}',
             $updated,
         );
 

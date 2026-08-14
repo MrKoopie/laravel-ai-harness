@@ -103,12 +103,13 @@ BASH);
 
     harness_process(['down'], $root, $environment)->mustRun();
 
-    expect(environment_log_lines($sailLog))->toBe([
-        'up -d mysql redis',
-        environment_log_lines($sailLog)[1],
-        environment_log_lines($sailLog)[2],
-        'stop mysql redis',
-    ]);
+    $commands = environment_log_lines($sailLog);
+
+    expect($commands)->toHaveCount(4)
+        ->and($commands[0])->toBe('up -d mysql redis')
+        ->and($commands[1])->toStartWith('exec -T mysql bash -c for attempt')
+        ->and($commands[2])->toContain('DROP DATABASE IF EXISTS `'.$database.'`')
+        ->and($commands[3])->toBe('stop mysql redis');
 });
 
 test('Sail runtime starts laravel.test with or without explicitly managed supporting services', function (): void {
@@ -195,6 +196,26 @@ BASH);
         ->and((string) file_get_contents($root.'/phpunit.xml'))->toContain('name="DB_DATABASE" value="'.$testingDatabase.'"');
 });
 
+test('setup configures PHPUnit for a digit-leading checkout database name', function (): void {
+    $root = temp_directory('1harness-digit-leading');
+    $sailLog = temp_file('sail-digit-leading-log');
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/.env', "APP_KEY=present\n");
+    file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=sail\nagents=\nsail_services=mysql\n");
+    write_executable($root.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SAIL_LOG}"
+BASH);
+
+    harness_process(['setup'], $root, ['SAIL_LOG' => $sailLog])->mustRun();
+
+    expect(basename($root))->toStartWith('1harness-digit-leading')
+        ->and((string) file_get_contents($root.'/phpunit.xml'))
+        ->toContain('name="DB_DATABASE" value="'.DatabaseName::testingForPath($root).'"');
+});
+
 test('cleanup preserves Herd ownership state when removing HTTPS fails', function (): void {
     $root = temp_directory('harness-unsecure-failure');
     $fakeBin = $root.'/fake-bin';
@@ -244,6 +265,37 @@ BASH);
         ->and(environment_log_lines($sailLog))->toHaveCount(1)
         ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::forPath($root).'`')
         ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::testingForPath($root).'`');
+});
+
+test('cleanup unlinks Herd and preserves MySQL ownership when Sail is unavailable', function (): void {
+    $root = temp_directory('harness-mysql-cleanup-no-sail');
+    $fakeBin = $root.'/fake-bin';
+    $herdLog = temp_file('herd-mysql-cleanup-no-sail-log');
+    $site = SiteName::forPath($root);
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.state.json', json_encode([
+        'herd_site' => $site,
+        'herd_secured' => true,
+    ], JSON_THROW_ON_ERROR));
+    write_executable($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HERD_LOG}"
+BASH);
+
+    $process = harness_process(['cleanup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HERD_LOG' => $herdLog,
+    ]);
+    $process->mustRun();
+
+    expect($process->getOutput())->toContain('Skipping MySQL cleanup because Laravel Sail is unavailable')
+        ->and(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe([
+            'unsecure '.$site,
+            'unlink '.$site,
+        ])
+        ->and(json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))
+        ->toBe(['mysql_databases' => true]);
 });
 
 test('cleanup migrates legacy Herd state to MySQL database cleanup', function (): void {

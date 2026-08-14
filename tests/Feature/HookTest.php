@@ -106,6 +106,42 @@ BASH);
     ])->and($worktree.'/.ai-harness.state.json')->not->toBeFile();
 });
 
+test('Claude WorktreeRemove unlinks Herd when Sail is no longer available', function (): void {
+    $container = temp_directory('harness-hook-remove-no-sail');
+    $worktree = $container.'/.claude/worktrees/example';
+    $fakeBin = $container.'/fake-bin';
+    $herdLog = temp_file('harness-hook-herd-no-sail');
+    $site = SiteName::forPath($worktree);
+    mkdir($worktree, 0755, true);
+    mkdir($fakeBin, 0755, true);
+    file_put_contents($worktree.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=claude\nsail_services=mysql\nworktrees=true\n");
+    file_put_contents($worktree.'/.ai-harness.state.json', json_encode([
+        'herd_site' => $site,
+        'herd_secured' => true,
+        'mysql_databases' => true,
+    ], JSON_THROW_ON_ERROR));
+    write_executable($fakeBin.'/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${HERD_LOG}"
+BASH);
+
+    $process = harness_process(['hook', 'claude', 'worktree-remove'], package_root(), [
+        'CLAUDE_PROJECT_DIR' => $container,
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HERD_LOG' => $herdLog,
+    ]);
+    $process->setInput(json_encode(['worktree_path' => $worktree], JSON_THROW_ON_ERROR));
+    $process->mustRun();
+
+    expect($process->getOutput())->toContain('Skipping MySQL cleanup because Laravel Sail is unavailable')
+        ->and(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe([
+            'unsecure '.$site,
+            'unlink '.$site,
+        ])
+        ->and(json_decode((string) file_get_contents($worktree.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))
+        ->toBe(['mysql_databases' => true]);
+});
+
 test('Claude hook input is bounded', function (): void {
     $process = harness_process(['hook', 'claude', 'session-start'], package_root());
     $process->setInput(str_repeat('x', 1_048_577));

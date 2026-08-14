@@ -10,14 +10,22 @@ use Symfony\Component\Process\Process;
 
 final class ProcessRunner
 {
+    private const LIFECYCLE_TIMEOUT = 300.0;
+
     /**
      * @param  non-empty-list<string>  $command
      * @param  array<string, string|false>  $environment
      */
-    public function run(array $command, string $workingDirectory, OutputInterface $output, array $environment = [], mixed $input = null): int
-    {
+    public function run(
+        array $command,
+        string $workingDirectory,
+        OutputInterface $output,
+        array $environment = [],
+        mixed $input = null,
+        ?float $timeout = self::LIFECYCLE_TIMEOUT,
+    ): int {
         $process = new Process($command, $workingDirectory, $environment === [] ? null : $environment);
-        $process->setTimeout(null);
+        $process->setTimeout($timeout);
 
         if ($input !== null) {
             $process->setInput($input);

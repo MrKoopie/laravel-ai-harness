@@ -52,6 +52,7 @@ final class RuntimeCommand extends Command
             $root,
             $output,
             input: is_resource($stream) ? $stream : STDIN,
+            timeout: null,
         );
     }
 }

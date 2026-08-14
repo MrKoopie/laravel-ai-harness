@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Files;
 
+/**
+ * Writes within a stable, trusted project tree.
+ *
+ * The portable PHP filesystem API cannot perform descriptor-relative, no-follow
+ * renames. Callers must therefore not concurrently rename or replace managed
+ * parent directories while a write is in progress.
+ */
 final class SafeWriter
 {
     public function write(string $root, string $relativePath, string $contents, bool $executable = false): void

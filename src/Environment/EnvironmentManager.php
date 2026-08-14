@@ -124,15 +124,27 @@ final readonly class EnvironmentManager
             || ($site !== null && $this->usesMySql($config));
 
         if ($ownsMySql) {
-            $output->writeln('<info>Dropping harness-owned MySQL databases</info>');
-            $status = $this->processes->run($this->commands->dropMySqlDatabases($root), $root, $output);
+            $mysqlCleanup = null;
 
-            if ($status !== 0) {
-                return $status;
+            try {
+                $mysqlCleanup = $this->commands->dropMySqlDatabases($root);
+            } catch (EnvironmentException) {
+                // Preserve ownership so a later cleanup can drop the databases after Sail is restored.
+                $this->state->recordMySqlDatabases($root);
+                $output->writeln('<comment>Skipping MySQL cleanup because Laravel Sail is unavailable.</comment>');
             }
 
-            if ($this->state->ownsMySqlDatabases($root)) {
-                $this->state->clearMySqlDatabases($root);
+            if ($mysqlCleanup !== null) {
+                $output->writeln('<info>Dropping harness-owned MySQL databases</info>');
+                $status = $this->processes->run($mysqlCleanup, $root, $output);
+
+                if ($status !== 0) {
+                    return $status;
+                }
+
+                if ($this->state->ownsMySqlDatabases($root)) {
+                    $this->state->clearMySqlDatabases($root);
+                }
             }
         }
 
