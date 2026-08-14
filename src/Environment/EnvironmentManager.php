@@ -51,6 +51,15 @@ final readonly class EnvironmentManager
             }
         }
 
+        if ($usesMySql) {
+            $output->writeln('<info>Ensuring checkout-specific MySQL databases</info>');
+            $status = $this->processes->run($this->commands->ensureMySqlDatabases($root), $root, $output);
+
+            if ($status !== 0) {
+                return $status;
+            }
+        }
+
         if ($config->runtime === Runtime::Herd) {
             $status = $this->setupHerd($config, $root, $output);
 

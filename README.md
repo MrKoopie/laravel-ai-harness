@@ -86,7 +86,7 @@ There is no automatic runtime fallback. `doctor` reports when the configured run
 
 An empty `sail_services` value starts and stops the full stack. A comma-separated list starts only those services; `down` then uses `sail stop` for that selected subset. With `runtime=sail`, the harness always includes Sail's `laravel.test` application container, even when `services=none`. The harness never deletes Docker volumes.
 
-When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standard Sail `FORWARD_DB_PORT` value in `.env` (default `3306`). Set `FORWARD_DB_PORT=3307`, for example, when another local MySQL service already uses port 3306.
+When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standard Sail `FORWARD_DB_PORT` value in `.env` (default `3306`). Set `FORWARD_DB_PORT=3307`, for example, when another local MySQL service already uses port 3306. The harness derives a MySQL-safe database name from the checkout path plus a short hash, and uses a `_testing` suffix for the isolated test database. This makes every worktree distinct without querying Git or agent metadata.
 
 ## Commands
 
@@ -116,14 +116,14 @@ Runtime arguments are executed as an argument array, not through a shell command
 
 1. Run Composer install when the target checkout has no `vendor/autoload.php`.
 2. Copy `.env.example` to `.env` when `.env` is absent.
-3. Configure MySQL values when Sail manages its `mysql` service, using `127.0.0.1` for native or Herd runtime and `mysql` for Sail runtime.
-4. Start configured Sail services.
+3. Configure and normalize MySQL values when Sail manages its `mysql` service, using `127.0.0.1` for native or Herd runtime and `mysql` for Sail runtime. Commented database defaults are activated rather than duplicated.
+4. Start configured Sail services and ensure the checkout-specific development and testing databases exist.
 5. Link the directory in Herd when `runtime=herd` and set its path-derived HTTPS URL.
 6. Secure the Herd site and isolate its PHP version when configured.
 7. Generate `APP_KEY` when the project has an empty key.
 8. Create `.env.testing` when absent, using Sail's `testing` database for MySQL or isolated SQLite defaults otherwise; update the default SQLite entries in `phpunit.xml` to Sail's MySQL testing database.
 
-It does not run migrations, create or drop databases, rewrite `compose.yaml`, or inject test-runner options. Its only PHPUnit change is converting Laravel's default SQLite database entries when Sail manages MySQL.
+It does not run migrations, drop databases, rewrite `compose.yaml`, or inject test-runner options. It creates only its checkout-specific Sail MySQL databases and updates PHPUnit's selected test database when Sail manages MySQL.
 
 `cleanup` only removes HTTPS and unlinks a Herd site previously recorded as harness-owned. Before each action, it verifies that the recorded site name is the deterministic name for the current project path. Sail shutdown is always the explicit `down` command.
 

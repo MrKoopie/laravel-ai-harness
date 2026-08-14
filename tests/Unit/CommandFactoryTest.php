@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
+use MrKoopie\LaravelAiHarness\Environment\DatabaseName;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
@@ -55,6 +56,20 @@ test('sail services can start and stop a selected subset', function (): void {
         ->toBe([$root.'/vendor/bin/sail', 'up', '-d', 'mysql', 'redis'])
         ->and($factory->servicesDown($config, $root))
         ->toBe([$root.'/vendor/bin/sail', 'stop', 'mysql', 'redis']);
+});
+
+test('Sail database setup uses deterministic checkout-specific names', function (): void {
+    $root = temp_directory('harness-mysql-database');
+    mkdir($root.'/vendor/bin', 0755, true);
+    write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
+
+    $command = (new CommandFactory(new ExecutableLocator))->ensureMySqlDatabases($root);
+
+    expect($command)->toHaveCount(7)
+        ->and($command[0])->toBe($root.'/vendor/bin/sail')
+        ->and($command[1])->toBe('exec')
+        ->and($command[6])->toContain('CREATE DATABASE IF NOT EXISTS `'.DatabaseName::forPath($root).'`')
+        ->and($command[6])->toContain('CREATE DATABASE IF NOT EXISTS `'.DatabaseName::testingForPath($root).'`');
 });
 
 test('an empty sail service list controls the full stack', function (): void {

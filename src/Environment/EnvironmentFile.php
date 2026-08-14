@@ -99,11 +99,12 @@ final readonly class EnvironmentFile
     {
         $host = $insideSail ? 'mysql' : '127.0.0.1';
         $port = $insideSail ? '3306' : $this->forwardedMySqlPort($root);
+        $database = DatabaseName::forPath($root);
         $values = [
             'DB_CONNECTION' => 'mysql',
             'DB_HOST' => $host,
             'DB_PORT' => $port,
-            'DB_DATABASE' => 'laravel',
+            'DB_DATABASE' => $database,
             'DB_USERNAME' => 'sail',
             'DB_PASSWORD' => 'password',
         ];
@@ -113,7 +114,7 @@ final readonly class EnvironmentFile
         $testing = $root.'/.env.testing';
 
         if (is_file($testing)) {
-            $this->replaceValues($root, '.env.testing', [...self::TESTING_VALUES, ...$values, 'DB_DATABASE' => 'testing']);
+            $this->replaceValues($root, '.env.testing', [...self::TESTING_VALUES, ...$values, 'DB_DATABASE' => DatabaseName::testingForPath($root)]);
         }
     }
 
@@ -139,17 +140,16 @@ final readonly class EnvironmentFile
         }
 
         $contents = $this->read($path);
-        $updated = str_replace(
-            [
-                '<env name="DB_CONNECTION" value="sqlite"/>',
-                '<env name="DB_DATABASE" value=":memory:"/>',
-            ],
-            [
-                '<env name="DB_CONNECTION" value="mysql"/>',
-                '<env name="DB_DATABASE" value="testing"/>',
-            ],
-            $contents,
+        $updated = str_replace('<env name="DB_CONNECTION" value="sqlite"/>', '<env name="DB_CONNECTION" value="mysql"/>', $contents);
+        $updated = preg_replace(
+            '/(<env\s+name="DB_DATABASE"\s+value=")[^"]*("\s*\/>)/',
+            '$1'.DatabaseName::testingForPath($root).'$2',
+            $updated,
         );
+
+        if ($updated === null) {
+            throw new FileException('Unable to configure PHPUnit database settings.');
+        }
 
         if ($updated === $contents) {
             return false;
@@ -183,19 +183,38 @@ final readonly class EnvironmentFile
      */
     private function withValues(string $contents, array $values): string
     {
-        foreach ($values as $key => $value) {
-            $pattern = '/^'.preg_quote($key, '/').'=.*/m';
-            $replacement = $key.'='.$value;
-            $updated = preg_replace($pattern, $replacement, $contents, 1, $count);
+        $lines = preg_split('/\R/', $contents);
 
-            if ($updated === null) {
-                throw new FileException("Unable to update environment value [{$key}].");
-            }
-
-            $contents = $count === 1 ? $updated : rtrim($contents)."\n".$replacement."\n";
+        if ($lines === false) {
+            throw new FileException('Unable to split environment file into lines.');
         }
 
-        return $contents;
+        foreach ($values as $key => $value) {
+            $replacement = $key.'='.$value;
+            $found = false;
+            $pattern = '/^(?:#\s*)?'.preg_quote($key, '/').'=/';
+
+            foreach ($lines as $index => $line) {
+                if (preg_match($pattern, $line) !== 1) {
+                    continue;
+                }
+
+                if (! $found) {
+                    $lines[$index] = $replacement;
+                    $found = true;
+
+                    continue;
+                }
+
+                unset($lines[$index]);
+            }
+
+            if (! $found) {
+                $lines[] = $replacement;
+            }
+        }
+
+        return implode("\n", array_values($lines));
     }
 
     private function forwardedMySqlPort(string $root): string
