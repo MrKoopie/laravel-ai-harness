@@ -268,7 +268,7 @@ BASH);
 });
 
 test('cleanup drops only this checkout’s numeric parallel testing databases', function (): void {
-    $root = temp_directory('harness-parallel-cleanup');
+    $root = temp_directory('harness-parallel-cleanup').'/'.str_repeat('long-branch-name-', 4);
     $fakeBin = $root.'/fake-bin';
     $mysqlLog = temp_file('harness-parallel-mysql-log');
     $databaseList = temp_file('harness-parallel-database-list');
