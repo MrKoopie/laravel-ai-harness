@@ -144,6 +144,10 @@ There are no duplicate SessionStart fallbacks or Codex-specific executor scripts
 
 Every hook calls `.ai-harness hook claude ...`; JSON payload parsing and lifecycle logic stay in the Composer package. Existing settings and unrelated hooks are preserved. Disabling worktree automation removes only the package-owned hooks on the next `init`.
 
+## Laravel Boost
+
+When Laravel Boost is installed in the consuming application, it can discover this package's short guideline at `resources/boost/guidelines/core.blade.php`. That guideline explains configuration and environment boundaries; the AI Harness managed blocks in `AGENTS.md` and `CLAUDE.md` remain the source for command syntax. No Boost dependency or additional project file is required by AI Harness.
+
 ## Git Scope
 
 The harness does not create, remove, update, or select Git branches or worktrees. It never runs `git fetch`, `pull`, `checkout`, `switch`, `branch`, `rebase`, or `worktree`. Codex or Claude provides the current directory; the harness only prepares that directory.
