@@ -267,6 +267,75 @@ BASH);
         ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::testingForPath($root).'`');
 });
 
+test('cleanup drops only this checkout’s numeric parallel testing databases', function (): void {
+    $root = temp_directory('harness-parallel-cleanup');
+    $fakeBin = $root.'/fake-bin';
+    $mysqlLog = temp_file('harness-parallel-mysql-log');
+    $databaseList = temp_file('harness-parallel-database-list');
+    $database = DatabaseName::forPath($root);
+    $testing = DatabaseName::testingForPath($root);
+    $legacyDatabase = DatabaseName::legacyForPath($root);
+    $legacyTesting = $legacyDatabase.'_testing';
+    mkdir($fakeBin, 0755, true);
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
+    file_put_contents($databaseList, implode("\n", [
+        $database,
+        $testing,
+        $legacyDatabase,
+        $legacyTesting,
+        $testing.'_test_1',
+        $testing.'_test_2',
+        $testing.'_1',
+        $testing.'_test_2_backup',
+        $testing.'_test_other',
+        'another_checkout_testing_test_1',
+        '',
+    ]));
+    write_executable($root.'/vendor/bin/sail', <<<'BASH'
+#!/usr/bin/env bash
+shift 3
+exec "$@"
+BASH);
+    write_executable($fakeBin.'/mysqladmin', <<<'BASH'
+#!/usr/bin/env bash
+exit 0
+BASH);
+    write_executable($fakeBin.'/mysql', <<<'BASH'
+#!/usr/bin/env bash
+if [[ "$*" == *"SHOW DATABASES"* ]]; then
+    cat "$MYSQL_DATABASE_LIST"
+else
+    printf '%s\n' "$*" >> "$MYSQL_LOG"
+fi
+BASH);
+
+    harness_process(['cleanup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'MYSQL_ROOT_PASSWORD' => '',
+        'MYSQL_LOG' => $mysqlLog,
+        'MYSQL_DATABASE_LIST' => $databaseList,
+    ])->mustRun();
+
+    $drops = environment_log_lines($mysqlLog);
+    $dropSql = implode("\n", $drops);
+
+    expect($legacyDatabase)->not->toBe($database)
+        ->and($drops)->toHaveCount(4)
+        ->and($dropSql)->toContain('DROP DATABASE IF EXISTS `'.$database.'`')
+        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'`')
+        ->toContain('DROP DATABASE IF EXISTS `'.$legacyDatabase.'`')
+        ->toContain('DROP DATABASE IF EXISTS `'.$legacyTesting.'`')
+        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_test_1`')
+        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_test_2`')
+        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_1`')
+        ->and(str_contains($dropSql, $testing.'_test_2_backup'))->toBeFalse()
+        ->and(str_contains($dropSql, $testing.'_test_other'))->toBeFalse()
+        ->and(str_contains($dropSql, 'another_checkout_testing_test_1'))->toBeFalse()
+        ->and($root.'/.ai-harness.state.json')->not->toBeFile();
+});
+
 test('cleanup unlinks Herd and preserves MySQL ownership when Sail is unavailable', function (): void {
     $root = temp_directory('harness-mysql-cleanup-no-sail');
     $fakeBin = $root.'/fake-bin';

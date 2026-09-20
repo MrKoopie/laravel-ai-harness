@@ -67,12 +67,15 @@ final readonly class CommandFactory
     {
         $database = DatabaseName::forPath($root);
         $testing = DatabaseName::testingForPath($root);
+        $databaseGrant = str_replace('_', '\\_', $database);
+        $testingGrant = str_replace('_', '\\_', $testing);
         $statement = sprintf(
-            'for attempt in {1..30}; do MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --user=root ping --silent && break; sleep 1; done; MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --execute=\'CREATE DATABASE IF NOT EXISTS `%s`; CREATE DATABASE IF NOT EXISTS `%s`; GRANT ALL PRIVILEGES ON `%s`.* TO `sail`@`%%`; GRANT ALL PRIVILEGES ON `%s`.* TO `sail`@`%%`;\'',
+            'for attempt in {1..30}; do MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --user=root ping --silent && break; sleep 1; done; MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --execute=\'CREATE DATABASE IF NOT EXISTS `%s`; CREATE DATABASE IF NOT EXISTS `%s`; GRANT ALL PRIVILEGES ON `%s`.* TO `sail`@`%%`; GRANT ALL PRIVILEGES ON `%s`.* TO `sail`@`%%`; GRANT ALL PRIVILEGES ON `%s\\_%%`.* TO `sail`@`%%`;\'',
             $database,
             $testing,
-            $database,
-            $testing,
+            $databaseGrant,
+            $testingGrant,
+            $testingGrant,
         );
 
         return [$this->sail($root), 'exec', '-T', 'mysql', 'bash', '-c', $statement];
@@ -83,10 +86,16 @@ final readonly class CommandFactory
     {
         $database = DatabaseName::forPath($root);
         $testing = DatabaseName::testingForPath($root);
+        $legacyDatabase = DatabaseName::legacyForPath($root);
+        $legacyTesting = $legacyDatabase.'_testing';
+        $names = array_values(array_unique([$database, $testing, $legacyDatabase, $legacyTesting]));
+        $drops = implode(' ', array_map(static fn (string $name): string => "DROP DATABASE IF EXISTS `{$name}`;", $names));
+        $testingNames = array_values(array_unique([$testing, $legacyTesting]));
+        $workerPattern = '^('.implode('|', $testingNames).')(_test)?_[0-9]+$';
         $statement = sprintf(
-            'for attempt in {1..30}; do MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --user=root ping --silent && break; sleep 1; done; MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --execute=\'DROP DATABASE IF EXISTS `%s`; DROP DATABASE IF EXISTS `%s`;\'',
-            $database,
-            $testing,
+            'set -eo pipefail; for attempt in {1..30}; do MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --user=root ping --silent && break; sleep 1; done; MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --execute=\'%s\'; MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --batch --skip-column-names --execute=\'SHOW DATABASES;\' | while IFS= read -r name; do if [[ "$name" =~ %s ]]; then MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --execute="DROP DATABASE IF EXISTS \`$name\`;"; fi; done',
+            $drops,
+            $workerPattern,
         );
 
         return [$this->sail($root), 'exec', '-T', 'mysql', 'bash', '-c', $statement];

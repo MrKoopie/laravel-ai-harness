@@ -72,6 +72,17 @@ test('Sail database setup uses deterministic checkout-specific names', function 
         ->and($command[6])->toContain('CREATE DATABASE IF NOT EXISTS `'.DatabaseName::testingForPath($root).'`');
 });
 
+test('Sail database setup grants the checkout testing namespace for parallel workers', function (): void {
+    $root = temp_directory('harness-parallel-grant');
+    mkdir($root.'/vendor/bin', 0755, true);
+    write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
+
+    $command = (new CommandFactory(new ExecutableLocator))->ensureMySqlDatabases($root);
+    $escapedTesting = str_replace('_', '\\_', DatabaseName::testingForPath($root));
+
+    expect($command[6])->toContain('GRANT ALL PRIVILEGES ON `'.$escapedTesting.'\\_%`.* TO `sail`@`%`');
+});
+
 test('Sail database cleanup drops only deterministic checkout-specific names', function (): void {
     $root = temp_directory('harness-mysql-database-cleanup');
     mkdir($root.'/vendor/bin', 0755, true);

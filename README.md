@@ -86,7 +86,7 @@ There is no automatic runtime fallback. `doctor` reports when the configured run
 
 An empty `sail_services` value starts and stops the full stack. A comma-separated list starts only those services; `down` then uses `sail stop` for that selected subset. With `runtime=sail`, the harness always includes Sail's `laravel.test` application container, even when `services=none`. The harness never deletes Docker volumes.
 
-When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standard Sail `FORWARD_DB_PORT` value in `.env` (default `3306`). Set `FORWARD_DB_PORT=3307`, for example, when another local MySQL service already uses port 3306. The harness derives a MySQL-safe database name from the checkout path plus a short hash, and uses a `_testing` suffix for the isolated test database. This makes every worktree distinct without querying Git or agent metadata.
+When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standard Sail `FORWARD_DB_PORT` value in `.env` (default `3306`). Set `FORWARD_DB_PORT=3307`, for example, when another local MySQL service already uses port 3306. The harness derives a MySQL-safe database name from the checkout path plus a short hash, and uses a `_testing` suffix for the isolated test database. Names leave room for Laravel's parallel worker suffix within MySQL's 64-character limit. This makes every worktree distinct without querying Git or agent metadata.
 
 ## Commands
 
@@ -124,6 +124,8 @@ Runtime arguments are executed as an argument array, not through a shell command
 8. Create `.env.testing` when absent, using Sail's `testing` database for MySQL or isolated SQLite defaults otherwise; update the default SQLite entries in `phpunit.xml` to Sail's MySQL testing database.
 
 It does not run migrations, rewrite `compose.yaml`, or inject test-runner options. It creates only its checkout-specific Sail MySQL databases and updates PHPUnit's selected test database when Sail manages MySQL. `cleanup` drops only those deterministic, harness-owned databases after validating the recorded Herd site; Codex worktree cleanup then stops the configured Sail services without deleting Docker volumes.
+
+MySQL cleanup also removes this checkout's numeric parallel test databases (including Laravel's `_test_1` form), but preserves similarly named databases without a numeric worker suffix and databases belonging to other checkouts. It retains ownership state if database cleanup fails, so cleanup can be retried.
 
 `cleanup` only removes HTTPS and unlinks a Herd site previously recorded as harness-owned. Before each action, it verifies that the recorded site name is the deterministic name for the current project path. Sail shutdown is always the explicit `down` command.
 

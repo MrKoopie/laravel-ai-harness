@@ -8,10 +8,20 @@ final class DatabaseName
 {
     public static function forPath(string $root): string
     {
+        return self::nameForPath($root, 32);
+    }
+
+    public static function legacyForPath(string $root): string
+    {
+        return self::nameForPath($root, 45);
+    }
+
+    private static function nameForPath(string $root, int $maxBaseLength): string
+    {
         $base = strtolower((string) preg_replace('/[^A-Za-z0-9]+/', '_', basename($root)));
         $base = trim($base, '_');
         $suffix = substr(hash('sha256', $root), 0, 10);
-        $base = substr($base === '' ? 'laravel' : $base, 0, 45);
+        $base = substr($base === '' ? 'laravel' : $base, 0, $maxBaseLength);
         $base = rtrim($base, '_');
 
         return $base.'_'.$suffix;
