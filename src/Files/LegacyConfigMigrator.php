@@ -24,6 +24,8 @@ final readonly class LegacyConfigMigrator
         '.claude/skills/laravel-ai-harness/SKILL.md',
         '.dev/bin/ai-harness',
         '.ai/mcp/mcp.json',
+        'docker/mysql/init/10-create-testing-database.sh',
+        'polyscope.json',
     ];
 
     /** Create the one-release legacy configuration migrator. */

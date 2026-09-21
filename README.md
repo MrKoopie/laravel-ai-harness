@@ -41,6 +41,13 @@ composer update mrkoopie/laravel-ai-harness --no-scripts
 ./vendor/bin/ai-harness update
 ```
 
+When recovering an upgrade from v0.1, use the temporary Artisan compatibility bridge instead so the old configuration and environment choices are migrated before the new project files are created:
+
+```bash
+composer update mrkoopie/laravel-ai-harness --no-scripts
+php artisan ai-harness:update --ansi
+```
+
 When `vendor/bin/ai-harness` is missing, `.ai-harness` runs `composer install --no-interaction --prefer-dist`, falling back to `herd composer install` when Composer is not on `PATH`. It never adds or updates package requirements. After dependencies exist, the bootstrap executes Composer's `vendor/bin/ai-harness` proxy.
 
 ## Project Files
