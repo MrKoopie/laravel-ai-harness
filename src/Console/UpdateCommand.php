@@ -9,10 +9,10 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(name: 'init', description: 'Install or refresh the small project-side harness files')]
-final class InitCommand extends ProjectCommand
+#[AsCommand(name: 'update', description: 'Refresh package-managed project files after a package update')]
+final class UpdateCommand extends ProjectCommand
 {
-    /** Create the project integration installer command. */
+    /** Create the project-file refresh command. */
     public function __construct(private readonly ProjectSynchronizer $synchronizer)
     {
         parent::__construct();
@@ -24,7 +24,7 @@ final class InitCommand extends ProjectCommand
         $this->configureProjectPath();
     }
 
-    /** Install or refresh the project-side harness files. */
+    /** Refresh only package-managed project files. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $result = $this->synchronizer->sync($this->projectPath($input));
@@ -37,7 +37,7 @@ final class InitCommand extends ProjectCommand
             $output->writeln("<info>updated {$path}</info>");
         }
 
-        $output->writeln('<info>AI Harness initialized.</info>');
+        $output->writeln('<info>AI Harness project files refreshed.</info>');
 
         return self::SUCCESS;
     }

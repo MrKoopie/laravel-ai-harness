@@ -85,6 +85,39 @@ test('worktree false removes only harness-owned Claude hooks', function (): void
         ->and(str_contains($settings, 'hook claude'))->toBeFalse();
 });
 
+test('project installation removes exact legacy Claude hooks and preserves custom commands', function (): void {
+    $root = temp_directory('harness-legacy-claude-hooks');
+    mkdir($root.'/.claude', 0755, true);
+    file_put_contents($root.'/.ai-harness.config', "agents=claude\nworktrees=true\n");
+    file_put_contents($root.'/.claude/settings.json', json_encode([
+        'hooks' => [
+            'SessionStart' => [[
+                'hooks' => [
+                    ['type' => 'command', 'command' => '"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-up.sh"'],
+                    ['type' => 'command', 'command' => 'echo keep-me'],
+                ],
+            ]],
+            'WorktreeRemove' => [[
+                'hooks' => [
+                    ['type' => 'command', 'command' => '"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-down.sh"'],
+                ],
+            ]],
+        ],
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+
+    $writer = new SafeWriter;
+    $installer = new ProjectInstaller($writer, new ClaudeSettings($writer));
+    $installer->install($root, (new ConfigLoader)->load($root));
+
+    $settings = (string) file_get_contents($root.'/.claude/settings.json');
+
+    expect($settings)->toContain('echo keep-me')
+        ->and($settings)->not->toContain('.claude/scripts/worktree-up.sh')
+        ->and($settings)->not->toContain('.claude/scripts/worktree-down.sh')
+        ->and(substr_count($settings, 'hook claude session-start'))->toBe(1)
+        ->and(substr_count($settings, 'hook claude worktree-remove'))->toBe(1);
+});
+
 test('managed project files never follow symbolic links', function (): void {
     $root = temp_directory('harness-symlink');
     $outside = temp_file('harness-outside');
