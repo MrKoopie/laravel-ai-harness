@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MrKoopie\LaravelAiHarness\Console;
 
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
+use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Health\HealthChecker;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -33,11 +34,14 @@ final class DoctorCommand extends ProjectCommand
         $root = $this->projectPath($input);
         $config = $this->configLoader->load($root);
         $failed = false;
+        $environment = ExecutionEnvironment::current();
+
+        $output->writeln('Environment: <comment>'.$environment->value.'</comment>');
 
         $output->writeln(sprintf(
             'Runtime: <comment>%s</comment>; services: <comment>%s</comment>; agents: <comment>%s</comment>',
-            $config->runtime->value,
-            $config->services->value,
+            $environment->isCloud() ? 'native' : $config->runtime->value,
+            $environment->isCloud() ? implode(',', $config->cloudServices) : $config->services->value,
             $config->agents === [] ? 'none' : implode(', ', $config->agents),
         ));
 

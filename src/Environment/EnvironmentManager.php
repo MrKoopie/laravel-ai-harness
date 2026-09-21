@@ -18,12 +18,18 @@ final readonly class EnvironmentManager
         private ProcessRunner $processes,
         private EnvironmentFile $environmentFile,
         private StateStore $state,
+        private ?CloudManager $cloud = null,
     ) {}
 
     /** Prepare dependencies, services, and checkout-specific configuration. */
     public function setup(string $root, OutputInterface $output): int
     {
+        if (ExecutionEnvironment::current()->isCloud()) {
+            return $this->cloudManager()->setup($root, $output);
+        }
+
         $config = $this->configLoader->load($root);
+
         if (! is_file($root.'/vendor/autoload.php')) {
             $output->writeln('<info>Installing Composer dependencies</info>');
             $status = $this->processes->run($this->commands->bootstrapComposer(), $root, $output);
@@ -112,6 +118,10 @@ final readonly class EnvironmentManager
     /** Remove only resources recorded as owned by the harness. */
     public function cleanup(string $root, OutputInterface $output): int
     {
+        if (ExecutionEnvironment::current()->isCloud()) {
+            return $this->cloudManager()->cleanup($root, $output);
+        }
+
         $config = $this->configLoader->load($root);
         $site = $this->state->herdSite($root);
 
@@ -181,6 +191,10 @@ final readonly class EnvironmentManager
     /** Start the configured Sail services. */
     public function up(string $root, OutputInterface $output): int
     {
+        if (ExecutionEnvironment::current()->isCloud()) {
+            return $this->cloudManager()->setup($root, $output);
+        }
+
         $config = $this->configLoader->load($root);
 
         if (! $this->requiresSail($config)) {
@@ -195,6 +209,12 @@ final readonly class EnvironmentManager
     /** Stop the configured Sail services without deleting volumes. */
     public function down(string $root, OutputInterface $output): int
     {
+        if (ExecutionEnvironment::current()->isCloud()) {
+            $output->writeln('<info>Cloud services stay available for resumed sessions.</info>');
+
+            return 0;
+        }
+
         $config = $this->configLoader->load($root);
 
         if (! $this->requiresSail($config)) {
@@ -265,5 +285,11 @@ final readonly class EnvironmentManager
     private function usesMySql(Config $config): bool
     {
         return $config->services === Services::Sail && in_array('mysql', $config->sailServices, true);
+    }
+
+    /** Resolve the cloud coordinator for lifecycle commands. */
+    private function cloudManager(): CloudManager
+    {
+        return $this->cloud ?? new CloudManager($this->configLoader, $this->commands, $this->processes, $this->environmentFile, $this->state);
     }
 }

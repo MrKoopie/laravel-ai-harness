@@ -61,7 +61,7 @@ test('project installation writes only the thin bootstrap and native agent files
         ->and($settingsShape->hooks->SessionStart[0]->hooks)->toBeArray();
 });
 
-test('worktree false removes only harness-owned Claude hooks', function (): void {
+test('disabling worktrees and cloud removes only harness-owned Claude hooks', function (): void {
     $root = temp_directory('harness-hooks-off');
     mkdir($root.'/.claude', 0755, true);
     file_put_contents($root.'/.ai-harness.config', "agents=codex,claude\nworktrees=true\n");
@@ -76,7 +76,7 @@ test('worktree false removes only harness-owned Claude hooks', function (): void
     $writer = new SafeWriter;
     $installer = new ProjectInstaller($writer, new ClaudeSettings($writer));
     $installer->install($root, (new ConfigLoader)->load($root));
-    file_put_contents($root.'/.ai-harness.config.local', "worktrees=false\n");
+    file_put_contents($root.'/.ai-harness.config.local', "worktrees=false\ncloud=false\n");
     $installer->install($root, (new ConfigLoader)->load($root));
 
     $settings = (string) file_get_contents($root.'/.claude/settings.json');

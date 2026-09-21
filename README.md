@@ -2,7 +2,7 @@
 
 Laravel AI Harness is a small Composer development tool that gives Codex and Claude one stable command for Laravel projects running through native PHP, Laravel Herd, or Laravel Sail.
 
-All execution logic stays in the Composer package. A consuming project receives only a tiny `.ai-harness` bootstrap, a strict project configuration file, concise agent instructions, and native Codex/Claude lifecycle configuration.
+Application lifecycle logic stays in the Composer package. A consuming project receives a tiny `.ai-harness` bootstrap, an optional cloud provisioning helper, a strict project configuration file, concise agent instructions, and native Codex/Claude lifecycle configuration.
 
 ## Requirements
 
@@ -56,6 +56,7 @@ The default installation manages only:
 
 ```text
 .ai-harness
+.ai-harness-cloud          # cloud=true: provisioning and lifecycle entrypoint
 .ai-harness.config
 .gitignore                 # one managed block
 AGENTS.md                  # one managed block
@@ -133,11 +134,11 @@ Runtime arguments are executed as an argument array, not through a shell command
 
 `init`, `update`, `doctor`, `setup`, `cleanup`, `up`, and `down` accept `--path=/path/to/project`; runtime commands operate in the current directory.
 
-`init` and `update` only synchronize project integration files. They do not install dependencies, start containers, create databases, link Herd sites, run migrations, or inspect or update Git. Environment work happens only through `setup`, `cleanup`, `up`, and `down`.
+`init` and `update` only synchronize project integration files. They do not install dependencies, start containers, create databases, link Herd sites, run migrations, or inspect or update Git. Environment work happens through `setup`, `cleanup`, `up`, `down`, and the explicit cloud commands below.
 
 ## Setup and Cleanup
 
-`setup` performs only predictable local preparation:
+Outside a detected cloud environment, `setup` performs predictable local preparation:
 
 1. Run Composer install when the target checkout has no `vendor/autoload.php`.
 2. Copy `.env.example` to `.env` when `.env` is absent.
@@ -169,7 +170,126 @@ There are no duplicate SessionStart fallbacks or Codex-specific executor scripts
 - `PreToolUse` with `ExitWorktree` cleans the worktree before removal.
 - `WorktreeRemove` cleans `--worktree` and isolated-subagent worktrees before Claude removes them.
 
-Every hook calls `.ai-harness hook claude ...`; JSON payload parsing and lifecycle logic stay in the Composer package. Existing settings and unrelated hooks are preserved. Disabling worktree automation removes only the package-owned hooks on the next `init`.
+Every hook calls `.ai-harness hook claude ...`; JSON payload parsing and lifecycle logic stay in the Composer package. Existing settings and unrelated hooks are preserved. Disabling worktree automation removes the worktree-specific hooks on the next refresh. SessionStart and SessionEnd remain while cloud automation is enabled; disable both `worktrees` and `cloud` to remove all harness hooks.
+
+## Cloud Environments
+
+Run `./.ai-harness update` in each consuming project and commit the generated
+`.ai-harness-cloud`, `.ai-harness`, agent instructions, and Claude settings.
+The cloud helper can provision system tools before `vendor/` exists. Cloud
+execution always uses native PHP rather than the project's local Herd/Sail runtime.
+
+### Detection and configuration
+
+1. Set `AI_HARNESS_ENV=codex-cloud` in Codex cloud environment variables.
+2. Claude automatically uses its documented `CLAUDE_CODE_REMOTE=true` signal.
+   Set `AI_HARNESS_ENV=claude-cloud` in the environment as well when using the
+   provisioning script, which runs before the agent starts.
+3. An explicit `AI_HARNESS_ENV=local` overrides automatic detection. Unknown
+   values fail clearly. Linux, checkout paths, and installed agent binaries do
+   not imply cloud execution.
+
+Cloud options in `.ai-harness.config` are independent of `worktrees`:
+
+```ini
+cloud=true
+cloud_services=mysql,redis
+cloud_migrate=false
+cloud_seed=false
+cloud_build=false
+cloud_browser=false
+```
+
+The default service is `mysql`. Set `cloud_services=` for SQLite and no managed
+services. Redis uses the PHP Redis extension. Migrations are opt-in and run
+`artisan migrate` for development and testing; no `migrate:fresh` runs. Seeding
+requires migrations enabled and invokes the development seeder on every setup,
+so enable it only with seeders that are safe to rerun. Builds use `npm run build`.
+Browser installation requires Playwright already declared in project dependencies
+and installs Chromium plus its OS dependencies. These options never affect local setup.
+
+### Claude cloud
+
+1. Set the environment variables above and configure the environment setup script
+   to run `./.ai-harness-cloud provision` from the repository root. This installs
+   system dependencies and benefits from the provider's filesystem cache.
+2. The generated repository `SessionStart` hook runs project setup for ordinary
+   cloud clones, including resumes, even with `worktrees=false`. It installs the
+   current locked dependencies and starts/checks services on every session.
+3. The generated `SessionEnd` hook performs test-only cleanup with a 60-second
+   timeout. Cleanup is retryable with `./.ai-harness cloud cleanup`.
+4. Multi-repository Claude sessions do not load repository hooks. Run
+   `./.ai-harness-cloud setup` explicitly in each checkout. Do not rely on a
+   cached provisioning script to restart services.
+
+Claude's setup budget is approximately five minutes. Put system provisioning in
+the environment setup script and project setup in SessionStart. Package installs
+need the appropriate registry/archive hosts in the environment network allowlist.
+See [Claude cloud environments](https://code.claude.com/docs/en/cloud-environments)
+and [SessionEnd hooks](https://code.claude.com/docs/en/hooks#sessionend).
+
+### Codex cloud
+
+Set `AI_HARNESS_ENV=codex-cloud` as an **environment variable**, then configure
+these commands in the cloud environment UI, running from the repository root:
+
+```bash
+# Setup script: system provisioning followed by project preparation.
+./.ai-harness-cloud provision
+./.ai-harness-cloud setup
+```
+
+```bash
+# Maintenance script: reconcile the selected branch after restoring a cache.
+./.ai-harness-cloud maintain
+```
+
+The generated `.codex/environments/environment.toml` remains a **local worktree**
+integration; it does not configure the cloud environment UI. Both setup and
+maintenance must be wired there. Setup has internet access; dependency refreshes
+need network access in the phase where they execute. Install required test tools
+before the agent phase if agent internet access is disabled.
+
+Codex environment secrets are setup-only. Use them for private dependency
+authentication during setup, and ensure maintenance can reinstall branch-specific
+dependencies without assuming those secrets remain available. Do not persist
+package credentials in tracked files. No guaranteed Codex cloud teardown hook is
+assumed; run `./.ai-harness cloud cleanup` explicitly when useful, and allow the
+provider to discard its ephemeral container. See
+[Codex cloud environments](https://learn.chatgpt.com/docs/environments/cloud-environment).
+
+### Preparation and boundaries
+
+1. Provisioning requires Ubuntu/Debian, root or passwordless `sudo`, and apt
+   access. It installs PHP 8.3 by default, common Laravel extensions, Composer,
+   MySQL, Redis, and missing Node/npm. Set `AI_HARNESS_PHP_VERSION=8.4`, for
+   example, only if that version exists in the environment's configured apt
+   repositories. The harness never adds third-party apt repositories. Pin Node
+   in the provider image/settings to satisfy the project's `engines` requirement.
+2. Project setup requires a committed `composer.lock`, installs development
+   dependencies and runs `composer check-platform-reqs`. It does not skip platform
+   requirements. Frontend projects require `package-lock.json` and use
+   `npm ci --include=dev`; other package managers need project-specific setup.
+3. `AI_HARNESS_COMPOSER_PREFER=source` opts into Git source installs when archive
+   downloads are blocked. It applies to the initial bootstrap too. This is an
+   explicit network workaround, not a blanket fallback or a TLS bypass.
+4. Setup replaces standard Laravel database/Redis connection settings with local
+   cloud values, clears the default config cache, normalizes `APP_CONFIG_CACHE`,
+   and reconciles inline PHPUnit connection overrides. Inherited standard
+   connection variables are removed for harness-run application commands. Custom
+   application connection names/configuration remain the application's responsibility.
+5. MySQL administration uses only the local Unix socket, ignores user option/login
+   files, and creates a checkout-specific development/testing pair plus a scoped
+   localhost application user. Its fixed `harness` password is for disposable
+   development containers only. `AI_HARNESS_MYSQL_SOCKET` can select another
+   absolute local socket; the same socket is written into Laravel configuration.
+6. Cloud cleanup requires recorded ownership, preserves the development database,
+   and drops only the exact testing name and numeric `<testing>_1` /
+   `<testing>_test_1` worker forms. Similar names, backups and other checkouts are
+   excluded. Ownership stays recorded so failed or repeated cleanup can be retried.
+7. Keep required install failures visible. A passing local suite does not verify
+   a provider's actual image, network allowlist or cache lifecycle: validate a
+   fresh start, cached start and resume in each configured cloud environment.
 
 ## Laravel Boost
 

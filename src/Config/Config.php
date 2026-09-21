@@ -15,6 +15,7 @@ final readonly class Config
      * @param  list<'claude'|'codex'>  $agents
      * @param  list<non-empty-string>  $sailServices
      * @param  list<non-empty-string>  $sourceFiles
+     * @param  list<string>  $cloudServices
      */
     public function __construct(
         public Runtime $runtime,
@@ -25,6 +26,12 @@ final readonly class Config
         public ?string $herdPhp,
         public bool $worktrees,
         public array $sourceFiles,
+        public bool $cloud = true,
+        public array $cloudServices = ['mysql'],
+        public bool $cloudMigrate = false,
+        public bool $cloudSeed = false,
+        public bool $cloudBuild = false,
+        public bool $cloudBrowser = false,
     ) {}
 
     /** Determine whether the named coding agent is enabled. */

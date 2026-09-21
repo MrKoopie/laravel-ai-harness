@@ -6,6 +6,7 @@ namespace MrKoopie\LaravelAiHarness\Console;
 
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
+use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Process\ProcessRunner;
 use MrKoopie\LaravelAiHarness\Support\ProjectPath;
 use Symfony\Component\Console\Command\Command;
@@ -54,6 +55,7 @@ final class RuntimeCommand extends Command
             $this->commands->runtime($config, $this->tool, $arguments, $root),
             $root,
             $output,
+            environment: ExecutionEnvironment::processEnvironment(),
             input: is_resource($stream) ? $stream : STDIN,
             timeout: null,
         );

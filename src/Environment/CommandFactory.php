@@ -20,7 +20,8 @@ final readonly class CommandFactory
      */
     public function runtime(Config $config, string $tool, array $arguments, string $root): array
     {
-        $prefix = match ($config->runtime) {
+        $runtime = ExecutionEnvironment::current()->isCloud() ? Runtime::Native : $config->runtime;
+        $prefix = match ($runtime) {
             Runtime::Native => $this->nativePrefix($tool, $root),
             Runtime::Herd => $this->herdPrefix($tool, $root),
             Runtime::Sail => $this->sailPrefix($tool, $root),

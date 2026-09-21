@@ -134,6 +134,131 @@ final readonly class EnvironmentFile
         return $created;
     }
 
+    /** Configure only local cloud services, never inherited external database hosts. */
+    public function configureCloud(string $root, bool $mysql, bool $redis): void
+    {
+        $socket = getenv('AI_HARNESS_MYSQL_SOCKET') ?: '/var/run/mysqld/mysqld.sock';
+
+        if (! str_starts_with($socket, '/') || preg_match('/[\s"\x00]/', $socket) === 1) {
+            throw new FileException('AI_HARNESS_MYSQL_SOCKET must be an absolute socket path without whitespace or quotes.');
+        }
+
+        $values = [
+            'APP_ENV' => 'local',
+            'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php',
+            'APP_URL' => 'http://127.0.0.1:8000',
+            'DB_CONNECTION' => $mysql ? 'mysql' : 'sqlite',
+            'DB_HOST' => '127.0.0.1',
+            'DB_PORT' => '3306',
+            'DB_DATABASE' => $mysql ? DatabaseName::forPath($root) : '"'.str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $root.'/database/database.sqlite').'"',
+            'DB_USERNAME' => 'harness_'.substr(hash('sha256', $root), 0, 10),
+            'DB_PASSWORD' => 'harness',
+            'DB_URL' => '',
+            'DATABASE_URL' => '',
+            'DB_SOCKET' => $mysql ? $socket : '',
+            'REDIS_HOST' => '127.0.0.1',
+            'REDIS_PORT' => '6379',
+            'REDIS_PASSWORD' => 'null',
+            'REDIS_URL' => '',
+            'CACHE_STORE' => $redis ? 'redis' : 'file',
+            'CACHE_DRIVER' => $redis ? 'redis' : 'file',
+            'REDIS_CLIENT' => 'phpredis',
+            'QUEUE_CONNECTION' => 'sync',
+            'SESSION_DRIVER' => 'file',
+            'MAIL_MAILER' => 'log',
+        ];
+        $this->replaceValues($root, '.env', $values);
+        $this->ensureTesting($root);
+        $this->replaceValues($root, '.env.testing', [
+            ...$values,
+            ...self::TESTING_VALUES,
+            'DB_CONNECTION' => $mysql ? 'mysql' : 'sqlite',
+            'DB_DATABASE' => $mysql ? DatabaseName::testingForPath($root) : ':memory:',
+        ]);
+    }
+
+    /** Copy the generated development key into the isolated testing environment. */
+    public function syncTestingKey(string $root): void
+    {
+        if (preg_match('/^APP_KEY=(.*)$/m', $this->read($root.'/.env'), $matches) === 1) {
+            $this->replaceValues($root, '.env.testing', ['APP_KEY' => $matches[1]]);
+        }
+    }
+
+    /** Discard cached connections before any Laravel Composer script can use them. */
+    public function clearCloudConfigCache(string $root): void
+    {
+        $relative = 'bootstrap/cache/config.php';
+        $this->writer->assertSafePath($root, $relative);
+        $path = $root.'/'.$relative;
+
+        if (is_link($path)) {
+            throw new FileException('Refusing to remove a symbolic link for cached Laravel configuration.');
+        }
+
+        if (is_file($path) && ! unlink($path)) {
+            throw new FileException('Unable to clear cached Laravel configuration.');
+        }
+    }
+
+    /** Reconcile inline PHPUnit overrides with the isolated cloud testing environment. */
+    public function configureCloudPhpUnit(string $root): void
+    {
+        $source = is_file($root.'/phpunit.xml') ? 'phpunit.xml' : 'phpunit.xml.dist';
+
+        if (! is_file($root.'/'.$source)) {
+            return;
+        }
+
+        $contents = $this->read($root.'/'.$source);
+
+        if (stripos($contents, '<!DOCTYPE') !== false) {
+            throw new FileException('Cloud PHPUnit configuration must not contain a document type declaration.');
+        }
+
+        $document = new \DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+
+        try {
+            if (! $document->loadXML($contents, LIBXML_NONET)) {
+                throw new FileException('Invalid PHPUnit XML configuration.');
+            }
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+
+        preg_match_all('/^([A-Z_]+)=(.*)$/m', $this->read($root.'/.env.testing'), $matches, PREG_SET_ORDER);
+        $values = [];
+
+        foreach ($matches as $match) {
+            $name = $match[1];
+
+            if (str_starts_with($name, 'DB_') || str_starts_with($name, 'REDIS_') || array_key_exists($name, self::TESTING_VALUES)
+                || in_array($name, ['DATABASE_URL', 'APP_CONFIG_CACHE', 'APP_KEY'], true)) {
+                $values[$name] = trim($match[2], "\"'");
+            }
+        }
+
+        $nodes = (new \DOMXPath($document))->query('/phpunit/php/env | /phpunit/php/server');
+
+        if ($nodes !== false) {
+            foreach ($nodes as $node) {
+                if ($node instanceof \DOMElement && array_key_exists($node->getAttribute('name'), $values)) {
+                    $node->setAttribute('value', $values[$node->getAttribute('name')]);
+                }
+            }
+        }
+
+        $updated = $document->saveXML();
+
+        if ($updated === false) {
+            throw new FileException('Unable to serialize cloud PHPUnit configuration.');
+        }
+
+        $this->writer->write($root, 'phpunit.xml', $updated);
+    }
+
     /** Configure PHPUnit's inline database environment for MySQL. */
     public function configurePhpUnitMySql(string $root): bool
     {
