@@ -139,7 +139,7 @@ final readonly class ClaudeSettings
                 $commands,
                 static fn (mixed $hook): bool => ! is_array($hook)
                     || ! is_string($hook['command'] ?? null)
-                    || ! str_contains($hook['command'], '.ai-harness" hook claude '),
+                    || ! self::isHarnessCommand($hook['command']),
             ));
 
             if ($group['hooks'] !== []) {
@@ -148,6 +148,20 @@ final readonly class ClaudeSettings
         }
 
         return $filtered;
+    }
+
+    /** Identify current commands and the exact commands installed by v0.1. */
+    private static function isHarnessCommand(string $command): bool
+    {
+        if (str_contains($command, '.ai-harness" hook claude ')) {
+            return true;
+        }
+
+        return in_array($command, [
+            '"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-up.sh"',
+            '"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-down.sh"',
+            '"$CLAUDE_PROJECT_DIR/.claude/scripts/worktree-up.sh" && "$CLAUDE_PROJECT_DIR/.dev/bin/ai-harness" ai-harness:doctor',
+        ], true);
     }
 
     /**

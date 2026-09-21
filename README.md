@@ -27,6 +27,27 @@ Commit the generated project files. From then on, people and coding agents use:
 ./.ai-harness doctor
 ```
 
+`init` adds one guarded, package-owned command to Composer's root `post-install-cmd` and `post-update-cmd` events. Future Composer installs and updates therefore refresh the managed integration files automatically. Existing project scripts are preserved, and repeated initialization does not add duplicates. The hook exits successfully when Composer runs with `--no-dev` or the development package binary is unavailable.
+
+Package installation and project refresh are deliberately separate operations:
+
+1. `composer update mrkoopie/laravel-ai-harness` downloads a newer package release.
+2. `./.ai-harness update` refreshes the project files from the currently installed release.
+
+For recovery or debugging, run Composer with `--no-scripts`, then refresh explicitly:
+
+```bash
+composer update mrkoopie/laravel-ai-harness --no-scripts
+./vendor/bin/ai-harness update
+```
+
+When recovering an upgrade from v0.1, use the temporary Artisan compatibility bridge instead so the old configuration and environment choices are migrated before the new project files are created:
+
+```bash
+composer update mrkoopie/laravel-ai-harness --no-scripts
+php artisan ai-harness:update --ansi
+```
+
 When `vendor/bin/ai-harness` is missing, `.ai-harness` runs `composer install --no-interaction --prefer-dist`, falling back to `herd composer install` when Composer is not on `PATH`. It never adds or updates package requirements. After dependencies exist, the bootstrap executes Composer's `vendor/bin/ai-harness` proxy.
 
 ## Project Files
@@ -41,6 +62,7 @@ AGENTS.md                  # one managed block
 CLAUDE.md                  # one managed block
 .codex/environments/environment.toml
 .claude/settings.json      # merges only package-owned hooks
+composer.json              # two guarded package-owned script entries
 ```
 
 The package does not copy runtime executors, database scripts, skills, MCP configuration, or per-agent shell scripts into projects.
@@ -92,6 +114,7 @@ When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standar
 
 ```bash
 ./.ai-harness init
+./.ai-harness update
 ./.ai-harness doctor
 
 ./.ai-harness artisan migrate
@@ -108,7 +131,9 @@ When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standar
 
 Runtime arguments are executed as an argument array, not through a shell command string. Options, spaces, and shell metacharacters are forwarded unchanged.
 
-`init`, `doctor`, `setup`, `cleanup`, `up`, and `down` accept `--path=/path/to/project`; runtime commands operate in the current directory.
+`init`, `update`, `doctor`, `setup`, `cleanup`, `up`, and `down` accept `--path=/path/to/project`; runtime commands operate in the current directory.
+
+`init` and `update` only synchronize project integration files. They do not install dependencies, start containers, create databases, link Herd sites, run migrations, or inspect or update Git. Environment work happens only through `setup`, `cleanup`, `up`, and `down`.
 
 ## Setup and Cleanup
 
@@ -131,7 +156,7 @@ MySQL cleanup also removes this checkout's numeric parallel test databases (incl
 
 ## Codex
 
-`init` adds concise runtime instructions to `AGENTS.md`. With `worktrees=true`, it also writes one Codex local environment whose setup and cleanup scripts call `./.ai-harness setup` and `./.ai-harness cleanup` directly.
+`init` adds concise runtime instructions to `AGENTS.md`. With `worktrees=true`, it also writes one Codex local environment whose setup and cleanup scripts call `./.ai-harness setup` and `./.ai-harness cleanup` directly. `.codex/environments/environment.toml` is package-owned and overwritten during each refresh; put custom Codex configuration elsewhere.
 
 There are no duplicate SessionStart fallbacks or Codex-specific executor scripts. Select the generated `Laravel AI Harness` local environment in Codex when creating a worktree.
 
@@ -149,6 +174,14 @@ Every hook calls `.ai-harness hook claude ...`; JSON payload parsing and lifecyc
 ## Laravel Boost
 
 When Laravel Boost is installed in the consuming application, it can discover this package's short guideline at `resources/boost/guidelines/core.blade.php`. That guideline explains configuration and environment boundaries; the AI Harness managed blocks in `AGENTS.md` and `CLAUDE.md` remain the source for command syntax. No Boost dependency or additional project file is required by AI Harness.
+
+## Upgrading From 0.1
+
+Version 0.2 retains the old `artisan ai-harness:update` command and service-provider class for one release so an existing v0.1 Composer hook can complete the upgrade. That compatibility command replaces the old hook with the new guarded `./vendor/bin/ai-harness update` hook.
+
+When no `.ai-harness.config`, `.dist`, or `.local` file exists, the bridge translates the old Codex, Claude, Herd, Docker, and PHP-version choices. Old Docker support becomes `services=sail` with `sail_services=mysql`. Unsupported skills and Polyscope generation, plus obsolete generated files, produce explicit warnings and are not silently deleted. Existing new-format configuration always wins.
+
+After the first successful refresh, use `./.ai-harness update`; the Artisan compatibility command is temporary and may be removed in 0.3.
 
 ## Git Scope
 

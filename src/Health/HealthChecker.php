@@ -7,12 +7,16 @@ namespace MrKoopie\LaravelAiHarness\Health;
 use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
+use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 final readonly class HealthChecker
 {
     /** Create a health checker backed by executable discovery. */
-    public function __construct(private ExecutableLocator $executables) {}
+    public function __construct(
+        private ExecutableLocator $executables,
+        private ComposerScripts $composerScripts,
+    ) {}
 
     /**
      * Check runtime tools and installed agent integration files.
@@ -25,6 +29,11 @@ final readonly class HealthChecker
             $this->file(is_executable($root.'/.ai-harness'), '.ai-harness bootstrap is executable', '.ai-harness bootstrap is missing or not executable'),
             $this->file(is_file($root.'/artisan'), 'Laravel artisan entrypoint exists', 'Laravel artisan entrypoint is missing'),
             $this->file($config->sourceFiles !== [], 'Configuration loaded from '.implode(', ', $config->sourceFiles), 'No project configuration file exists; run init'),
+            $this->file(
+                $this->composerScripts->installed($root),
+                'Automatic Composer refresh hooks are installed',
+                'Automatic Composer refresh hooks are missing; run ./.ai-harness update',
+            ),
         ];
 
         $checks[] = match ($config->runtime) {
