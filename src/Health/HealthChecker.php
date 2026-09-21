@@ -11,9 +11,14 @@ use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 final readonly class HealthChecker
 {
+    /** Create a health checker backed by executable discovery. */
     public function __construct(private ExecutableLocator $executables) {}
 
-    /** @return list<CheckResult> */
+    /**
+     * Check runtime tools and installed agent integration files.
+     *
+     * @return list<CheckResult>
+     */
     public function check(Config $config, string $root): array
     {
         $checks = [
@@ -56,6 +61,7 @@ final readonly class HealthChecker
         return $checks;
     }
 
+    /** Check whether a project file contains a harness-managed block. */
     private function managed(string $path, string $label): CheckResult
     {
         $contents = is_file($path) ? file_get_contents($path) : false;
@@ -67,6 +73,7 @@ final readonly class HealthChecker
         );
     }
 
+    /** Create a health-check result with the appropriate message. */
     private function file(bool $passed, string $success, string $failure): CheckResult
     {
         return new CheckResult($passed, $passed ? $success : $failure);

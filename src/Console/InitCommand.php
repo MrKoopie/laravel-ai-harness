@@ -13,6 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'init', description: 'Install or refresh the small project-side harness files')]
 final class InitCommand extends ProjectCommand
 {
+    /** Create the project integration installer command. */
     public function __construct(
         private readonly ConfigLoader $configLoader,
         private readonly ProjectInstaller $installer,
@@ -20,11 +21,13 @@ final class InitCommand extends ProjectCommand
         parent::__construct();
     }
 
+    /** Configure the shared project path option. */
     protected function configure(): void
     {
         $this->configureProjectPath();
     }
 
+    /** Install or refresh the project-side harness files. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $root = $this->projectPath($input);

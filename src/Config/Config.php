@@ -10,6 +10,8 @@ use MrKoopie\LaravelAiHarness\Environment\Services;
 final readonly class Config
 {
     /**
+     * Store the validated harness configuration.
+     *
      * @param  list<'claude'|'codex'>  $agents
      * @param  list<non-empty-string>  $sailServices
      * @param  list<non-empty-string>  $sourceFiles
@@ -25,6 +27,7 @@ final readonly class Config
         public array $sourceFiles,
     ) {}
 
+    /** Determine whether the named coding agent is enabled. */
     public function supportsAgent(string $agent): bool
     {
         return in_array($agent, $this->agents, true);

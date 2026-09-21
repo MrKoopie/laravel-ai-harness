@@ -8,11 +8,13 @@ use MrKoopie\LaravelAiHarness\Config\Config;
 
 final readonly class ProjectInstaller
 {
+    /** Create the project integration installer. */
     public function __construct(
         private SafeWriter $writer,
         private ClaudeSettings $claudeSettings,
     ) {}
 
+    /** Create a default project configuration when none exists. */
     public function ensureConfig(string $root): bool
     {
         foreach (['.ai-harness.config.dist', '.ai-harness.config', '.ai-harness.config.local'] as $filename) {
@@ -27,6 +29,8 @@ final readonly class ProjectInstaller
     }
 
     /**
+     * Install the project-side files required by the configuration.
+     *
      * @return list<string>
      */
     public function install(string $root, Config $config): array
@@ -68,6 +72,7 @@ final readonly class ProjectInstaller
         return array_values(array_unique($written));
     }
 
+    /** Read a bundled package resource. */
     private function resource(string $relativePath): string
     {
         $path = dirname(__DIR__, 2).'/resources/'.$relativePath;

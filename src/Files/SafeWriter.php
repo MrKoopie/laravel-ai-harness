@@ -13,6 +13,7 @@ namespace MrKoopie\LaravelAiHarness\Files;
  */
 final class SafeWriter
 {
+    /** Atomically write a file beneath a trusted project root. */
     public function write(string $root, string $relativePath, string $contents, bool $executable = false): void
     {
         $target = $this->target($root, $relativePath);
@@ -77,6 +78,7 @@ final class SafeWriter
         }
     }
 
+    /** Add or replace the harness-owned block in a project file. */
     public function managedBlock(string $root, string $relativePath, string $block): void
     {
         $target = $this->target($root, $relativePath);
@@ -123,6 +125,7 @@ final class SafeWriter
         $this->write($root, $relativePath, $updated);
     }
 
+    /** Remove the harness-owned block from a project file. */
     public function removeManagedBlock(string $root, string $relativePath): void
     {
         $target = $this->target($root, $relativePath);
@@ -174,6 +177,7 @@ final class SafeWriter
         $this->write($root, $relativePath, trim($updated));
     }
 
+    /** Remove an unchanged file that is owned by the harness. */
     public function removeOwnedFile(string $root, string $relativePath, string $expectedContents): void
     {
         $target = $this->target($root, $relativePath);
@@ -202,6 +206,7 @@ final class SafeWriter
         }
     }
 
+    /** Assert that a relative path remains beneath the trusted root. */
     public function assertSafePath(string $root, string $relativePath): void
     {
         $target = $this->target($root, $relativePath);
@@ -214,6 +219,7 @@ final class SafeWriter
         }
     }
 
+    /** Resolve a validated relative path beneath the project root. */
     private function target(string $root, string $relativePath): string
     {
         if ($relativePath === '' || str_contains($relativePath, "\0") || str_starts_with($relativePath, DIRECTORY_SEPARATOR)) {
@@ -229,6 +235,7 @@ final class SafeWriter
         return $root.DIRECTORY_SEPARATOR.str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
     }
 
+    /** Assert that a resolved parent directory is beneath the root. */
     private function assertSafeParent(string $root, string $directory): void
     {
         $resolvedRoot = realpath($root);
@@ -243,6 +250,7 @@ final class SafeWriter
         }
     }
 
+    /** Assert that the nearest existing ancestor is beneath the root. */
     private function assertSafeExistingAncestor(string $root, string $directory): void
     {
         $ancestor = $directory;

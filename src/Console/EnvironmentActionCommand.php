@@ -10,6 +10,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 final class EnvironmentActionCommand extends ProjectCommand
 {
+    /** Create a command that delegates to one environment action. */
     public function __construct(
         string $name,
         private readonly string $action,
@@ -20,11 +21,13 @@ final class EnvironmentActionCommand extends ProjectCommand
         $this->setDescription($description);
     }
 
+    /** Configure the shared project path option. */
     protected function configure(): void
     {
         $this->configureProjectPath();
     }
 
+    /** Execute the configured environment action. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $root = $this->projectPath($input);

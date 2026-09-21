@@ -9,9 +9,12 @@ use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 final readonly class CommandFactory
 {
+    /** Create a command factory backed by executable discovery. */
     public function __construct(private ExecutableLocator $executables) {}
 
     /**
+     * Build a command for a tool in the configured runtime.
+     *
      * @param  list<string>  $arguments
      * @return non-empty-list<string>
      */
@@ -26,7 +29,11 @@ final readonly class CommandFactory
         return array_merge($prefix, $arguments);
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the command used to install missing Composer dependencies.
+     *
+     * @return non-empty-list<string>
+     */
     public function bootstrapComposer(): array
     {
         $composer = $this->executables->composer();
@@ -44,7 +51,11 @@ final readonly class CommandFactory
         throw new EnvironmentException('Composer dependencies are missing and neither Composer nor Laravel Herd is available to install them.');
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the command that starts configured Sail services.
+     *
+     * @return non-empty-list<string>
+     */
     public function servicesUp(Config $config, string $root): array
     {
         $command = [$this->sail($root), 'up', '-d'];
@@ -52,7 +63,11 @@ final readonly class CommandFactory
         return array_merge($command, $this->sailTargets($config));
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the command that stops configured Sail services.
+     *
+     * @return non-empty-list<string>
+     */
     public function servicesDown(Config $config, string $root): array
     {
         if ($config->services === Services::Sail && $config->sailServices === []) {
@@ -62,7 +77,11 @@ final readonly class CommandFactory
         return array_merge([$this->sail($root), 'stop'], $this->sailTargets($config));
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the Sail command that creates checkout-specific MySQL databases.
+     *
+     * @return non-empty-list<string>
+     */
     public function ensureMySqlDatabases(string $root): array
     {
         $database = DatabaseName::forPath($root);
@@ -81,7 +100,11 @@ final readonly class CommandFactory
         return [$this->sail($root), 'exec', '-T', 'mysql', 'bash', '-c', $statement];
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the Sail command that drops checkout-specific MySQL databases.
+     *
+     * @return non-empty-list<string>
+     */
     public function dropMySqlDatabases(string $root): array
     {
         $database = DatabaseName::forPath($root);
@@ -101,7 +124,11 @@ final readonly class CommandFactory
         return [$this->sail($root), 'exec', '-T', 'mysql', 'bash', '-c', $statement];
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build a Laravel Herd command.
+     *
+     * @return non-empty-list<string>
+     */
     public function herd(string $action, string ...$arguments): array
     {
         $herd = $this->executables->herd();
@@ -113,7 +140,11 @@ final readonly class CommandFactory
         return [$herd, $action, ...array_values($arguments)];
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the executable prefix for a native runtime tool.
+     *
+     * @return non-empty-list<string>
+     */
     private function nativePrefix(string $tool, string $root): array
     {
         return match ($tool) {
@@ -126,7 +157,11 @@ final readonly class CommandFactory
         };
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the executable prefix for a Herd runtime tool.
+     *
+     * @return non-empty-list<string>
+     */
     private function herdPrefix(string $tool, string $root): array
     {
         $herd = $this->required($this->executables->herd(), 'Laravel Herd');
@@ -141,7 +176,11 @@ final readonly class CommandFactory
         };
     }
 
-    /** @return non-empty-list<string> */
+    /**
+     * Build the executable prefix for a Sail runtime tool.
+     *
+     * @return non-empty-list<string>
+     */
     private function sailPrefix(string $tool, string $root): array
     {
         $sail = $this->sail($root);
@@ -156,6 +195,7 @@ final readonly class CommandFactory
         };
     }
 
+    /** Resolve the executable Sail script for a project. */
     private function sail(string $root): string
     {
         $path = $root.'/vendor/bin/sail';
@@ -167,7 +207,11 @@ final readonly class CommandFactory
         return $path;
     }
 
-    /** @return list<string> */
+    /**
+     * Select the Sail service targets required by the configuration.
+     *
+     * @return list<string>
+     */
     private function sailTargets(Config $config): array
     {
         if ($config->services === Services::Sail && $config->sailServices === []) {
@@ -183,6 +227,7 @@ final readonly class CommandFactory
         return array_values(array_unique($targets));
     }
 
+    /** Return a required executable path or report that it is missing. */
     private function required(?string $path, string $name): string
     {
         if ($path === null) {

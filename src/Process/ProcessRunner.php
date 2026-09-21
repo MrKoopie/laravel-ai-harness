@@ -13,6 +13,8 @@ final class ProcessRunner
     private const LIFECYCLE_TIMEOUT = 300.0;
 
     /**
+     * Run a command while streaming its output to the console.
+     *
      * @param  non-empty-list<string>  $command
      * @param  array<string, string|false>  $environment
      */

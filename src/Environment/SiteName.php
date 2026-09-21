@@ -6,6 +6,7 @@ namespace MrKoopie\LaravelAiHarness\Environment;
 
 final class SiteName
 {
+    /** Derive a bounded, checkout-specific Herd site name. */
     public static function forPath(string $root): string
     {
         $base = strtolower((string) preg_replace('/[^A-Za-z0-9]+/', '-', basename($root)));

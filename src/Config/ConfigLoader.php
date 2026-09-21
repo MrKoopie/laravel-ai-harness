@@ -31,6 +31,7 @@ final class ConfigLoader
         '.ai-harness.config.local',
     ];
 
+    /** Load and validate the layered configuration for a project. */
     public function load(string $root): Config
     {
         $values = self::DEFAULTS;
@@ -99,6 +100,8 @@ final class ConfigLoader
     }
 
     /**
+     * Parse one harness configuration file.
+     *
      * @return array<string, string>
      */
     private function parseFile(string $path): array
@@ -150,6 +153,7 @@ final class ConfigLoader
         return $values;
     }
 
+    /** Remove balanced quotes from a configuration value. */
     private function unquote(string $value, string $path, int $line): string
     {
         if ($value === '') {
@@ -170,6 +174,8 @@ final class ConfigLoader
     }
 
     /**
+     * Parse a comma-separated configuration value into unique items.
+     *
      * @return list<non-empty-string>
      */
     private function list(string $value, string $key): array
@@ -187,6 +193,7 @@ final class ConfigLoader
         return array_values(array_unique($items));
     }
 
+    /** Parse a supported textual boolean value. */
     private function boolean(string $value, string $key): bool
     {
         return match (strtolower(trim($value))) {

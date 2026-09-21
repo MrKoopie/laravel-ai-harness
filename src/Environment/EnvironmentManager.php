@@ -11,6 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 final readonly class EnvironmentManager
 {
+    /** Create the environment lifecycle coordinator. */
     public function __construct(
         private ConfigLoader $configLoader,
         private CommandFactory $commands,
@@ -19,6 +20,7 @@ final readonly class EnvironmentManager
         private StateStore $state,
     ) {}
 
+    /** Prepare dependencies, services, and checkout-specific configuration. */
     public function setup(string $root, OutputInterface $output): int
     {
         $config = $this->configLoader->load($root);
@@ -107,6 +109,7 @@ final readonly class EnvironmentManager
         return 0;
     }
 
+    /** Remove only resources recorded as owned by the harness. */
     public function cleanup(string $root, OutputInterface $output): int
     {
         $config = $this->configLoader->load($root);
@@ -175,6 +178,7 @@ final readonly class EnvironmentManager
         return $status;
     }
 
+    /** Start the configured Sail services. */
     public function up(string $root, OutputInterface $output): int
     {
         $config = $this->configLoader->load($root);
@@ -188,6 +192,7 @@ final readonly class EnvironmentManager
         return $this->processes->run($this->commands->servicesUp($config, $root), $root, $output);
     }
 
+    /** Stop the configured Sail services without deleting volumes. */
     public function down(string $root, OutputInterface $output): int
     {
         $config = $this->configLoader->load($root);
@@ -201,6 +206,7 @@ final readonly class EnvironmentManager
         return $this->processes->run($this->commands->servicesDown($config, $root), $root, $output);
     }
 
+    /** Link, secure, and optionally isolate the project's Herd site. */
     private function setupHerd(Config $config, string $root, OutputInterface $output): int
     {
         $site = SiteName::forPath($root);
@@ -249,11 +255,13 @@ final readonly class EnvironmentManager
         return 0;
     }
 
+    /** Determine whether the configuration needs Sail containers. */
     private function requiresSail(Config $config): bool
     {
         return $config->runtime === Runtime::Sail || $config->services === Services::Sail;
     }
 
+    /** Determine whether the configured Sail services include MySQL. */
     private function usesMySql(Config $config): bool
     {
         return $config->services === Services::Sail && in_array('mysql', $config->sailServices, true);

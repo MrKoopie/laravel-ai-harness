@@ -14,8 +14,10 @@ final readonly class StateStore
 
     private const STATE_FILE = '.ai-harness.state.json';
 
+    /** Create a state store backed by safe writes. */
     public function __construct(private SafeWriter $writer) {}
 
+    /** Return the Herd site recorded as owned by the harness. */
     public function herdSite(string $root): ?string
     {
         $state = $this->read($root);
@@ -24,6 +26,7 @@ final readonly class StateStore
         return is_string($site) && $site !== '' ? $site : null;
     }
 
+    /** Record the Herd site created for a project. */
     public function recordHerdSite(string $root, string $site): void
     {
         if (preg_match('/^[a-z0-9][a-z0-9-]{0,62}$/', $site) !== 1) {
@@ -35,11 +38,13 @@ final readonly class StateStore
         $this->write($root, $state);
     }
 
+    /** Determine whether the recorded Herd site has harness-managed TLS. */
     public function herdSecured(string $root): bool
     {
         return ($this->read($root)['herd_secured'] ?? false) === true;
     }
 
+    /** Record that the harness secured the owned Herd site. */
     public function recordHerdSecured(string $root): void
     {
         $state = $this->read($root);
@@ -52,6 +57,7 @@ final readonly class StateStore
         $this->write($root, $state);
     }
 
+    /** Clear the harness-managed Herd TLS marker. */
     public function clearHerdSecured(string $root): void
     {
         $state = $this->read($root);
@@ -59,6 +65,7 @@ final readonly class StateStore
         $this->write($root, $state);
     }
 
+    /** Clear all recorded state for the owned Herd site. */
     public function clearHerdSite(string $root): void
     {
         $state = $this->read($root);
@@ -67,11 +74,13 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
+    /** Determine whether checkout-specific MySQL databases are owned. */
     public function ownsMySqlDatabases(string $root): bool
     {
         return ($this->read($root)['mysql_databases'] ?? false) === true;
     }
 
+    /** Record ownership of checkout-specific MySQL databases. */
     public function recordMySqlDatabases(string $root): void
     {
         $state = $this->read($root);
@@ -79,6 +88,7 @@ final readonly class StateStore
         $this->write($root, $state);
     }
 
+    /** Clear ownership of checkout-specific MySQL databases. */
     public function clearMySqlDatabases(string $root): void
     {
         $state = $this->read($root);
@@ -87,7 +97,11 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
-    /** @param array<string, mixed> $state */
+    /**
+     * Persist non-empty state or remove the empty state file.
+     *
+     * @param  array<string, mixed>  $state
+     */
     private function writeOrRemove(string $root, array $state): void
     {
         $path = $root.'/'.self::STATE_FILE;
@@ -107,7 +121,11 @@ final readonly class StateStore
         }
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Read and validate the project's harness state.
+     *
+     * @return array<string, mixed>
+     */
     private function read(string $root): array
     {
         $path = $root.'/'.self::STATE_FILE;
@@ -145,7 +163,11 @@ final readonly class StateStore
         return $state;
     }
 
-    /** @param array<string, mixed> $state */
+    /**
+     * Encode and persist the project's harness state.
+     *
+     * @param  array<string, mixed>  $state
+     */
     private function write(string $root, array $state): void
     {
         try {

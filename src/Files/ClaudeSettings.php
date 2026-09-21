@@ -10,8 +10,10 @@ final readonly class ClaudeSettings
 {
     private const MAX_FILE_SIZE = 1_048_576;
 
+    /** Create a Claude settings manager backed by safe writes. */
     public function __construct(private SafeWriter $writer) {}
 
+    /** Add or remove harness-owned Claude lifecycle hooks. */
     public function sync(string $root, bool $enabled): void
     {
         $path = $root.'/.claude/settings.json';
@@ -73,6 +75,8 @@ final readonly class ClaudeSettings
     }
 
     /**
+     * Read and validate Claude's project settings.
+     *
      * @return array<string, mixed>
      */
     private function read(string $path): array
@@ -107,6 +111,8 @@ final readonly class ClaudeSettings
     }
 
     /**
+     * Remove harness-owned commands while preserving other hook entries.
+     *
      * @param  list<mixed>  $groups
      * @return list<mixed>
      */
@@ -145,6 +151,8 @@ final readonly class ClaudeSettings
     }
 
     /**
+     * Build one Claude hook group for a harness lifecycle event.
+     *
      * @return array<string, mixed>
      */
     private function group(?string $matcher, string $event, string $status): array

@@ -8,6 +8,7 @@ use RuntimeException;
 
 final class ProjectPath
 {
+    /** Resolve and normalize an existing project directory. */
     public static function resolve(?string $path = null): string
     {
         $candidate = $path === null || trim($path) === '' ? getcwd() : $path;

@@ -11,11 +11,13 @@ use Symfony\Component\Console\Input\InputOption;
 
 abstract class ProjectCommand extends Command
 {
+    /** Add the common project path option to a command. */
     protected function configureProjectPath(): void
     {
         $this->addOption('path', null, InputOption::VALUE_REQUIRED, 'Project root; defaults to the current directory');
     }
 
+    /** Resolve the project path supplied to the command. */
     protected function projectPath(InputInterface $input): string
     {
         $path = $input->getOption('path');

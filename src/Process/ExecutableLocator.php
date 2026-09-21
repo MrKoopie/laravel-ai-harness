@@ -13,13 +13,18 @@ final readonly class ExecutableLocator
     /** @var array<string, string|null> */
     private array $overrides;
 
-    /** @param array<string, string|null> $overrides */
+    /**
+     * Create an executable locator with optional deterministic overrides.
+     *
+     * @param  array<string, string|null>  $overrides
+     */
     public function __construct(?ExecutableFinder $finder = null, array $overrides = [])
     {
         $this->finder = $finder ?? new ExecutableFinder;
         $this->overrides = $overrides;
     }
 
+    /** Find an executable by name. */
     public function find(string $name): ?string
     {
         if (array_key_exists($name, $this->overrides)) {
@@ -31,6 +36,7 @@ final readonly class ExecutableLocator
         return is_string($path) ? $path : null;
     }
 
+    /** Locate the PHP executable for native commands. */
     public function php(): ?string
     {
         if (array_key_exists('php', $this->overrides)) {
@@ -44,6 +50,7 @@ final readonly class ExecutableLocator
         return $this->find('php');
     }
 
+    /** Locate the Composer executable. */
     public function composer(): ?string
     {
         if (array_key_exists('composer', $this->overrides)) {
@@ -53,6 +60,7 @@ final readonly class ExecutableLocator
         return $this->find('composer');
     }
 
+    /** Locate the Laravel Herd executable, including its macOS path. */
     public function herd(): ?string
     {
         if (array_key_exists('herd', $this->overrides)) {

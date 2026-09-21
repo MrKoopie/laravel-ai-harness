@@ -24,6 +24,7 @@ use Symfony\Component\Console\Application as SymfonyApplication;
 
 final class Application extends SymfonyApplication
 {
+    /** Register the commands and services exposed by the harness CLI. */
     public function __construct()
     {
         parent::__construct('Laravel AI Harness', '1.0.0-dev');

@@ -17,6 +17,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 final class RuntimeCommand extends Command
 {
+    /** Create a command that proxies one runtime tool. */
     public function __construct(
         string $name,
         private readonly string $tool,
@@ -28,12 +29,14 @@ final class RuntimeCommand extends Command
         $this->setDescription("Run {$tool} through the configured project runtime");
     }
 
+    /** Configure passthrough arguments for the runtime tool. */
     protected function configure(): void
     {
         $this->addArgument('arguments', InputArgument::IS_ARRAY | InputArgument::OPTIONAL, 'Arguments forwarded unchanged to the runtime tool');
         $this->ignoreValidationErrors();
     }
 
+    /** Run the selected tool through the configured project runtime. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $root = ProjectPath::resolve();

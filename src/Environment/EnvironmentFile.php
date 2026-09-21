@@ -24,8 +24,10 @@ final readonly class EnvironmentFile
         'SESSION_DRIVER' => 'array',
     ];
 
+    /** Create an environment-file manager backed by safe writes. */
     public function __construct(private SafeWriter $writer) {}
 
+    /** Create .env from .env.example when it is missing. */
     public function ensure(string $root): bool
     {
         $target = $root.'/.env';
@@ -50,6 +52,7 @@ final readonly class EnvironmentFile
         return true;
     }
 
+    /** Determine whether the project's application key is missing. */
     public function appKeyMissing(string $root): bool
     {
         $path = $root.'/.env';
@@ -67,11 +70,13 @@ final readonly class EnvironmentFile
         return trim(trim($matches[1]), "\"'") === '';
     }
 
+    /** Set the application URL in the primary environment file. */
     public function setAppUrl(string $root, string $url): void
     {
         $this->replaceValues($root, '.env', ['APP_URL' => $url]);
     }
 
+    /** Create an isolated testing environment file when it is missing. */
     public function ensureTesting(string $root): bool
     {
         $target = $root.'/.env.testing';
@@ -95,6 +100,7 @@ final readonly class EnvironmentFile
         return true;
     }
 
+    /** Configure project environment files for checkout-specific MySQL. */
     public function configureMySql(string $root, bool $insideSail): void
     {
         $host = $insideSail ? 'mysql' : '127.0.0.1';
@@ -118,6 +124,7 @@ final readonly class EnvironmentFile
         }
     }
 
+    /** Ensure the testing environment exists and uses MySQL. */
     public function ensureMySqlTesting(string $root, bool $insideSail): bool
     {
         $created = $this->ensureTesting($root);
@@ -127,6 +134,7 @@ final readonly class EnvironmentFile
         return $created;
     }
 
+    /** Configure PHPUnit's inline database environment for MySQL. */
     public function configurePhpUnitMySql(string $root): bool
     {
         $path = $root.'/phpunit.xml';
@@ -161,6 +169,8 @@ final readonly class EnvironmentFile
     }
 
     /**
+     * Replace environment values in an existing file.
+     *
      * @param  array<string, string>  $values
      */
     private function replaceValues(string $root, string $filename, array $values): void
@@ -179,6 +189,8 @@ final readonly class EnvironmentFile
     }
 
     /**
+     * Return environment contents with the supplied values replaced.
+     *
      * @param  array<string, string>  $values
      */
     private function withValues(string $contents, array $values): string
@@ -217,6 +229,7 @@ final readonly class EnvironmentFile
         return implode("\n", array_values($lines));
     }
 
+    /** Read and validate the host-side forwarded MySQL port. */
     private function forwardedMySqlPort(string $root): string
     {
         $path = $root.'/.env';
@@ -244,6 +257,7 @@ final readonly class EnvironmentFile
         return $port;
     }
 
+    /** Read a bounded environment file. */
     private function read(string $path): string
     {
         $size = filesize($path);

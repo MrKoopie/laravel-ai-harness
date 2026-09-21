@@ -20,6 +20,7 @@ final class HookCommand extends Command
 {
     private const MAX_PAYLOAD_SIZE = 1_048_576;
 
+    /** Create the coding-agent lifecycle hook command. */
     public function __construct(
         private readonly ConfigLoader $configLoader,
         private readonly EnvironmentManager $environment,
@@ -27,6 +28,7 @@ final class HookCommand extends Command
         parent::__construct();
     }
 
+    /** Configure the supported hook arguments. */
     protected function configure(): void
     {
         $this
@@ -34,6 +36,7 @@ final class HookCommand extends Command
             ->addArgument('event', InputArgument::REQUIRED, 'Lifecycle event');
     }
 
+    /** Handle a validated coding-agent lifecycle event. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         if ($input->getArgument('agent') !== 'claude') {
@@ -78,7 +81,11 @@ final class HookCommand extends Command
             : $this->environment->setup($root, $output);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Read and decode the hook payload from standard input.
+     *
+     * @return array<string, mixed>
+     */
     private function payload(): array
     {
         $contents = stream_get_contents(STDIN, self::MAX_PAYLOAD_SIZE + 1);
@@ -109,6 +116,8 @@ final class HookCommand extends Command
     }
 
     /**
+     * Extract the event's target worktree path.
+     *
      * @param  array<string, mixed>  $payload
      */
     private function targetPath(string $event, array $payload): ?string
@@ -142,6 +151,7 @@ final class HookCommand extends Command
         return $path;
     }
 
+    /** Ensure a hook target belongs to the current Claude project. */
     private function assertClaudeWorktree(string $root): void
     {
         $projectDirectory = getenv('CLAUDE_PROJECT_DIR');
@@ -162,7 +172,11 @@ final class HookCommand extends Command
         }
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * Read a nested string from a decoded hook payload.
+     *
+     * @param  array<string, mixed>  $payload
+     */
     private function nestedString(array $payload, string ...$segments): ?string
     {
         $value = $payload;

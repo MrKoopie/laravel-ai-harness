@@ -13,6 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'doctor', description: 'Validate configuration, runtime tools, and agent integration files')]
 final class DoctorCommand extends ProjectCommand
 {
+    /** Create the project health-check command. */
     public function __construct(
         private readonly ConfigLoader $configLoader,
         private readonly HealthChecker $health,
@@ -20,11 +21,13 @@ final class DoctorCommand extends ProjectCommand
         parent::__construct();
     }
 
+    /** Configure the shared project path option. */
     protected function configure(): void
     {
         $this->configureProjectPath();
     }
 
+    /** Run all health checks and report their status. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $root = $this->projectPath($input);
