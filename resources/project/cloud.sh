@@ -39,8 +39,26 @@ case "${1:-}" in
             exit 1
         fi
 
-        "${privilege[@]}" apt-get update
-        "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        apt_options=()
+        apt_sources="${AI_HARNESS_APT_SOURCE_LIST:-}"
+
+        if [[ -z "$apt_sources" && -f /etc/apt/sources.list.d/ubuntu.sources ]]; then
+            apt_sources=/etc/apt/sources.list.d/ubuntu.sources
+        elif [[ -z "$apt_sources" && -f /etc/apt/sources.list.d/debian.sources ]]; then
+            apt_sources=/etc/apt/sources.list.d/debian.sources
+        fi
+
+        if [[ -n "$apt_sources" ]]; then
+            if [[ "$apt_sources" != /* || ! -f "$apt_sources" ]]; then
+                printf 'AI_HARNESS_APT_SOURCE_LIST must identify an existing absolute source-list path.\n' >&2
+                exit 1
+            fi
+
+            apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o 'Dir::Etc::sourceparts=-')
+        fi
+
+        "${privilege[@]}" apt-get "${apt_options[@]}" update
+        "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y --no-install-recommends \
             "php${php_version}-cli" "php${php_version}-mysql" "php${php_version}-sqlite3" \
             "php${php_version}-mbstring" "php${php_version}-xml" "php${php_version}-curl" \
             "php${php_version}-zip" "php${php_version}-intl" "php${php_version}-bcmath" \
@@ -49,7 +67,7 @@ case "${1:-}" in
         "${privilege[@]}" update-alternatives --set php "/usr/bin/php${php_version}"
 
         if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-            "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm
+            "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y nodejs npm
         fi
 
         php --version

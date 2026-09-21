@@ -266,6 +266,12 @@ provider to discard its ephemeral container. See
    example, only if that version exists in the environment's configured apt
    repositories. The harness never adds third-party apt repositories. Pin Node
    in the provider image/settings to satisfy the project's `engines` requirement.
+   When present, provisioning uses `ubuntu.sources` or `debian.sources` alone,
+   avoiding unrelated image repositories that the cloud proxy may block. Set
+   `AI_HARNESS_APT_SOURCE_LIST` to an existing absolute source-list path to
+   override that choice. Package signature verification remains enabled. If the
+   image puts phpenv shims first in `PATH`, select `/usr/bin` first in setup and
+   maintenance to use the provisioned PHP and its installed extensions.
 2. Project setup requires a committed `composer.lock`, installs development
    dependencies and runs `composer check-platform-reqs`. It does not skip platform
    requirements. Frontend projects require `package-lock.json` and use

@@ -136,6 +136,32 @@ test('cloud provision refuses local execution before invoking system package man
         ->and($process->getErrorOutput())->toContain('requires a cloud environment');
 });
 
+test('cloud provisioning can isolate distribution sources from blocked third party repositories', function (): void {
+    $root = temp_directory('cloud-apt');
+    mkdir($root.'/bin');
+    file_put_contents($root.'/ubuntu.sources', 'Types: deb');
+
+    foreach (['id' => '0', 'uname' => 'Linux'] as $command => $output) {
+        write_executable($root.'/bin/'.$command, "#!/bin/sh\necho ".$output."\n");
+    }
+
+    foreach (['apt-get', 'update-alternatives', 'php', 'composer', 'node', 'npm'] as $command) {
+        write_executable($root.'/bin/'.$command, "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> \"\$CLOUD_LOG\"\n");
+    }
+
+    $process = new Process(['bash', package_root().'/resources/project/cloud.sh', 'provision'], $root, [
+        'AI_HARNESS_ENV' => 'codex-cloud',
+        'AI_HARNESS_APT_SOURCE_LIST' => $root.'/ubuntu.sources',
+        'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
+        'CLOUD_LOG' => $root.'/commands',
+    ]);
+    $process->mustRun();
+    $commands = (string) file_get_contents($root.'/commands');
+
+    expect($commands)->toContain('-o Dir::Etc::sourcelist='.$root.'/ubuntu.sources -o Dir::Etc::sourceparts=- update')
+        ->and($commands)->toContain('-o Dir::Etc::sourcelist='.$root.'/ubuntu.sources -o Dir::Etc::sourceparts=- install');
+});
+
 test('cloud database cleanup matches exact numeric workers and preserves all other databases', function (): void {
     $root = temp_directory('cloud-mysql');
     mkdir($root.'/bin');
