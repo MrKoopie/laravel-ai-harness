@@ -9,8 +9,19 @@ fi
 
 case "${1:-}" in
     mysql)
-        "${privilege[@]}" service mysql start
-        probe=("${privilege[@]}" mysql --no-defaults --no-login-paths --protocol=socket --socket="${AI_HARNESS_MYSQL_SOCKET:-/var/run/mysqld/mysqld.sock}" --user=root --connect-timeout=2 --execute='SELECT 1;')
+        probe=("${privilege[@]}" env MYSQL_TEST_LOGIN_FILE=/dev/null mysql --no-defaults --protocol=socket --socket="${AI_HARNESS_MYSQL_SOCKET:-/var/run/mysqld/mysqld.sock}" --user=root --connect-timeout=2 --execute='SELECT 1;')
+
+        if "${probe[@]}" >/dev/null 2>&1; then
+            exit 0
+        fi
+
+        if ! "${privilege[@]}" service mysql start; then
+            # Some cloud images have login-shell initialization that breaks SysV su.
+            # Start the already initialized Ubuntu MySQL daemon without a login shell.
+            "${privilege[@]}" install -d -o mysql -g mysql /var/run/mysqld
+            "${privilege[@]}" mysqld --user=mysql --daemonize --bind-address=127.0.0.1 \
+                --socket="${AI_HARNESS_MYSQL_SOCKET:-/var/run/mysqld/mysqld.sock}"
+        fi
         ;;
     redis)
         "${privilege[@]}" service redis-server start

@@ -32,7 +32,7 @@ if [[ "$(id -u)" != 0 ]]; then
 fi
 
 # Ignore user option files and login paths: cleanup must never connect to a remote host.
-mysql_command=("${privilege[@]}" mysql --no-defaults --no-login-paths --protocol=socket --socket="$socket" --user=root --connect-timeout=5)
+mysql_command=("${privilege[@]}" env MYSQL_TEST_LOGIN_FILE=/dev/null mysql --no-defaults --protocol=socket --socket="$socket" --user=root --connect-timeout=5)
 
 case "$action" in
     setup)

@@ -75,7 +75,7 @@ test('cloud dependency failure stops setup before application commands', functio
 
 test('Claude cloud hooks prepare ordinary clones with worktree automation disabled', function (): void {
     [$root, $environment] = cloud_fixture();
-    unset($environment['AI_HARNESS_ENV']);
+    $environment['AI_HARNESS_ENV'] = false;
     $environment['CLAUDE_CODE_REMOTE'] = 'true';
     $environment['CLAUDE_PROJECT_DIR'] = $root;
     $process = harness_process(['hook', 'claude', 'session-start'], $root, $environment);
@@ -170,6 +170,8 @@ test('cloud database cleanup matches exact numeric workers and preserves all oth
     write_executable($root.'/bin/mysql', <<<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "${MYSQL_TEST_LOGIN_FILE:-}" == /dev/null ]] || exit 81
+[[ "$*" != *--no-login-paths* ]] || exit 82
 if [[ "$*" == *'SHOW DATABASES;'* ]]; then
     cat "$SCHEMAS"
 else
@@ -188,6 +190,28 @@ BASH);
     expect(substr_count($sql, 'DROP DATABASE'))->toBe(3)
         ->and($sql)->toContain('`app_123_testing`', '`app_123_testing_1`', '`app_123_testing_test_12`')
         ->and($sql)->not->toContain('`app_123`', 'appX123', 'backup', 'extra', 'other_testing');
+});
+
+test('cloud MySQL startup falls back to the daemon when image login scripts break service startup', function (): void {
+    $root = temp_directory('cloud-service');
+    mkdir($root.'/bin');
+    write_executable($root.'/bin/id', "#!/bin/sh\necho 0\n");
+    write_executable($root.'/bin/service', "#!/bin/sh\nexit 2\n");
+    write_executable($root.'/bin/install', "#!/bin/sh\nexit 0\n");
+    write_executable($root.'/bin/mysqld', "#!/bin/sh\ntouch \"\$CLOUD_READY\"\n");
+    write_executable($root.'/bin/mysql', <<<'BASH'
+#!/usr/bin/env bash
+[[ "${MYSQL_TEST_LOGIN_FILE:-}" == /dev/null ]] || exit 81
+[[ "$*" != *--no-login-paths* ]] || exit 82
+test -f "$CLOUD_READY"
+BASH);
+    $process = new Process(['bash', package_root().'/resources/cloud/service.sh', 'mysql'], $root, [
+        'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
+        'CLOUD_READY' => $root.'/ready',
+    ]);
+    $process->mustRun();
+
+    expect($root.'/ready')->toBeFile();
 });
 
 test('cloud setup clears stale Laravel config before Composer and removes inherited database overrides', function (): void {
