@@ -57,8 +57,8 @@ case "${1:-}" in
             php_version="$(LC_ALL=C apt-cache "${apt_options[@]}" depends php-cli | sed -nE 's/^[[:space:]]*Depends: php([0-9]+\.[0-9]+)-cli$/\1/p' | head -n 1)"
         fi
 
-        if [[ ! "$php_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
-            printf 'Set AI_HARNESS_PHP_VERSION to an available major.minor PHP version; the distribution default could not be determined.\n' >&2
+        if [[ ! "$php_version" =~ ^[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            printf 'Set AI_HARNESS_PHP_VERSION to an available major.minor PHP version with one or two digits per component; the selected version is invalid or undetermined.\n' >&2
             exit 1
         fi
 

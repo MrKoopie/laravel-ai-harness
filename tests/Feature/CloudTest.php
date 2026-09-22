@@ -142,6 +142,8 @@ foreach ([
     'explicit override' => ['8.2', '8.4', '8.4'],
     'unsupported default' => ['8.1', '', ''],
     'unknown default' => ['', '', ''],
+    'oversized major' => ['8.3', '999999999999999999999.2', ''],
+    'oversized minor' => ['8.3', '8.999999999999999999999', ''],
 ] as $scenario => [$distributionVersion, $override, $expectedVersion]) {
     test('cloud provisioning selects PHP and isolates apt sources: '.$scenario, function () use ($distributionVersion, $override, $expectedVersion): void {
         $root = temp_directory('cloud-apt');
