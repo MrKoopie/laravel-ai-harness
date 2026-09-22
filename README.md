@@ -128,6 +128,7 @@ When Herd or native PHP uses Sail's MySQL service, `DB_PORT` follows the standar
 ./.ai-harness down
 ./.ai-harness setup
 ./.ai-harness cleanup
+./.ai-harness prune-herd --dry-run
 ```
 
 Runtime arguments are executed as an argument array, not through a shell command string. Options, spaces, and shell metacharacters are forwarded unchanged.
@@ -154,6 +155,26 @@ It does not run migrations, rewrite `compose.yaml`, or inject test-runner option
 MySQL cleanup also removes this checkout's numeric parallel test databases (including Laravel's `_test_1` form), but preserves similarly named databases without a numeric worker suffix and databases belonging to other checkouts. It retains ownership state if database cleanup fails, so cleanup can be retried.
 
 `cleanup` only removes HTTPS and unlinks a Herd site previously recorded as harness-owned. Before each action, it verifies that the recorded site name is the deterministic name for the current project path. Sail shutdown is always the explicit `down` command.
+
+`./.ai-harness prune-herd` inspects dangling Herd links whose names match the
+current SHA-based naming scheme or the legacy POSIX-checksum scheme. Interactive
+runs ask for confirmation for each site, defaulting to keep it; `--dry-run` and
+`--no-interaction` only report. `--sites-path` can inspect another directory but
+cannot delete sites outside Herd's configured directory. Cleanup rechecks the
+missing target before removing HTTPS and before unlinking; a Herd failure keeps
+the link available for retry. This command never deletes databases.
+
+Moved or copied worktrees still fail ownership validation during ordinary setup
+and cleanup. Use orphan pruning for the abandoned Herd link after a move; database
+recovery requires independently verified ownership and is not inferred from a
+copied state file.
+
+For standard Herd installations, PHP, Artisan, tests, and Composer use the
+site-isolated PHP binary resolved through Herd's PHAR. Startup warnings are kept
+out of the executable path, and the candidate must be an executable versioned
+PHP binary inside the Herd installation. Other layouts or failed resolution fall
+back to Herd's wrapper; explicit `--site=` arguments retain wrapper behavior.
+
 
 ## Codex
 
