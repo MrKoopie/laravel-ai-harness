@@ -261,10 +261,13 @@ provider to discard its ephemeral container. See
 ### Preparation and boundaries
 
 1. Provisioning requires Ubuntu/Debian, root or passwordless `sudo`, and apt
-   access. It installs PHP 8.3 by default, common Laravel extensions, Composer,
+   access. It selects the distribution's default PHP CLI (minimum 8.2), installs
+   common Laravel extensions, Composer,
    MySQL, Redis, and missing Node/npm. Set `AI_HARNESS_PHP_VERSION=8.4`, for
    example, only if that version exists in the environment's configured apt
-   repositories. The harness never adds third-party apt repositories. Pin Node
+   repositories. Images whose default PHP is older than 8.2 need a compatible
+   image or an explicit available version. The harness never adds third-party
+   apt repositories. Pin Node
    in the provider image/settings to satisfy the project's `engines` requirement.
    When present, provisioning uses `ubuntu.sources` or `debian.sources` alone,
    avoiding unrelated image repositories that the cloud proxy may block. Set

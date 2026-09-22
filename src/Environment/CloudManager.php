@@ -176,9 +176,9 @@ final readonly class CloudManager
     /** Drop only the exact owned testing schema and its numeric worker schemas. */
     public function cleanup(string $root, OutputInterface $output): int
     {
-        $config = $this->configuration($root);
+        $this->configuration($root);
 
-        if (! $config->cloud || ! $this->state->ownsCloudTesting($root)) {
+        if (! $this->state->ownsCloudTesting($root)) {
             $output->writeln('<info>No owned cloud testing databases need cleanup.</info>');
 
             return 0;

@@ -32,13 +32,6 @@ case "${1:-}" in
             privilege=(sudo -n)
         fi
 
-        php_version="${AI_HARNESS_PHP_VERSION:-8.3}"
-
-        if [[ ! "$php_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
-            printf 'AI_HARNESS_PHP_VERSION must be a major.minor version.\n' >&2
-            exit 1
-        fi
-
         apt_options=()
         apt_sources="${AI_HARNESS_APT_SOURCE_LIST:-}"
 
@@ -58,6 +51,25 @@ case "${1:-}" in
         fi
 
         "${privilege[@]}" apt-get "${apt_options[@]}" update
+        php_version="${AI_HARNESS_PHP_VERSION:-}"
+
+        if [[ -z "$php_version" ]]; then
+            php_version="$(LC_ALL=C apt-cache "${apt_options[@]}" depends php-cli | sed -nE 's/^[[:space:]]*Depends: php([0-9]+\.[0-9]+)-cli$/\1/p' | head -n 1)"
+        fi
+
+        if [[ ! "$php_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            printf 'Set AI_HARNESS_PHP_VERSION to an available major.minor PHP version; the distribution default could not be determined.\n' >&2
+            exit 1
+        fi
+
+        php_major="${php_version%%.*}"
+        php_minor="${php_version#*.}"
+
+        if ((10#$php_major < 8 || (10#$php_major == 8 && 10#$php_minor < 2))); then
+            printf 'Cloud setup requires PHP 8.2 or newer; select a compatible image or set AI_HARNESS_PHP_VERSION to a version available in its repositories.\n' >&2
+            exit 1
+        fi
+
         "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y --no-install-recommends \
             "php${php_version}-cli" "php${php_version}-mysql" "php${php_version}-sqlite3" \
             "php${php_version}-mbstring" "php${php_version}-xml" "php${php_version}-curl" \

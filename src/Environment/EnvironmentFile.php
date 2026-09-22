@@ -155,6 +155,7 @@ final readonly class EnvironmentFile
             'DB_PASSWORD' => 'harness',
             'DB_URL' => '',
             'DATABASE_URL' => '',
+            'MYSQL_ATTR_SSL_CA' => '',
             'DB_SOCKET' => $mysql ? $socket : '',
             'REDIS_HOST' => '127.0.0.1',
             'REDIS_PORT' => '6379',
@@ -235,7 +236,7 @@ final readonly class EnvironmentFile
             $name = $match[1];
 
             if (str_starts_with($name, 'DB_') || str_starts_with($name, 'REDIS_') || array_key_exists($name, self::TESTING_VALUES)
-                || in_array($name, ['DATABASE_URL', 'APP_CONFIG_CACHE', 'APP_KEY'], true)) {
+                || in_array($name, ['MYSQL_ATTR_SSL_CA', 'DATABASE_URL', 'APP_CONFIG_CACHE', 'APP_KEY'], true)) {
                 $values[$name] = trim($match[2], "\"'");
             }
         }

@@ -42,7 +42,7 @@ enum ExecutionEnvironment: string
 
         foreach (array_keys(getenv()) as $key) {
             if (str_starts_with($key, 'DB_') || str_starts_with($key, 'REDIS_')
-                || in_array($key, ['DATABASE_URL', 'APP_ENV', 'APP_KEY', 'APP_URL', 'APP_CONFIG_CACHE', 'CACHE_STORE', 'CACHE_DRIVER', 'QUEUE_CONNECTION', 'SESSION_DRIVER', 'MAIL_MAILER'], true)) {
+                || in_array($key, ['MYSQL_ATTR_SSL_CA', 'DATABASE_URL', 'APP_ENV', 'APP_KEY', 'APP_URL', 'APP_CONFIG_CACHE', 'CACHE_STORE', 'CACHE_DRIVER', 'QUEUE_CONNECTION', 'SESSION_DRIVER', 'MAIL_MAILER'], true)) {
                 $environment[$key] = false;
             }
         }

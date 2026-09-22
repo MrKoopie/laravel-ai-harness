@@ -136,31 +136,52 @@ test('cloud provision refuses local execution before invoking system package man
         ->and($process->getErrorOutput())->toContain('requires a cloud environment');
 });
 
-test('cloud provisioning can isolate distribution sources from blocked third party repositories', function (): void {
-    $root = temp_directory('cloud-apt');
-    mkdir($root.'/bin');
-    file_put_contents($root.'/ubuntu.sources', 'Types: deb');
+foreach ([
+    'Debian default' => ['8.2', '', '8.2'],
+    'Ubuntu default' => ['8.3', '', '8.3'],
+    'explicit override' => ['8.2', '8.4', '8.4'],
+    'unsupported default' => ['8.1', '', ''],
+    'unknown default' => ['', '', ''],
+] as $scenario => [$distributionVersion, $override, $expectedVersion]) {
+    test('cloud provisioning selects PHP and isolates apt sources: '.$scenario, function () use ($distributionVersion, $override, $expectedVersion): void {
+        $root = temp_directory('cloud-apt');
+        mkdir($root.'/bin');
+        file_put_contents($root.'/ubuntu.sources', 'Types: deb');
+        write_executable($root.'/bin/apt-cache', "#!/bin/sh\necho '  Depends: php".$distributionVersion."-cli'\n");
 
-    foreach (['id' => '0', 'uname' => 'Linux'] as $command => $output) {
-        write_executable($root.'/bin/'.$command, "#!/bin/sh\necho ".$output."\n");
-    }
+        foreach (['id' => '0', 'uname' => 'Linux'] as $command => $output) {
+            write_executable($root.'/bin/'.$command, "#!/bin/sh\necho ".$output."\n");
+        }
 
-    foreach (['apt-get', 'update-alternatives', 'php', 'composer', 'node', 'npm'] as $command) {
-        write_executable($root.'/bin/'.$command, "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> \"\$CLOUD_LOG\"\n");
-    }
+        foreach (['apt-get', 'update-alternatives', 'php', 'composer', 'node', 'npm'] as $command) {
+            write_executable($root.'/bin/'.$command, "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> \"\$CLOUD_LOG\"\n");
+        }
 
-    $process = new Process(['bash', package_root().'/resources/project/cloud.sh', 'provision'], $root, [
-        'AI_HARNESS_ENV' => 'codex-cloud',
-        'AI_HARNESS_APT_SOURCE_LIST' => $root.'/ubuntu.sources',
-        'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
-        'CLOUD_LOG' => $root.'/commands',
-    ]);
-    $process->mustRun();
-    $commands = (string) file_get_contents($root.'/commands');
+        $process = new Process(['bash', package_root().'/resources/project/cloud.sh', 'provision'], $root, [
+            'AI_HARNESS_ENV' => 'codex-cloud',
+            'AI_HARNESS_APT_SOURCE_LIST' => $root.'/ubuntu.sources',
+            'AI_HARNESS_PHP_VERSION' => $override,
+            'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
+            'CLOUD_LOG' => $root.'/commands',
+        ]);
+        $process->run();
 
-    expect($commands)->toContain('-o Dir::Etc::sourcelist='.$root.'/ubuntu.sources -o Dir::Etc::sourceparts=- update')
-        ->and($commands)->toContain('-o Dir::Etc::sourcelist='.$root.'/ubuntu.sources -o Dir::Etc::sourceparts=- install');
-});
+        if ($expectedVersion === '') {
+            expect($process->getExitCode())->toBe(1)
+                ->and($process->getErrorOutput())->toContain('AI_HARNESS_PHP_VERSION')
+                ->and(file_get_contents($root.'/commands'))->not->toContain('install', '--set php');
+
+            return;
+        }
+
+        expect($process->getExitCode())->toBe(0);
+        $commands = (string) file_get_contents($root.'/commands');
+
+        expect($commands)->toContain('-o Dir::Etc::sourcelist='.$root.'/ubuntu.sources -o Dir::Etc::sourceparts=- update')
+            ->and($commands)->toContain('-o Dir::Etc::sourcelist='.$root.'/ubuntu.sources -o Dir::Etc::sourceparts=- install')
+            ->and($commands)->toContain('php'.$expectedVersion.'-cli', '--set php /usr/bin/php'.$expectedVersion);
+    });
+}
 
 test('cloud database cleanup matches exact numeric workers and preserves all other databases', function (): void {
     $root = temp_directory('cloud-mysql');
@@ -219,16 +240,19 @@ test('cloud setup clears stale Laravel config before Composer and removes inheri
     mkdir($root.'/bootstrap/cache', 0755, true);
     file_put_contents($root.'/bootstrap/cache/config.php', '<?php return ["database" => "external"];');
     file_put_contents($root.'/.env.example', "APP_KEY=present\nAPP_CONFIG_CACHE=/tmp/external-config.php\n", FILE_APPEND);
+    $environment['MYSQL_ATTR_SSL_CA'] = '/external/ca.pem';
+    file_put_contents($root.'/.env.example', "MYSQL_ATTR_SSL_CA=/external/ca.pem\n", FILE_APPEND);
     $environment['DB_HOST'] = 'external.invalid';
     $environment['DB_URL'] = 'mysql://external.invalid/app';
     write_executable($root.'/fake-bin/composer', <<<'BASH'
 #!/usr/bin/env bash
-[[ ! -f bootstrap/cache/config.php && -z "${DB_HOST:-}" && -z "${DB_URL:-}" ]]
+[[ ! -f bootstrap/cache/config.php && -z "${DB_HOST:-}" && -z "${DB_URL:-}" && -z "${MYSQL_ATTR_SSL_CA:-}" ]]
 BASH);
 
     harness_process(['cloud', 'setup'], $root, $environment)->mustRun();
     expect(file_get_contents($root.'/.env'))->toContain('DB_HOST=127.0.0.1', 'DB_URL=', 'APP_CONFIG_CACHE=bootstrap/cache/config.php')
-        ->and(file_get_contents($root.'/.env'))->not->toContain('/tmp/external-config.php');
+        ->and(file_get_contents($root.'/.env'))->not->toContain('/tmp/external-config.php', '/external/ca.pem')
+        ->and(file_get_contents($root.'/.env.testing'))->toContain('MYSQL_ATTR_SSL_CA=');
 });
 
 test('cloud setup runs locked frontend installation and configured build and migrations', function (): void {
@@ -284,7 +308,7 @@ test('Claude session end does not invoke development cleanup locally', function 
 test('cloud MySQL setup owns only its local databases and updates forced PHPUnit connections', function (): void {
     [$root, $environment] = cloud_fixture();
     file_put_contents($root.'/.ai-harness.config.local', "cloud_services=mysql\n");
-    file_put_contents($root.'/phpunit.xml', '<phpunit><php><env value="production" name="DB_DATABASE" force="true"/><env name="DB_HOST" value="external.invalid" force="true"/><server name="DB_CONNECTION" value="sqlite"/></php></phpunit>');
+    file_put_contents($root.'/phpunit.xml', '<phpunit><php><env value="production" name="DB_DATABASE" force="true"/><env name="DB_HOST" value="external.invalid" force="true"/><server name="DB_CONNECTION" value="sqlite"/><env name="MYSQL_ATTR_SSL_CA" value="/external/ca.pem" force="true"/></php></phpunit>');
     write_executable($root.'/fake-bin/sudo', "#!/usr/bin/env bash\nshift\nexec \"\$@\"\n");
     write_executable($root.'/fake-bin/service', "#!/usr/bin/env bash\nexit 0\n");
     write_executable($root.'/fake-bin/mysql', <<<'BASH'
@@ -295,8 +319,14 @@ BASH);
     harness_process(['cloud', 'setup'], $root, $environment)->mustRun();
     $state = json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true);
     expect($state['cloud_testing_database'])->toEndWith('_testing')
-        ->and(file_get_contents($root.'/phpunit.xml'))->not->toContain('production', 'external.invalid', 'value="sqlite"')
+        ->and(file_get_contents($root.'/phpunit.xml'))->not->toContain('production', 'external.invalid', 'value="sqlite"', '/external/ca.pem')
         ->and(file_get_contents($root.'/.env'))->toContain('DB_SOCKET=/var/run/mysqld/mysqld.sock');
+
+    file_put_contents($root.'/.ai-harness.config.local', "cloud=false\n");
+    file_put_contents($root.'/commands.log', '');
+    harness_process(['cloud', 'cleanup'], $root, $environment)->mustRun();
+
+    expect(file_get_contents($root.'/commands.log'))->toContain('SHOW DATABASES;');
 });
 
 test('generated Claude cloud hooks work without worktrees and preserve cleanup ownership on SQL failure', function (): void {
