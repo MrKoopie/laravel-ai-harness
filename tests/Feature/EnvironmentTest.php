@@ -538,3 +538,24 @@ test('setup does not run migrations or alter PHPUnit configuration outside Sail 
     expect(file_get_contents($root.'/phpunit.xml'))->toBe('<phpunit/>')
         ->and($root.'/.ai-harness.phpunit.xml')->not->toBeFile();
 });
+
+test('repeated setup restores overwritten worktree environment without migrations or seeding', function (): void {
+    $root = temp_directory('harness-recycled');
+    $log = temp_file('harness-recycled-commands');
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', '<?php');
+    file_put_contents($root.'/artisan', '<?php');
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nsail_services=mysql\nagents=\n");
+    file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=https://shared.test\nDB_DATABASE=shared\n");
+    write_executable($root.'/fake-bin/herd', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> \"\${COMMAND_LOG}\"\n");
+    write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> \"\${COMMAND_LOG}\"\n");
+    $environment = ['PATH' => $root.'/fake-bin'.PATH_SEPARATOR.getenv('PATH'), 'COMMAND_LOG' => $log];
+    harness_process(['setup'], $root, $environment)->mustRun();
+    file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=https://shared.test\nDB_DATABASE=shared\n");
+    file_put_contents($root.'/.env.testing', "APP_KEY=present\nDB_DATABASE=shared_testing\n");
+    harness_process(['setup'], $root, $environment)->mustRun();
+
+    expect(file_get_contents($root.'/.env'))->toContain('APP_URL=https://'.SiteName::forPath($root).'.test', 'DB_DATABASE='.DatabaseName::forPath($root))
+        ->and(file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE='.DatabaseName::testingForPath($root))
+        ->and(file_get_contents($log))->not->toContain('migrate', 'db:seed');
+});
