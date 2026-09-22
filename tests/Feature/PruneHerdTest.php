@@ -98,7 +98,10 @@ test('confirmed pruning unsecures then unlinks only the selected orphan', functi
     try {
         $tester = new CommandTester((new Application)->find('prune-herd'));
         $tester->setInputs(['yes']);
-        expect($tester->execute(['--path' => $root], ['interactive' => true]))->toBe(0)
+        $status = $tester->execute(['--path' => $root], ['interactive' => true]);
+        clearstatcache(true, $sites.'/'.$site);
+
+        expect($status)->toBe(0)
             ->and(file_get_contents($log))->toBe("unsecure $site\nunlink $site\n")
             ->and(is_link($sites.'/'.$site))->toBeFalse();
     } finally {
