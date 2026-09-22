@@ -6,12 +6,14 @@ namespace MrKoopie\LaravelAiHarness;
 
 use Composer\InstalledVersions;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
+use MrKoopie\LaravelAiHarness\Console\CloudCommand;
 use MrKoopie\LaravelAiHarness\Console\DoctorCommand;
 use MrKoopie\LaravelAiHarness\Console\EnvironmentActionCommand;
 use MrKoopie\LaravelAiHarness\Console\HookCommand;
 use MrKoopie\LaravelAiHarness\Console\InitCommand;
 use MrKoopie\LaravelAiHarness\Console\RuntimeCommand;
 use MrKoopie\LaravelAiHarness\Console\UpdateCommand;
+use MrKoopie\LaravelAiHarness\Environment\CloudManager;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentFile;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentManager;
@@ -38,12 +40,14 @@ final class Application extends SymfonyApplication
         $executables = new ExecutableLocator;
         $processes = new ProcessRunner;
         $commands = new CommandFactory($executables);
+        $cloud = new CloudManager($config, $commands, $processes, new EnvironmentFile($writer), new StateStore($writer));
         $environment = new EnvironmentManager(
             $config,
             $commands,
             $processes,
             new EnvironmentFile($writer),
             new StateStore($writer),
+            $cloud,
         );
         $synchronizer = new ProjectSynchronizer(
             $config,
@@ -52,6 +56,7 @@ final class Application extends SymfonyApplication
         );
 
         $this->addCommands([
+            new CloudCommand($cloud),
             new InitCommand($synchronizer),
             new UpdateCommand($synchronizer),
             new DoctorCommand($config, new HealthChecker($executables, new ComposerScripts($writer))),

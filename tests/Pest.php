@@ -45,7 +45,7 @@ function package_root(): string
 
 /**
  * @param  list<string>  $arguments
- * @param  array<string, string>  $environment
+ * @param  array<string, string|false>  $environment
  */
 function harness_process(array $arguments, string $workingDirectory, array $environment = []): Process
 {

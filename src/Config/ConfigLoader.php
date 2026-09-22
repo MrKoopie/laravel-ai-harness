@@ -22,6 +22,12 @@ final class ConfigLoader
         'herd_secure' => 'true',
         'herd_php' => '',
         'worktrees' => 'true',
+        'cloud' => 'true',
+        'cloud_services' => 'mysql',
+        'cloud_migrate' => 'false',
+        'cloud_seed' => 'false',
+        'cloud_build' => 'false',
+        'cloud_browser' => 'false',
     ];
 
     /** @var list<string> */
@@ -82,6 +88,18 @@ final class ConfigLoader
 
         $herdPhp = trim($values['herd_php']);
 
+        $cloudServices = $this->list($values['cloud_services'], 'cloud_services');
+
+        foreach ($cloudServices as $service) {
+            if (! in_array($service, ['mysql', 'redis'], true)) {
+                throw new ConfigException('cloud_services supports only mysql and redis.');
+            }
+        }
+
+        if ($this->boolean($values['cloud_seed'], 'cloud_seed') && ! $this->boolean($values['cloud_migrate'], 'cloud_migrate')) {
+            throw new ConfigException('cloud_seed requires cloud_migrate=true; seeders must be safe to rerun.');
+        }
+
         if ($herdPhp !== '' && preg_match('/^\d+\.\d+$/', $herdPhp) !== 1) {
             throw new ConfigException('herd_php must be empty or a major.minor version such as 8.4.');
         }
@@ -96,6 +114,12 @@ final class ConfigLoader
             herdPhp: $herdPhp === '' ? null : $herdPhp,
             worktrees: $this->boolean($values['worktrees'], 'worktrees'),
             sourceFiles: $sourceFiles,
+            cloud: $this->boolean($values['cloud'], 'cloud'),
+            cloudServices: $cloudServices,
+            cloudMigrate: $this->boolean($values['cloud_migrate'], 'cloud_migrate'),
+            cloudSeed: $this->boolean($values['cloud_seed'], 'cloud_seed'),
+            cloudBuild: $this->boolean($values['cloud_build'], 'cloud_build'),
+            cloudBrowser: $this->boolean($values['cloud_browser'], 'cloud_browser'),
         );
     }
 

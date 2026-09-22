@@ -97,6 +97,27 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
+    /** Check cloud ownership against the current checkout, including after a move. */
+    public function ownsCloudTesting(string $root): bool
+    {
+        $name = $this->read($root)['cloud_testing_database'] ?? null;
+
+        if ($name !== null && $name !== DatabaseName::testingForPath($root)) {
+            throw new EnvironmentException('Cloud database ownership does not match this checkout.');
+        }
+
+        return $name !== null;
+    }
+
+    /** Record the exact testing database; retain this marker for retryable cleanup. */
+    public function recordCloudTesting(string $root): void
+    {
+        $this->ownsCloudTesting($root);
+        $state = $this->read($root);
+        $state['cloud_testing_database'] = DatabaseName::testingForPath($root);
+        $this->write($root, $state);
+    }
+
     /**
      * Persist non-empty state or remove the empty state file.
      *

@@ -68,3 +68,41 @@ test('thin bootstrap never mutates composer requirements when the package binary
     expect($process->getExitCode())->toBe(1)
         ->and($process->getErrorOutput())->toContain('missing from composer.json or composer.lock');
 });
+
+test('fresh cloud bootstrap refuses dependency resolution without a lock file', function (): void {
+    $root = temp_directory('cloud-unlocked');
+    copy(package_root().'/resources/project/bootstrap.sh', $root.'/.ai-harness');
+    write_executable($root.'/bin/composer', '#!/bin/sh'."\n".'touch composer.lock');
+    $process = new Process(['bash', $root.'/.ai-harness', 'cloud', 'setup'], $root, [
+        'AI_HARNESS_ENV' => 'codex-cloud',
+        'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
+    ]);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($root.'/composer.lock')->not->toBeFile();
+});
+
+test('fresh cloud bootstrap defers Laravel scripts and honors source installation', function (): void {
+    $root = temp_directory('cloud-bootstrap-source');
+    copy(package_root().'/resources/project/bootstrap.sh', $root.'/.ai-harness');
+    file_put_contents($root.'/composer.lock', '{}');
+    write_executable($root.'/bin/composer', <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'install --no-interaction --prefer-source --no-scripts' ]]
+[[ "$COMPOSER_ALLOW_SUPERUSER" == 1 && "$COMPOSER_NO_DEV" == 0 ]]
+mkdir -p vendor/bin
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" > invoked\n' > vendor/bin/ai-harness
+chmod +x vendor/bin/ai-harness
+BASH);
+    $process = new Process(['bash', $root.'/.ai-harness', 'cloud', 'setup'], $root, [
+        'AI_HARNESS_ENV' => 'codex-cloud',
+        'AI_HARNESS_COMPOSER_PREFER' => 'source',
+        'COMPOSER_NO_DEV' => '1',
+        'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
+    ]);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/invoked'))->toBe("cloud setup\n");
+});

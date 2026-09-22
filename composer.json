@@ -48,7 +48,7 @@
         "analyse": "phpstan analyse --memory-limit=1G",
         "format": "pint",
         "format:check": "pint --test",
-        "shellcheck": "shellcheck resources/project/bootstrap.sh",
+        "shellcheck": "shellcheck resources/project/*.sh resources/cloud/*.sh",
         "test": "pest",
         "test:coverage": "pest --coverage"
     },

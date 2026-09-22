@@ -7,6 +7,7 @@ namespace MrKoopie\LaravelAiHarness\Console;
 use JsonException;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentManager;
+use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Support\ProjectPath;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -45,11 +46,38 @@ final class HookCommand extends Command
 
         $event = $input->getArgument('event');
 
-        if (! is_string($event) || ! in_array($event, ['session-start', 'enter-worktree', 'exit-worktree', 'worktree-remove'], true)) {
+        if (! is_string($event) || ! in_array($event, ['session-start', 'session-end', 'enter-worktree', 'exit-worktree', 'worktree-remove'], true)) {
             throw new RuntimeException('Unsupported Claude lifecycle event.');
         }
 
         $payload = $this->payload();
+
+        if (in_array($event, ['session-start', 'session-end'], true)
+            && ExecutionEnvironment::current() === ExecutionEnvironment::ClaudeCloud) {
+            $project = getenv('CLAUDE_PROJECT_DIR');
+            $cwd = $this->nestedString($payload, 'cwd');
+
+            if (! is_string($project) || $project === '' || $cwd === null
+                || ProjectPath::resolve($project) !== ProjectPath::resolve($cwd)) {
+                throw new RuntimeException('Claude cloud hook target must equal CLAUDE_PROJECT_DIR.');
+            }
+
+            $root = ProjectPath::resolve($project);
+            $config = $this->configLoader->load($root);
+
+            if (! $config->cloud || ! $config->supportsAgent('claude')) {
+                return self::SUCCESS;
+            }
+
+            return $event === 'session-end'
+                ? $this->environment->cleanup($root, $output)
+                : $this->environment->setup($root, $output);
+        }
+
+        if ($event === 'session-end') {
+            return self::SUCCESS;
+        }
+
         $path = $this->targetPath($event, $payload);
 
         if ($path === null) {

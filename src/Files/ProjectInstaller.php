@@ -38,6 +38,14 @@ final readonly class ProjectInstaller
         $written = ['.ai-harness', '.gitignore'];
 
         $this->writer->write($root, '.ai-harness', $this->resource('project/bootstrap.sh'), executable: true);
+
+        if ($config->cloud) {
+            $this->writer->write($root, '.ai-harness-cloud', $this->resource('project/cloud.sh'), executable: true);
+            $written[] = '.ai-harness-cloud';
+        } else {
+            $this->writer->removeOwnedFile($root, '.ai-harness-cloud', $this->resource('project/cloud.sh'));
+        }
+
         $this->writer->managedBlock($root, '.gitignore', $this->resource('project/gitignore'));
 
         if ($config->supportsAgent('codex')) {
@@ -63,9 +71,10 @@ final readonly class ProjectInstaller
         }
 
         $claudeHooks = $config->supportsAgent('claude') && $config->worktrees;
-        $this->claudeSettings->sync($root, $claudeHooks);
+        $claudeCloud = $config->supportsAgent('claude') && $config->cloud;
+        $this->claudeSettings->sync($root, $claudeHooks, $claudeCloud);
 
-        if ($claudeHooks || is_file($root.'/.claude/settings.json')) {
+        if ($claudeHooks || $claudeCloud || is_file($root.'/.claude/settings.json')) {
             $written[] = '.claude/settings.json';
         }
 
