@@ -26,7 +26,7 @@ test('init creates a healthy minimal project integration', function (): void {
         ->and(is_executable($root.'/.ai-harness'))->toBeTrue()
         ->and($root.'/.ai-harness.config')->toBeFile()
         ->and($root.'/AGENTS.md')->toBeFile()
-        ->and($root.'/CLAUDE.md')->toBeFile()
+        ->and($root.'/CLAUDE.md')->not->toBeFile()
         ->and((string) file_get_contents($root.'/composer.json'))->toContain('laravel-ai-harness:update');
 
     $doctor = harness_process(['doctor', '--path', $root], $root);
@@ -34,7 +34,7 @@ test('init creates a healthy minimal project integration', function (): void {
 
     expect($doctor->getOutput())->toContain('Runtime: native')
         ->toContain('OK Automatic Composer refresh hooks are installed')
-        ->toContain('OK Codex instructions are installed')
+        ->toContain('OK Agent instructions are installed')
         ->toContain('OK Claude hooks are installed');
 });
 

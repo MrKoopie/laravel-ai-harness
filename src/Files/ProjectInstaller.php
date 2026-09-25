@@ -48,27 +48,21 @@ final readonly class ProjectInstaller
 
         $this->writer->managedBlock($root, '.gitignore', $this->resource('project/gitignore'));
 
-        if ($config->supportsAgent('codex')) {
+        if ($config->supportsAgent('codex') || $config->supportsAgent('claude')) {
             $this->writer->managedBlock($root, 'AGENTS.md', $this->resource('agents/AGENTS.md'));
             $written[] = 'AGENTS.md';
-
-            if ($config->worktrees) {
-                $this->writer->write($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
-                $written[] = '.codex/environments/environment.toml';
-            } else {
-                $this->writer->removeOwnedFile($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
-            }
         } else {
             $this->writer->removeManagedBlock($root, 'AGENTS.md');
+        }
+
+        if ($config->supportsAgent('codex') && $config->worktrees) {
+            $this->writer->write($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
+            $written[] = '.codex/environments/environment.toml';
+        } else {
             $this->writer->removeOwnedFile($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
         }
 
-        if ($config->supportsAgent('claude')) {
-            $this->writer->managedBlock($root, 'CLAUDE.md', $this->resource('agents/CLAUDE.md'));
-            $written[] = 'CLAUDE.md';
-        } else {
-            $this->writer->removeManagedBlock($root, 'CLAUDE.md');
-        }
+        $this->writer->removeManagedBlock($root, 'CLAUDE.md');
 
         $claudeHooks = $config->supportsAgent('claude') && $config->worktrees;
         $claudeCloud = $config->supportsAgent('claude') && $config->cloud;

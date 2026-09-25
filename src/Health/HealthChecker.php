@@ -55,17 +55,15 @@ final readonly class HealthChecker
             }
         }
 
-        if ($config->supportsAgent('codex')) {
-            $checks[] = $this->managed($root.'/AGENTS.md', 'Codex instructions');
+        if ($config->supportsAgent('codex') || $config->supportsAgent('claude')) {
+            $checks[] = $this->managed($root.'/AGENTS.md', 'Agent instructions');
+        }
 
-            if ($config->worktrees && ! $cloud) {
-                $checks[] = $this->file(is_file($root.'/.codex/environments/environment.toml'), 'Codex local environment is installed', 'Codex local environment is missing');
-            }
+        if ($config->supportsAgent('codex') && $config->worktrees && ! $cloud) {
+            $checks[] = $this->file(is_file($root.'/.codex/environments/environment.toml'), 'Codex local environment is installed', 'Codex local environment is missing');
         }
 
         if ($config->supportsAgent('claude')) {
-            $checks[] = $this->managed($root.'/CLAUDE.md', 'Claude instructions');
-
             if ($config->worktrees || $config->cloud) {
                 $settings = is_file($root.'/.claude/settings.json') ? file_get_contents($root.'/.claude/settings.json') : false;
                 $checks[] = $this->file(

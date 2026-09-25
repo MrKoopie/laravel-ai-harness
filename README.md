@@ -60,7 +60,6 @@ The default installation manages only:
 .ai-harness.config
 .gitignore                 # one managed block
 AGENTS.md                  # one managed block
-CLAUDE.md                  # one managed block
 .codex/environments/environment.toml
 .claude/settings.json      # merges only package-owned hooks
 composer.json              # two guarded package-owned script entries
@@ -155,15 +154,17 @@ MySQL cleanup also removes this checkout's numeric parallel test databases (incl
 
 `cleanup` only removes HTTPS and unlinks a Herd site previously recorded as harness-owned. Before each action, it verifies that the recorded site name is the deterministic name for the current project path. Sail shutdown is always the explicit `down` command.
 
-## Codex
+## Agent instructions and Codex
 
-`init` adds concise runtime instructions to `AGENTS.md`. With `worktrees=true`, it also writes one Codex local environment whose setup and cleanup scripts call `./.ai-harness setup` and `./.ai-harness cleanup` directly. `.codex/environments/environment.toml` is package-owned and overwritten during each refresh; put custom Codex configuration elsewhere.
+`init` adds shared runtime instructions to `AGENTS.md` when Codex or Claude is enabled. With `worktrees=true` and Codex enabled, it also writes one Codex local environment whose setup and cleanup scripts call `./.ai-harness setup` and `./.ai-harness cleanup` directly. `.codex/environments/environment.toml` is package-owned and overwritten during each refresh; put custom Codex configuration elsewhere.
 
 There are no duplicate SessionStart fallbacks or Codex-specific executor scripts. Select the generated `Laravel AI Harness` local environment in Codex when creating a worktree.
 
 ## Claude Code
 
-`init` adds concise runtime instructions to `CLAUDE.md`. With `worktrees=true`, it merges four package-owned command hooks into `.claude/settings.json`:
+Claude Code v2.1.277 or later reads `AGENTS.md` by default when no project `CLAUDE.md` or `CLAUDE.local.md` takes precedence. The harness no longer creates `CLAUDE.md`; `update` removes its legacy managed block and deletes the file only if nothing else remains. If you keep your own `CLAUDE.md`, add `@AGENTS.md` to it or configure Claude to read both files. Some Claude sessions, including those on third-party providers or with telemetry disabled, still need that import. See [Claude Code's instruction-file guidance](https://code.claude.com/docs/en/memory#agentsmd).
+
+With `worktrees=true`, the harness merges four package-owned command hooks into `.claude/settings.json`:
 
 - `SessionStart` prepares an existing Claude worktree.
 - `PostToolUse` with `EnterWorktree` prepares the worktree reported by Claude.
@@ -302,7 +303,7 @@ provider to discard its ephemeral container. See
 
 ## Laravel Boost
 
-When Laravel Boost is installed in the consuming application, it can discover this package's short guideline at `resources/boost/guidelines/core.blade.php`. That guideline explains configuration and environment boundaries; the AI Harness managed blocks in `AGENTS.md` and `CLAUDE.md` remain the source for command syntax. No Boost dependency or additional project file is required by AI Harness.
+When Laravel Boost is installed in the consuming application, it can discover this package's short guideline at `resources/boost/guidelines/core.blade.php`. That guideline explains configuration and environment boundaries; the AI Harness managed block in `AGENTS.md` remains the source for command syntax. No Boost dependency or additional project file is required by AI Harness.
 
 ## Upgrading From 0.1
 
