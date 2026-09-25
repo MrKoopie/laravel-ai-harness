@@ -38,6 +38,35 @@ test('init creates a healthy minimal project integration', function (): void {
         ->toContain('OK Claude hooks are installed');
 });
 
+test('doctor reports a custom CLAUDE.md that shadows AGENTS.md', function (): void {
+    $root = temp_directory('harness-cli-claude-shadow');
+    file_put_contents($root.'/artisan', "<?php\n");
+    file_put_contents($root.'/composer.json', json_encode([
+        'name' => 'example/application',
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n");
+
+    harness_process(['init', '--path', $root], $root)->mustRun();
+    file_put_contents($root.'/CLAUDE.md', "User-owned Claude guidance.\n");
+
+    $doctor = harness_process(['doctor', '--path', $root], $root);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1)
+        ->and($doctor->getOutput())->toContain('FAIL Claude instructions in CLAUDE.md shadow AGENTS.md; add @AGENTS.md or configure Claude to read both');
+
+    file_put_contents($root.'/CLAUDE.md', "The text `@AGENTS.md` is only an example.\n");
+    $doctor = harness_process(['doctor', '--path', $root], $root);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1);
+
+    file_put_contents($root.'/CLAUDE.md', "```markdown\n@AGENTS.md\n```\n");
+    $doctor = harness_process(['doctor', '--path', $root], $root);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1);
+});
+
 test('update refreshes integration files without preparing the environment', function (): void {
     $root = temp_directory('harness-cli-update');
     file_put_contents($root.'/artisan', "<?php\n");

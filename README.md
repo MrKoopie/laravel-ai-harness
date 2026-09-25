@@ -162,7 +162,7 @@ There are no duplicate SessionStart fallbacks or Codex-specific executor scripts
 
 ## Claude Code
 
-Claude Code v2.1.277 or later reads `AGENTS.md` by default when no project `CLAUDE.md` or `CLAUDE.local.md` takes precedence. The harness no longer creates `CLAUDE.md`; `update` removes its legacy managed block and deletes the file only if nothing else remains. If you keep your own `CLAUDE.md`, add `@AGENTS.md` to it or configure Claude to read both files. Some Claude sessions, including those on third-party providers or with telemetry disabled, still need that import. See [Claude Code's instruction-file guidance](https://code.claude.com/docs/en/memory#agentsmd).
+Claude Code v2.1.277 or later reads `AGENTS.md` by default when no project `CLAUDE.md` or `CLAUDE.local.md` takes precedence. The harness no longer creates `CLAUDE.md`. On update, it deletes a file containing only the legacy managed block; if user-owned guidance remains, it preserves that text and adds a managed `@AGENTS.md` import. `doctor` reports a remaining `CLAUDE.md` that does not import the shared instructions. If you keep other Claude instruction files, import `AGENTS.md` from them or configure Claude to read both files. Some Claude sessions, including those on third-party providers or with telemetry disabled, still need the import. See [Claude Code's instruction-file guidance](https://code.claude.com/docs/en/memory#agentsmd).
 
 With `worktrees=true`, the harness merges four package-owned command hooks into `.claude/settings.json`:
 

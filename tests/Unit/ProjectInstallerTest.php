@@ -37,7 +37,7 @@ test('project installation writes only the thin bootstrap and native agent files
         ->and(file_get_contents($root.'/.ai-harness'))->toContain('exec "${harness_binary}" "$@"')
         ->and(substr_count((string) file_get_contents($root.'/AGENTS.md'), '<!-- ai-harness:start -->'))->toBe(1)
         ->and(file_get_contents($root.'/AGENTS.md'))->toStartWith('User-owned Codex guidance.')
-        ->and(file_get_contents($root.'/CLAUDE.md'))->toBe("User-owned Claude guidance.\n")
+        ->and(file_get_contents($root.'/CLAUDE.md'))->toBe("User-owned Claude guidance.\n\n<!-- ai-harness:start -->\n@AGENTS.md\n<!-- ai-harness:end -->\n")
         ->and($root.'/.codex/environments/environment.toml')->toBeFile()
         ->and((string) file_get_contents($root.'/.gitignore'))->toContain('!/.codex/environments/environment.toml')
         ->and((string) file_get_contents($root.'/.gitignore'))->toContain('.env.testing')

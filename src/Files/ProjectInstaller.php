@@ -64,6 +64,10 @@ final readonly class ProjectInstaller
 
         $this->writer->removeManagedBlock($root, 'CLAUDE.md');
 
+        if ($config->supportsAgent('claude') && is_file($root.'/CLAUDE.md')) {
+            $this->writer->managedBlock($root, 'CLAUDE.md', '@AGENTS.md');
+        }
+
         $claudeHooks = $config->supportsAgent('claude') && $config->worktrees;
         $claudeCloud = $config->supportsAgent('claude') && $config->cloud;
         $this->claudeSettings->sync($root, $claudeHooks, $claudeCloud);
