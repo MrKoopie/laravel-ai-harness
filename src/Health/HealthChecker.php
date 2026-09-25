@@ -55,16 +55,23 @@ final readonly class HealthChecker
             }
         }
 
-        if ($config->supportsAgent('codex')) {
-            $checks[] = $this->managed($root.'/AGENTS.md', 'Codex instructions');
+        if ($config->supportsAgent('codex') || $config->supportsAgent('claude')) {
+            $checks[] = $this->managed($root.'/AGENTS.md', 'Agent instructions');
+        }
 
-            if ($config->worktrees && ! $cloud) {
-                $checks[] = $this->file(is_file($root.'/.codex/environments/environment.toml'), 'Codex local environment is installed', 'Codex local environment is missing');
-            }
+        if ($config->supportsAgent('codex') && $config->worktrees && ! $cloud) {
+            $checks[] = $this->file(is_file($root.'/.codex/environments/environment.toml'), 'Codex local environment is installed', 'Codex local environment is missing');
         }
 
         if ($config->supportsAgent('claude')) {
-            $checks[] = $this->managed($root.'/CLAUDE.md', 'Claude instructions');
+            if (is_file($root.'/CLAUDE.md')) {
+                $claudeInstructions = is_link($root.'/CLAUDE.md') ? false : file_get_contents($root.'/CLAUDE.md');
+                $checks[] = $this->file(
+                    is_string($claudeInstructions) && $this->importsAgents($claudeInstructions),
+                    'Claude instructions in CLAUDE.md import AGENTS.md',
+                    'Claude instructions in CLAUDE.md shadow AGENTS.md; add @AGENTS.md or configure Claude to read both',
+                );
+            }
 
             if ($config->worktrees || $config->cloud) {
                 $settings = is_file($root.'/.claude/settings.json') ? file_get_contents($root.'/.claude/settings.json') : false;
@@ -89,6 +96,45 @@ final readonly class HealthChecker
             "{$label} are installed",
             "{$label} are missing",
         );
+    }
+
+    /** Find a Claude import outside Markdown comments and code spans. */
+    private function importsAgents(string $contents): bool
+    {
+        $contents = preg_replace('/<!--.*?-->/s', '', $contents);
+
+        if ($contents === null) {
+            return false;
+        }
+
+        $fence = null;
+
+        foreach (preg_split('/\R/', $contents) ?: [] as $line) {
+            if (preg_match('/^[ \t]*(`{3,}|~{3,})/', $line, $matches) === 1) {
+                $marker = $matches[1][0];
+                $length = strlen($matches[1]);
+
+                if ($fence === null) {
+                    $fence = [$marker, $length];
+                } elseif ($marker === $fence[0] && $length >= $fence[1]) {
+                    $fence = null;
+                }
+
+                continue;
+            }
+
+            if ($fence !== null) {
+                continue;
+            }
+
+            $line = preg_replace('/(`+).*?\1/', '', $line);
+
+            if (is_string($line) && str_contains($line, '@AGENTS.md')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Create a health-check result with the appropriate message. */

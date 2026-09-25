@@ -26,7 +26,7 @@ test('init creates a healthy minimal project integration', function (): void {
         ->and(is_executable($root.'/.ai-harness'))->toBeTrue()
         ->and($root.'/.ai-harness.config')->toBeFile()
         ->and($root.'/AGENTS.md')->toBeFile()
-        ->and($root.'/CLAUDE.md')->toBeFile()
+        ->and($root.'/CLAUDE.md')->not->toBeFile()
         ->and((string) file_get_contents($root.'/composer.json'))->toContain('laravel-ai-harness:update');
 
     $doctor = harness_process(['doctor', '--path', $root], $root);
@@ -34,8 +34,37 @@ test('init creates a healthy minimal project integration', function (): void {
 
     expect($doctor->getOutput())->toContain('Runtime: native')
         ->toContain('OK Automatic Composer refresh hooks are installed')
-        ->toContain('OK Codex instructions are installed')
+        ->toContain('OK Agent instructions are installed')
         ->toContain('OK Claude hooks are installed');
+});
+
+test('doctor reports a custom CLAUDE.md that shadows AGENTS.md', function (): void {
+    $root = temp_directory('harness-cli-claude-shadow');
+    file_put_contents($root.'/artisan', "<?php\n");
+    file_put_contents($root.'/composer.json', json_encode([
+        'name' => 'example/application',
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n");
+
+    harness_process(['init', '--path', $root], $root)->mustRun();
+    file_put_contents($root.'/CLAUDE.md', "User-owned Claude guidance.\n");
+
+    $doctor = harness_process(['doctor', '--path', $root], $root);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1)
+        ->and($doctor->getOutput())->toContain('FAIL Claude instructions in CLAUDE.md shadow AGENTS.md; add @AGENTS.md or configure Claude to read both');
+
+    file_put_contents($root.'/CLAUDE.md', "The text `@AGENTS.md` is only an example.\n");
+    $doctor = harness_process(['doctor', '--path', $root], $root);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1);
+
+    file_put_contents($root.'/CLAUDE.md', "```markdown\n@AGENTS.md\n```\n");
+    $doctor = harness_process(['doctor', '--path', $root], $root);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1);
 });
 
 test('update refreshes integration files without preparing the environment', function (): void {

@@ -12,7 +12,7 @@ test('project installation writes only the thin bootstrap and native agent files
     $root = temp_directory('harness-install');
     mkdir($root.'/.claude', 0755, true);
     file_put_contents($root.'/AGENTS.md', "User-owned Codex guidance.\n");
-    file_put_contents($root.'/CLAUDE.md', "User-owned Claude guidance.\n");
+    file_put_contents($root.'/CLAUDE.md', "User-owned Claude guidance.\n\n<!-- ai-harness:start -->\nLegacy managed guidance.\n<!-- ai-harness:end -->\n");
     file_put_contents($root.'/.claude/settings.json', json_encode([
         'permissions' => ['allow' => ['Read']],
         'hooks' => [
@@ -37,7 +37,7 @@ test('project installation writes only the thin bootstrap and native agent files
         ->and(file_get_contents($root.'/.ai-harness'))->toContain('exec "${harness_binary}" "$@"')
         ->and(substr_count((string) file_get_contents($root.'/AGENTS.md'), '<!-- ai-harness:start -->'))->toBe(1)
         ->and(file_get_contents($root.'/AGENTS.md'))->toStartWith('User-owned Codex guidance.')
-        ->and(substr_count((string) file_get_contents($root.'/CLAUDE.md'), '<!-- ai-harness:start -->'))->toBe(1)
+        ->and(file_get_contents($root.'/CLAUDE.md'))->toBe("User-owned Claude guidance.\n\n<!-- ai-harness:start -->\n@AGENTS.md\n<!-- ai-harness:end -->\n")
         ->and($root.'/.codex/environments/environment.toml')->toBeFile()
         ->and((string) file_get_contents($root.'/.gitignore'))->toContain('!/.codex/environments/environment.toml')
         ->and((string) file_get_contents($root.'/.gitignore'))->toContain('.env.testing')
@@ -59,6 +59,21 @@ test('project installation writes only the thin bootstrap and native agent files
         ->and($settingsShape->permissions->allow)->toBeArray()
         ->and($settingsShape->hooks->SessionStart)->toBeArray()
         ->and($settingsShape->hooks->SessionStart[0]->hooks)->toBeArray();
+});
+
+test('Claude-only installation uses AGENTS.md and removes an obsolete managed CLAUDE.md', function (): void {
+    $root = temp_directory('harness-claude-only');
+    file_put_contents($root.'/.ai-harness.config', "agents=claude\nworktrees=false\ncloud=false\n");
+    file_put_contents($root.'/CLAUDE.md', "<!-- ai-harness:start -->\nLegacy managed guidance.\n<!-- ai-harness:end -->\n");
+
+    $writer = new SafeWriter;
+    $installer = new ProjectInstaller($writer, new ClaudeSettings($writer));
+    $written = $installer->install($root, (new ConfigLoader)->load($root));
+
+    expect($written)->toContain('AGENTS.md')
+        ->and($root.'/AGENTS.md')->toBeFile()
+        ->and($root.'/CLAUDE.md')->not->toBeFile()
+        ->and($root.'/.codex/environments/environment.toml')->not->toBeFile();
 });
 
 test('disabling worktrees and cloud removes only harness-owned Claude hooks', function (): void {
