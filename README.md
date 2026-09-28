@@ -267,8 +267,8 @@ provider to discard its ephemeral container. See
    MySQL, Redis, and missing Node/npm. Set `AI_HARNESS_PHP_VERSION=8.4`, for
    example, only if that version exists in the environment's configured apt
    repositories. Images whose default PHP is older than 8.2 need a compatible
-   image or an explicit available version. The harness never adds third-party
-   apt repositories. Pin Node
+   image or an explicit available version. The harness never registers third-party
+   apt repositories or imports their signing keys automatically. Pin Node
    in the provider image/settings to satisfy the project's `engines` requirement.
    When present, provisioning uses `ubuntu.sources` or `debian.sources` alone,
    avoiding unrelated image repositories that the cloud proxy may block. Set
@@ -300,6 +300,46 @@ provider to discard its ephemeral container. See
 7. Keep required install failures visible. A passing local suite does not verify
    a provider's actual image, network allowlist or cache lifecycle: validate a
    fresh start, cached start and resume in each configured cloud environment.
+
+### Additional PHP versions and extensions
+
+Provisioning accepts these environment variables (not `.ai-harness.config` keys):
+
+1. `AI_HARNESS_APT_EXTRA_SOURCES`: colon-separated absolute paths to existing,
+   readable `.list` or deb822 `.sources` files. These are added alongside the
+   selected base source for apt update, PHP version discovery, and all package
+   installs. Unrelated files in `sources.list.d` remain excluded. When neither
+   `ubuntu.sources` nor `debian.sources` exists, extras use `/etc/apt/sources.list`
+   as the base; set `AI_HARNESS_APT_SOURCE_LIST` explicitly if that file is also
+   absent or the image uses a different base list. The temporary extra-source
+   directory is removed on exit; original source files are unchanged.
+2. `AI_HARNESS_PHP_EXTENSIONS`: comma-separated lowercase package suffixes,
+   without spaces, such as `imagick,soap`. Provisioning adds `php8.5-imagick` and
+   `php8.5-soap` when `AI_HARNESS_PHP_VERSION=8.5`, retaining the standard
+   extensions. The selected repositories must provide these versioned packages.
+
+For example, after configuring a trusted PHP repository and its signing key in
+the Ubuntu image, use its actual source-file path in the environment setup script:
+
+```bash
+export PATH="/usr/bin:$PATH"
+export AI_HARNESS_PHP_VERSION=8.5
+export AI_HARNESS_APT_EXTRA_SOURCES=/etc/apt/sources.list.d/ondrej-php.sources
+export AI_HARNESS_PHP_EXTENSIONS=imagick,soap
+./.ai-harness-cloud provision
+./.ai-harness-cloud setup
+```
+
+The repository file must match the image's distribution and release, its signing
+key must already be available, and its hosts must be permitted by the cloud
+network policy. Selecting a source file does not create the repository or bypass
+apt signature checks. Empty variables preserve the default provisioning behavior.
+
+Keep `export PATH="/usr/bin:$PATH"` in maintenance and any separate shell or hook
+that starts project setup or agent commands when the image otherwise selects
+phpenv shims. `update-alternatives` selects `/usr/bin/php`; it cannot override an
+earlier PATH entry. Refresh existing generated `.ai-harness-cloud` scripts with
+`./.ai-harness update` after upgrading the package.
 
 ## Laravel Boost
 
