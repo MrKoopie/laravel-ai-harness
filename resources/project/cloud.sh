@@ -34,11 +34,27 @@ case "${1:-}" in
 
         apt_options=()
         apt_sources="${AI_HARNESS_APT_SOURCE_LIST:-}"
+        extra_sources="${AI_HARNESS_APT_EXTRA_SOURCES:-}"
+        extra_extensions="${AI_HARNESS_PHP_EXTENSIONS:-}"
+
+        if [[ -n "$extra_extensions" && ! "$extra_extensions" =~ ^[a-z0-9]+(-[a-z0-9]+)*(,[a-z0-9]+(-[a-z0-9]+)*)*$ ]]; then
+            printf 'AI_HARNESS_PHP_EXTENSIONS must be comma-separated extension names such as imagick,soap.\n' >&2
+            exit 1
+        fi
 
         if [[ -z "$apt_sources" && -f /etc/apt/sources.list.d/ubuntu.sources ]]; then
             apt_sources=/etc/apt/sources.list.d/ubuntu.sources
         elif [[ -z "$apt_sources" && -f /etc/apt/sources.list.d/debian.sources ]]; then
             apt_sources=/etc/apt/sources.list.d/debian.sources
+        fi
+
+        if [[ -n "$extra_sources" && -z "$apt_sources" ]]; then
+            if [[ -f /etc/apt/sources.list ]]; then
+                apt_sources=/etc/apt/sources.list
+            else
+                printf 'AI_HARNESS_APT_EXTRA_SOURCES requires a base source list; set AI_HARNESS_APT_SOURCE_LIST.\n' >&2
+                exit 1
+            fi
         fi
 
         if [[ -n "$apt_sources" ]]; then
@@ -48,6 +64,33 @@ case "${1:-}" in
             fi
 
             apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o 'Dir::Etc::sourceparts=-')
+        fi
+
+        if [[ -n "$extra_sources" ]]; then
+            if [[ "$extra_sources" == :* || "$extra_sources" == *: || "$extra_sources" == *::* || "$extra_sources" == *$'\n'* ]]; then
+                printf 'AI_HARNESS_APT_EXTRA_SOURCES must be colon-separated absolute .list or .sources file paths without empty entries.\n' >&2
+                exit 1
+            fi
+
+            IFS=':' read -r -a source_paths <<< "$extra_sources"
+
+            for source_path in "${source_paths[@]}"; do
+                if [[ "$source_path" != /* || ! -f "$source_path" || ! -r "$source_path" || ( "$source_path" != *.list && "$source_path" != *.sources ) ]]; then
+                    printf 'AI_HARNESS_APT_EXTRA_SOURCES entries must be existing readable absolute .list or .sources file paths.\n' >&2
+                    exit 1
+                fi
+            done
+
+            source_directory="$(mktemp -d)"
+            trap 'rm -rf -- "$source_directory"' EXIT
+            source_index=0
+
+            for source_path in "${source_paths[@]}"; do
+                cp -- "$source_path" "$source_directory/$source_index.${source_path##*.}"
+                source_index=$((source_index + 1))
+            done
+
+            apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o "Dir::Etc::sourceparts=$source_directory")
         fi
 
         "${privilege[@]}" apt-get "${apt_options[@]}" update
@@ -70,12 +113,24 @@ case "${1:-}" in
             exit 1
         fi
 
-        "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y --no-install-recommends \
-            "php${php_version}-cli" "php${php_version}-mysql" "php${php_version}-sqlite3" \
-            "php${php_version}-mbstring" "php${php_version}-xml" "php${php_version}-curl" \
-            "php${php_version}-zip" "php${php_version}-intl" "php${php_version}-bcmath" \
-            "php${php_version}-redis" \
+        packages=(
+            "php${php_version}-cli" "php${php_version}-mysql" "php${php_version}-sqlite3"
+            "php${php_version}-mbstring" "php${php_version}-xml" "php${php_version}-curl"
+            "php${php_version}-zip" "php${php_version}-intl" "php${php_version}-bcmath"
+            "php${php_version}-redis"
             composer git unzip ca-certificates mysql-server redis-server
+        )
+
+        if [[ -n "$extra_extensions" ]]; then
+            IFS=',' read -r -a extension_names <<< "$extra_extensions"
+
+            for extension in "${extension_names[@]}"; do
+                packages+=("php${php_version}-$extension")
+            done
+        fi
+
+        "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
+
         "${privilege[@]}" update-alternatives --set php "/usr/bin/php${php_version}"
 
         if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
