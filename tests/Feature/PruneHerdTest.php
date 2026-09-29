@@ -59,12 +59,26 @@ test('orphan pruning confirms each removal and stops before unlink when unsecure
 
 test('orphan pruning defaults to keeping a site', function (): void {
     [$root, $sites, , $site] = orphan_fixture();
-    $tester = new CommandTester((new Application)->find('prune-herd'));
-    $tester->setInputs(['']);
-    $status = $tester->execute(['--path' => $root, '--sites-path' => $sites], ['interactive' => true]);
+    $log = $root.'/commands';
+    write_executable($root.'/bin/herd', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> ".escapeshellarg($log)."\nexit 1\n");
+    $oldHome = getenv('HOME');
+    $oldPath = getenv('PATH');
+    putenv('HOME='.$root);
+    putenv('PATH='.$root.'/bin:'.$oldPath);
 
-    expect($status)->toBe(0)
-        ->and(is_link($sites.'/'.$site))->toBeTrue();
+    try {
+        $tester = new CommandTester((new Application)->find('prune-herd'));
+        $tester->setInputs(['']);
+        $status = $tester->execute(['--path' => $root], ['interactive' => true]);
+
+        expect($status)->toBe(0)
+            ->and($tester->getDisplay())->toContain('Remove this Herd site')
+            ->and(file_exists($log))->toBeFalse()
+            ->and(is_link($sites.'/'.$site))->toBeTrue();
+    } finally {
+        putenv('HOME='.$oldHome);
+        putenv('PATH='.$oldPath);
+    }
 });
 
 test('pruning recognizes legacy checksums and normalized relative targets', function (): void {
