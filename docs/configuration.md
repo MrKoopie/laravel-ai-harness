@@ -91,6 +91,8 @@ The `cloud_*` keys apply only in a detected cloud environment. They never change
 
 With `runtime=herd`, the harness runs PHP through the PHP binary of the Herd site when it can find it. Refer to [PHP version of the Herd site](local-environments.md#php-version-of-the-herd-site).
 
+With `runtime=valet`, the harness gives the site of the checkout to `valet php` and `valet composer`. When the first argument is `--site=...`, the harness uses your site instead.
+
 There is no automatic fallback to a different runtime. `doctor` tells you when the configured runtime is not available.
 
 In a cloud environment, the harness always uses `native`. The `runtime` value is then ignored.

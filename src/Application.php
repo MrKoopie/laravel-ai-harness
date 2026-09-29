@@ -18,6 +18,7 @@ use MrKoopie\LaravelAiHarness\Environment\CloudManager;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentFile;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentManager;
+use MrKoopie\LaravelAiHarness\Environment\SiteTool;
 use MrKoopie\LaravelAiHarness\Environment\StateStore;
 use MrKoopie\LaravelAiHarness\Files\ClaudeSettings;
 use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
@@ -59,6 +60,7 @@ final class Application extends SymfonyApplication
         $this->addCommands([
             new CloudCommand($cloud),
             new PruneHerdCommand($commands, $processes),
+            new PruneHerdCommand($commands, $processes, SiteTool::Valet),
             new InitCommand($synchronizer),
             new UpdateCommand($synchronizer),
             new DoctorCommand($config, new HealthChecker($executables, new ComposerScripts($writer))),

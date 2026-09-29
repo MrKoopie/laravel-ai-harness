@@ -66,6 +66,8 @@ test('Valet runtime commands use the PHP version of the checkout-specific site',
         ->toBe(['/tools/valet', 'php', $site, '-v'])
         ->and($factory->runtime($config, 'npm', ['run', 'build'], $root))
         ->toBe(['/tools/npm', 'run', 'build'])
+        ->and($factory->runtime($config, 'php', ['--site=other', '-v'], $root))
+        ->toBe(['/tools/valet', 'php', '--site=other', '-v'])
         ->and($factory->valet('link', 'example-site'))
         ->toBe(['/tools/valet', 'link', 'example-site']);
 });

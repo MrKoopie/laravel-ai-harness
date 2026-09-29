@@ -64,6 +64,10 @@ Herd can print PHP warnings when it looks up the PHP version of the site. Older 
 
 Run `./.ai-harness prune-herd --dry-run` to see them. Then run `./.ai-harness prune-herd` to remove them. Refer to [Remove orphaned Herd sites](local-environments.md#remove-orphaned-herd-sites).
 
+### Valet sites stay after you delete a worktree
+
+Run `./.ai-harness prune-valet --dry-run` to see them. Then run `./.ai-harness prune-valet` to remove them. Refer to [Remove orphaned Valet sites](local-environments.md#remove-orphaned-valet-sites).
+
 ### A Herd or Valet command fails in Codex
 
 Codex runs commands in a sandbox. Herd and Valet commands must run outside the sandbox. Approve the escalation request for the command.

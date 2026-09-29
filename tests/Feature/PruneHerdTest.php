@@ -175,3 +175,35 @@ test('pruning retains a failed unlink for another attempt', function (): void {
         putenv('PATH='.$oldPath);
     }
 });
+
+test('Valet pruning unsecures then unlinks a confirmed orphan in the Valet sites directory', function (): void {
+    $root = temp_directory('harness-prune-valet');
+    $sites = $root.'/.config/valet/Sites';
+    mkdir($sites, 0755, true);
+    $missing = $root.'/missing-worktree';
+    $site = SiteName::forPath($missing);
+    symlink($missing, $sites.'/'.$site);
+    symlink($missing, $sites.'/unrelated');
+    $log = $root.'/commands';
+    write_executable($root.'/bin/valet', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> ".escapeshellarg($log)."\nif [[ \"\$1\" == unlink ]]; then\n  rm -- ".escapeshellarg($sites)."/\"\$2\"\nfi\n");
+    $oldHome = getenv('HOME');
+    $oldPath = getenv('PATH');
+    putenv('HOME='.$root);
+    putenv('PATH='.$root.'/bin:'.$oldPath);
+
+    try {
+        $tester = new CommandTester((new Application)->find('prune-valet'));
+        $tester->setInputs(['yes']);
+        $status = $tester->execute(['--path' => $root], ['interactive' => true]);
+        clearstatcache(true, $sites.'/'.$site);
+
+        expect($status)->toBe(0)
+            ->and($tester->getDisplay())->toContain('Remove this Valet site')
+            ->and(file_get_contents($log))->toBe("unsecure $site\nunlink $site\n")
+            ->and(is_link($sites.'/'.$site))->toBeFalse()
+            ->and(is_link($sites.'/unrelated'))->toBeTrue();
+    } finally {
+        putenv('HOME='.$oldHome);
+        putenv('PATH='.$oldPath);
+    }
+});

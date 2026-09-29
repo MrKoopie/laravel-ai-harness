@@ -103,9 +103,20 @@ With `runtime=valet`, `setup` links the checkout as a Valet site. Valet runs onl
 - `APP_URL` becomes `https://<site-name>.<tld>`. The harness reads the TLD from `~/.config/valet/config.json`. The default is `test`. With `valet_secure=false`, the URL uses `http`.
 - `valet_secure=true` runs `valet secure <site>`. When you change it to `false`, the next `setup` runs `valet unsecure <site>`.
 - `valet_php=8.4` runs `valet isolate php@8.4 --site=<site>`. When this PHP version is not installed, Valet installs it with Homebrew.
-- `artisan`, `test`, `php`, and `composer` run through `valet php --site=<site>` and `valet composer --site=<site>`. Thus, they use the PHP version of the site.
+- `artisan`, `test`, `php`, and `composer` run through `valet php --site=<site>` and `valet composer --site=<site>`. Thus, they use the PHP version of the site. When the first argument of `php` or `composer` is `--site=...`, the harness does not add its own site.
 
 The harness always gives the site name to Valet. Without it, Valet uses the directory name, and that is not the name of the site.
+
+### Remove orphaned Valet sites
+
+When you delete a worktree without `cleanup`, its Valet site stays linked. `prune-valet` finds and removes these sites in `~/.config/valet/Sites`:
+
+```bash
+./.ai-harness prune-valet --dry-run
+./.ai-harness prune-valet
+```
+
+It has the same options and the same safety checks as `prune-herd`. Refer to [Remove orphaned Herd sites](#remove-orphaned-herd-sites).
 
 ### Password prompts
 
