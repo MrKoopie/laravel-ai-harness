@@ -93,7 +93,7 @@ Then start the container again, so that Docker Compose creates it with the new v
 ./.ai-harness up
 ```
 
-Do this again each time that you change `COMPOSER_AUTH`. When you use `SAIL_FILES`, add the line to one of those files.
+Do this again each time that you change `COMPOSER_AUTH`. You can also add it to `compose.override.yaml`. When you use `SAIL_FILES`, add the line to one of those files.
 
 With `runtime=sail`, `doctor` checks that the compose file forwards `COMPOSER_AUTH`. It checks only the file, not the container that runs now.
 

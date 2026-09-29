@@ -98,6 +98,12 @@ test('the Sail compose file forwards COMPOSER_AUTH in map or list form', functio
         file_put_contents($root.'/compose.yaml', "services:\n  laravel.test:\n    environment:\n      # COMPOSER_AUTH is not forwarded\n");
         expect(ComposerAuth::composeFileForwarding($root))->toBeNull();
 
+        file_put_contents($root.'/compose.override.yaml', "services:\n  laravel.test:\n    environment:\n      - COMPOSER_AUTH\n");
+        file_put_contents($root.'/compose.yaml', "services:\n  laravel.test:\n    image: example\n");
+        expect(ComposerAuth::composeFiles($root))->toBe([$root.'/compose.yaml', $root.'/compose.override.yaml'])
+            ->and(ComposerAuth::composeFileForwarding($root))->toBe($root.'/compose.override.yaml');
+        unlink($root.'/compose.override.yaml');
+
         file_put_contents($root.'/docker-compose.override.yml', "services:\n  laravel.test:\n    environment:\n      - COMPOSER_AUTH=\${COMPOSER_AUTH}\n");
         putenv('SAIL_FILES=compose.yaml:docker-compose.override.yml');
         expect(ComposerAuth::composeFileForwarding($root))->toBe($root.'/docker-compose.override.yml');

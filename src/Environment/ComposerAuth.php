@@ -154,7 +154,7 @@ final readonly class ComposerAuth
     }
 
     /**
-     * List the compose files that Sail uses: SAIL_FILES, or the Docker Compose default file.
+     * List the compose files that Sail uses: SAIL_FILES, or the Docker Compose default and override files.
      *
      * @return list<string>
      */
@@ -169,13 +169,32 @@ final readonly class ComposerAuth
             ));
         }
 
-        foreach (['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'] as $name) {
+        // Without -f, Docker Compose loads the first default file and the first default override file.
+        $base = self::firstFile($root, ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml']);
+
+        if ($base === null) {
+            return [];
+        }
+
+        $override = self::firstFile($root, ['compose.override.yaml', 'compose.override.yml', 'docker-compose.override.yaml', 'docker-compose.override.yml']);
+
+        return $override === null ? [$base] : [$base, $override];
+    }
+
+    /**
+     * Return the path of the first existing file, or null.
+     *
+     * @param  list<string>  $names
+     */
+    private static function firstFile(string $root, array $names): ?string
+    {
+        foreach ($names as $name) {
             if (is_file($root.'/'.$name)) {
-                return [$root.'/'.$name];
+                return $root.'/'.$name;
             }
         }
 
-        return [];
+        return null;
     }
 
     /** Show a host name, but hide a key that does not look like one, because it can be a misplaced secret. */
