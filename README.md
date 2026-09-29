@@ -276,28 +276,38 @@ provider to discard its ephemeral container. See
    override that choice. Package signature verification remains enabled. If the
    image puts phpenv shims first in `PATH`, select `/usr/bin` first in setup and
    maintenance to use the provisioned PHP and its installed extensions.
-2. Project setup requires a committed `composer.lock`, installs development
+2. Provisioning also reads `require` and `require-dev` from the project's
+   `composer.json`, plus runtime requirements of packages in both `packages` and
+   `packages-dev` in its adjacent `composer.lock`, when present. It installs
+   missing `ext-*` requirements for the selected PHP version, skips loaded
+   extensions, and maps grouped extensions such as `ext-dom` to the `xml` package
+   and `ext-pdo_mysql` to `mysql`. Composer then checks actual PHP and extension
+   versions, including development requirements, without executing project
+   plugins or scripts. Project files are not modified. Missing packages or
+   incompatible versions fail provisioning; the helper does not automatically
+   change PHP versions, add repositories, or build PECL extensions from source.
+3. Project setup requires a committed `composer.lock`, installs development
    dependencies and runs `composer check-platform-reqs`. It does not skip platform
    requirements. Frontend projects require `package-lock.json` and use
    `npm ci --include=dev`; other package managers need project-specific setup.
-3. `AI_HARNESS_COMPOSER_PREFER=source` opts into Git source installs when archive
+4. `AI_HARNESS_COMPOSER_PREFER=source` opts into Git source installs when archive
    downloads are blocked. It applies to the initial bootstrap too. This is an
    explicit network workaround, not a blanket fallback or a TLS bypass.
-4. Setup replaces standard Laravel database/Redis connection settings with local
+5. Setup replaces standard Laravel database/Redis connection settings with local
    cloud values, clears the default config cache, normalizes `APP_CONFIG_CACHE`,
    and reconciles inline PHPUnit connection overrides. Inherited standard
    connection variables are removed for harness-run application commands. Custom
    application connection names/configuration remain the application's responsibility.
-5. MySQL administration uses only the local Unix socket, ignores user option/login
+6. MySQL administration uses only the local Unix socket, ignores user option/login
    files, and creates a checkout-specific development/testing pair plus a scoped
    localhost application user. Its fixed `harness` password is for disposable
    development containers only. `AI_HARNESS_MYSQL_SOCKET` can select another
    absolute local socket; the same socket is written into Laravel configuration.
-6. Cloud cleanup requires recorded ownership, preserves the development database,
+7. Cloud cleanup requires recorded ownership, preserves the development database,
    and drops only the exact testing name and numeric `<testing>_1` /
    `<testing>_test_1` worker forms. Similar names, backups and other checkouts are
    excluded. Ownership stays recorded so failed or repeated cleanup can be retried.
-7. Keep required install failures visible. A passing local suite does not verify
+8. Keep required install failures visible. A passing local suite does not verify
    a provider's actual image, network allowlist or cache lifecycle: validate a
    fresh start, cached start and resume in each configured cloud environment.
 
@@ -317,6 +327,20 @@ Provisioning accepts these environment variables (not `.ai-harness.config` keys)
    without spaces, such as `imagick,soap`. Provisioning adds `php8.5-imagick` and
    `php8.5-soap` when `AI_HARNESS_PHP_VERSION=8.5`, retaining the standard
    extensions. The selected repositories must provide these versioned packages.
+3. `AI_HARNESS_COMPOSER_JSON`: optional path to the Composer manifest used for
+   provisioning dependency detection. An unset or empty value defaults to
+   `<project-root>/composer.json`. Relative paths resolve from the project root
+   (where `.ai-harness-cloud` lives); absolute paths are accepted. The helper
+   reads `composer.lock` from the same directory, even if the manifest has a
+   custom filename. Missing/unreadable manifests and malformed JSON fail with
+   an error. This setting does not change the working directory or Composer
+   manifest used by `setup` or `maintain`.
+
+For a manifest in a subdirectory:
+
+```bash
+AI_HARNESS_COMPOSER_JSON=backend/composer.json ./.ai-harness-cloud provision
+```
 
 For example, after configuring a trusted PHP repository and its signing key in
 the Ubuntu image, use its actual source-file path in the environment setup script:
@@ -333,7 +357,8 @@ export AI_HARNESS_PHP_EXTENSIONS=imagick,soap
 The repository file must match the image's distribution and release, its signing
 key must already be available, and its hosts must be permitted by the cloud
 network policy. Selecting a source file does not create the repository or bypass
-apt signature checks. Empty variables preserve the default provisioning behavior.
+apt signature checks. Empty variables use the defaults, including automatic
+detection from the root `composer.json`.
 
 Keep `export PATH="/usr/bin:$PATH"` in maintenance and any separate shell or hook
 that starts project setup or agent commands when the image otherwise selects

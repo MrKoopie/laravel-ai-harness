@@ -148,6 +148,8 @@ foreach ([
     test('cloud provisioning selects PHP and isolates apt sources: '.$scenario, function () use ($distributionVersion, $override, $expectedVersion): void {
         $root = temp_directory('cloud-apt');
         mkdir($root.'/bin');
+        copy(package_root().'/resources/project/cloud.sh', $root.'/.ai-harness-cloud');
+        file_put_contents($root.'/composer.json', '{}');
         file_put_contents($root.'/ubuntu.sources', 'Types: deb');
         write_executable($root.'/bin/apt-cache', "#!/bin/sh\necho '  Depends: php".$distributionVersion."-cli'\n");
 
@@ -159,10 +161,25 @@ foreach ([
             write_executable($root.'/bin/'.$command, "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> \"\$CLOUD_LOG\"\n");
         }
 
-        $process = new Process(['bash', package_root().'/resources/project/cloud.sh', 'provision'], $root, [
+        file_put_contents($root.'/bash-env', 'function /usr/bin/php'.$expectedVersion.' {
+if [[ "$1" == /usr/bin/composer ]]; then
+shift
+"$CLOUD_BIN/php'.$expectedVersion.'" "$CLOUD_BIN/composer" "$@"
+else
+"$CLOUD_BIN/php'.$expectedVersion.'" "$@"
+fi
+}
+');
+        write_executable($root.'/bin/php'.$expectedVersion, "#!/bin/sh\nexec ".escapeshellarg(PHP_BINARY).' "$@"'."\n");
+        write_executable($root.'/bin/composer', "#!/usr/bin/env php\n<?php exit(0);\n");
+
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, [
             'AI_HARNESS_ENV' => 'codex-cloud',
             'AI_HARNESS_APT_SOURCE_LIST' => $root.'/ubuntu.sources',
             'AI_HARNESS_PHP_VERSION' => $override,
+            'AI_HARNESS_COMPOSER_JSON' => '',
+            'BASH_ENV' => $root.'/bash-env',
+            'CLOUD_BIN' => $root.'/bin',
             'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
             'CLOUD_LOG' => $root.'/commands',
         ]);
