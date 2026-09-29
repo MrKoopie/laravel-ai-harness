@@ -45,11 +45,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
    ./vendor/bin/ai-harness init
    ```
 
-3. Open `.ai-harness.config` and set your runtime. For a Herd project:
-
-   ```ini
-   runtime=herd
-   ```
+3. Open `.ai-harness.config` and set your runtime, for example `runtime=herd` or `runtime=valet`. Refer to the [Quick start guide](docs/quick-start.md) for the settings of each runtime.
 
 4. Make sure that the configuration is correct:
 
@@ -57,7 +53,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
    ./.ai-harness doctor
    ```
 
-5. Prepare the checkout (dependencies, `.env`, databases, Herd site):
+5. Prepare the checkout (dependencies, `.env`, databases, Herd or Valet site):
 
    ```bash
    ./.ai-harness setup
@@ -93,6 +89,7 @@ Refer to [Commands](docs/commands.md) for all details.
 
 | Page | Contents |
 | --- | --- |
+| [Quick start](docs/quick-start.md) | Step-by-step start for native PHP, Herd, Valet, Sail, and cloud users. |
 | [Installation](docs/installation.md) | Install, generated files, Composer hooks, and updates. |
 | [Configuration](docs/configuration.md) | File format, all keys, and example setups. |
 | [Commands](docs/commands.md) | All commands, runtime mapping, and options. |
