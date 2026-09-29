@@ -46,6 +46,7 @@ The harness manages only these files:
 | `AGENTS.md` | `codex` or `claude` in `agents` | One managed block. |
 | `.codex/environments/environment.toml` | `codex` in `agents` and `worktrees=true` | Codex local environment. |
 | `.claude/settings.json` | `claude` in `agents` and `worktrees=true` or `cloud=true` | Package-owned hooks only. |
+| `CLAUDE.md` | Only when it already exists | Removes the legacy managed block. With `claude` in `agents`, adds a managed `@AGENTS.md` import. Deletes the file when only the legacy block was in it. Refer to [Coding agents](agents.md#instruction-files). |
 
 When you disable an option, the next refresh removes the related file or block. The harness removes a file only when its contents are still the unchanged package version.
 
@@ -69,7 +70,7 @@ When `vendor/bin/ai-harness` is missing, the script first installs the dependenc
 - It runs `composer install --no-interaction --prefer-dist`.
 - When Composer is not on `PATH`, it uses `herd composer install` instead.
 
-The bootstrap never adds or updates package requirements. It installs only the versions in your lock file.
+The bootstrap never adds or updates package requirements. When `composer.lock` exists, it installs the locked versions. When `composer.lock` does not exist, Composer resolves the versions from `composer.json` and creates a new lock file. Commit `composer.lock` to get the same versions everywhere. In cloud mode, the bootstrap stops when `composer.lock` is missing.
 
 ## Automatic refresh with Composer
 

@@ -18,8 +18,8 @@ Each `FAIL` line tells you what is wrong. This page gives the fix for each messa
 | `Automatic Composer refresh hooks are missing; run ./.ai-harness update` | Run `./.ai-harness update`. |
 | `Native PHP is unavailable` | Install PHP 8.2 or newer and add it to `PATH`, or change `runtime`. |
 | `Laravel Herd is unavailable` | Install Herd and make sure that `herd` is on `PATH`, or change `runtime`. |
-| `Laravel Sail is missing or not executable` | Run `./.ai-harness composer require laravel/sail --dev`, or change `runtime`. |
-| `services=sail requires vendor/bin/sail` | Install Laravel Sail, or set `services=none`. |
+| `Laravel Sail is missing or not executable` | Install Sail with the host Composer: `composer require laravel/sail --dev`. Do not use `./.ai-harness composer`, because with `runtime=sail` it needs Sail. Or change `runtime`. |
+| `services=sail requires vendor/bin/sail` | Install Laravel Sail with `./.ai-harness composer require laravel/sail --dev`, or set `services=none`. |
 | `Cloud mysql is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
 | `Cloud redis-cli is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
 | `Agent instructions are missing` | Run `./.ai-harness update`. |

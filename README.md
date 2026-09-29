@@ -16,7 +16,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
 ## Why use it
 
 - **One command for all runtimes.** Agent instructions stay the same when you change from Herd to Sail.
-- **Isolated worktrees.** Each checkout gets its own MySQL databases, Herd site, and `.env.testing`. Parallel agents do not share data.
+- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With Sail MySQL (`mysql` in `sail_services`), it also gets its own databases. With `runtime=herd`, it also gets its own Herd site. Thus, parallel agents do not share data.
 - **Safe cleanup.** The harness removes only the resources that it created and recorded.
 - **Agent integration.** It writes a shared `AGENTS.md` block, a Codex local environment, and Claude Code hooks.
 - **Cloud support.** It provisions and prepares Claude and Codex cloud containers with native PHP, MySQL, and Redis.

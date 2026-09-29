@@ -24,7 +24,12 @@ Each checkout or worktree gets its own databases, Herd site, and `.env.testing`.
 - Change `compose.yaml`.
 - Add test-runner options.
 
-You can run `setup` again at any time. It does not overwrite an existing `.env` or `.env.testing`, and it does not create duplicate databases or Herd links.
+You can run `setup` again at any time. It does not replace an existing `.env` or `.env.testing` file, and it does not create duplicate databases or Herd links. But it writes the harness-owned values again on each run:
+
+- With Sail MySQL: the `DB_*` values in `.env` and `.env.testing`.
+- With Herd: `APP_URL` in `.env`.
+
+If you change these values by hand, the next `setup` replaces them.
 
 ## `cleanup`
 

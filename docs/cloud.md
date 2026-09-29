@@ -168,7 +168,7 @@ It installs the missing extensions for the selected PHP version:
 
 Then Composer checks the actual PHP and extension versions, including the development requirements. It does not run project plugins or scripts. Provisioning does not change project files.
 
-Provisioning stops with an error when a package is missing or a version is not compatible. It does not change the PHP version, add repositories, or build PECL extensions from source.
+Provisioning stops with an error when a package is missing or a version is not compatible. After such a failure, it does not select a different PHP version automatically. It does not add repositories or build PECL extensions from source. Only `AI_HARNESS_PHP_VERSION` selects a different PHP version.
 
 ### Apt sources
 
