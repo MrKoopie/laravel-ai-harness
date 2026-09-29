@@ -65,6 +65,32 @@ With `runtime=herd`, `setup` links the checkout as a Herd site.
 - `herd_secure=true` runs `herd secure`. When you change it to `false`, the next `setup` runs `herd unsecure`.
 - `herd_php=8.4` runs `herd isolate 8.4`.
 
+### PHP version of the Herd site
+
+For a standard Herd installation, `php`, `artisan`, `test`, and `composer` use the PHP binary of the Herd site directly. The harness finds this binary through the Herd PHAR. Thus, startup warnings from Herd cannot change the command.
+
+The harness uses the binary only when it is an executable, versioned PHP binary in the Herd installation directory. In all other cases, it uses the `herd` wrapper, as before. When the first argument is `--site=...`, the harness also uses the wrapper.
+
+### Remove orphaned Herd sites
+
+When you delete a worktree without `cleanup`, its Herd site stays linked. Use `prune-herd` to find and remove these sites:
+
+```bash
+./.ai-harness prune-herd --dry-run
+./.ai-harness prune-herd
+```
+
+- The command shows only links whose target directory no longer exists and whose name agrees with the harness naming scheme. It also recognizes the naming scheme of earlier versions.
+- In an interactive run, it asks for each site. The default answer is to keep the site.
+- `--dry-run` and `--no-interaction` only show the sites. They change nothing.
+- `--sites-path=/path` shows the sites in a different directory. It never removes sites outside the Herd sites directory.
+- Before it removes HTTPS and before it unlinks, it checks the site again. If the site changed, it stops.
+- If a Herd command fails, the link stays, so that you can try again.
+- It never deletes databases.
+- It works only locally, not in a cloud environment.
+
+A moved or copied worktree still fails the ownership check in `setup` and `cleanup`. Use `prune-herd` to remove the old Herd link after a move. The harness does not remove the databases of a moved worktree automatically.
+
 ### Codex sandbox
 
 Codex runs commands in a sandbox. Herd commands must run outside the sandbox. The managed `AGENTS.md` block tells Codex to ask for escalation on the first attempt of each Herd command.

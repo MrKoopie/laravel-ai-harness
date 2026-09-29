@@ -23,7 +23,7 @@ final readonly class CommandFactory
         $runtime = ExecutionEnvironment::current()->isCloud() ? Runtime::Native : $config->runtime;
         $prefix = match ($runtime) {
             Runtime::Native => $this->nativePrefix($tool, $root),
-            Runtime::Herd => $this->herdPrefix($tool, $root),
+            Runtime::Herd => $this->herdPrefix($tool, $root, str_starts_with($arguments[0] ?? '', '--site=')),
             Runtime::Sail => $this->sailPrefix($tool, $root),
         };
 
@@ -163,9 +163,23 @@ final readonly class CommandFactory
      *
      * @return non-empty-list<string>
      */
-    private function herdPrefix(string $tool, string $root): array
+    private function herdPrefix(string $tool, string $root, bool $explicitSite = false): array
     {
         $herd = $this->required($this->executables->herd(), 'Laravel Herd');
+        $php = ! $explicitSite && in_array($tool, ['php', 'artisan', 'test', 'composer'], true)
+            ? (new HerdPhp)->resolve($herd, $root)
+            : null;
+
+        if ($php !== null) {
+            $composer = $this->executables->composer();
+
+            return match ($tool) {
+                'artisan' => [$php, $root.'/artisan'],
+                'test' => [$php, $root.'/artisan', 'test'],
+                'composer' => $composer !== null ? [$php, $composer] : [$herd, 'composer'],
+                default => [$php],
+            };
+        }
 
         return match ($tool) {
             'artisan' => [$herd, 'php', $root.'/artisan'],
