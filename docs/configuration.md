@@ -65,7 +65,7 @@ After you change `agents`, `worktrees`, or `cloud`, run `./.ai-harness update`. 
 
 ### Cloud
 
-These keys have an effect only in a detected cloud environment. They never change local setup. Refer to [Cloud environments](cloud.md).
+The `cloud_*` keys apply only in a detected cloud environment. They never change local setup. The `cloud` key also controls which managed files `init` and `update` write locally. Refer to [Cloud environments](cloud.md).
 
 | Key | Default | Values | Description |
 | --- | --- | --- | --- |

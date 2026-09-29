@@ -60,7 +60,7 @@ The harness merges package-owned command hooks into `.claude/settings.json`.
 
 | Hook | Added when | Action |
 | --- | --- | --- |
-| `SessionStart` | `worktrees=true` or `cloud=true` | Prepare the current checkout or worktree. |
+| `SessionStart` | `worktrees=true` or `cloud=true` | In a Claude cloud session with `cloud=true`: prepare the project. Locally with `worktrees=true`: prepare the session directory only when it is a Claude worktree under `.claude/worktrees/`. A normal local checkout is not prepared. |
 | `PostToolUse` for `EnterWorktree` | `worktrees=true` | Prepare the worktree that Claude reports. |
 | `PreToolUse` for `ExitWorktree` | `worktrees=true` | Clean the worktree before Claude removes it. |
 | `WorktreeRemove` | `worktrees=true` | Clean `--worktree` and isolated-subagent worktrees before Claude removes them. |
