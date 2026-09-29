@@ -63,7 +63,7 @@ test('package metadata retains the legacy provider class for Laravel discovery',
 });
 
 test('upgrade documentation routes v0.1 no-scripts recovery through the migration bridge', function (): void {
-    $readme = (string) file_get_contents(package_root().'/README.md');
+    $readme = (string) file_get_contents(package_root().'/docs/upgrading.md');
 
     expect($readme)->toContain('composer update mrkoopie/laravel-ai-harness --no-scripts')
         ->toContain('php artisan ai-harness:update --ansi');
