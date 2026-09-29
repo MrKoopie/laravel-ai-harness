@@ -96,6 +96,7 @@ Refer to [Commands](docs/commands.md) for all details.
 | [Local environments](docs/local-environments.md) | What `setup`, `cleanup`, `up`, and `down` do with Herd, Valet, Sail, and MySQL. |
 | [Coding agents](docs/agents.md) | `AGENTS.md`, Codex local environments, Claude Code hooks, and Laravel Boost. |
 | [Cloud environments](docs/cloud.md) | Claude and Codex cloud setup, provisioning, and environment variables. |
+| [Private packages](docs/private-packages.md) | Composer credentials for many hosts and authentication types with `COMPOSER_AUTH`. |
 | [Upgrading](docs/upgrading.md) | Upgrade from version 0.1. |
 | [Troubleshooting](docs/troubleshooting.md) | `doctor` failures and common problems. |
 | [Development](docs/development.md) | Work on the package itself. |

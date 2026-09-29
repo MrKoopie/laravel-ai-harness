@@ -123,7 +123,7 @@ The setup phase has internet access. A dependency refresh needs network access i
 
 Codex environment secrets are available only during setup.
 
-- Use secrets only for private dependency authentication during setup.
+- Use secrets only for private dependency authentication during setup, for example `COMPOSER_AUTH`. Refer to [Private packages](private-packages.md).
 - Make sure that maintenance can install branch-specific dependencies without these secrets.
 - Do not put package credentials in tracked files.
 
@@ -200,6 +200,7 @@ Set these variables in the cloud environment. They are not `.ai-harness.config` 
 | `AI_HARNESS_COMPOSER_JSON` | `provision` | Path to the Composer manifest for extension detection. Default: `composer.json` in the project root. |
 | `AI_HARNESS_COMPOSER_PREFER` | Bootstrap | `dist` (default) or `source`. |
 | `AI_HARNESS_MYSQL_SOCKET` | `setup` | Absolute path to a different local MySQL socket. |
+| `COMPOSER_AUTH` | Composer | Credentials for private packages, as JSON. Composer reads it. Refer to [Private packages](private-packages.md). |
 
 An empty variable uses the default.
 

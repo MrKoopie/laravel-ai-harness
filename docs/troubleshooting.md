@@ -27,6 +27,8 @@ Each `FAIL` line tells you what is wrong. This page gives the fix for each messa
 | `Codex local environment is missing` | Run `./.ai-harness update`. |
 | `Claude instructions in CLAUDE.md shadow AGENTS.md` | Add the line `@AGENTS.md` to `CLAUDE.md`, or configure Claude to read both files. |
 | `Claude hooks are missing` | Run `./.ai-harness update`. |
+| `COMPOSER_AUTH is not valid: ...` | Correct the JSON in `COMPOSER_AUTH`. The message names the type and host. Refer to [Private packages](private-packages.md). |
+| `COMPOSER_AUTH is set but the Sail compose file does not forward it` | Add `COMPOSER_AUTH: '${COMPOSER_AUTH:-}'` to the `laravel.test` environment, then run `./.ai-harness up`. Refer to [Laravel Sail](private-packages.md#laravel-sail). |
 
 ## Configuration errors
 

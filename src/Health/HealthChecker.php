@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MrKoopie\LaravelAiHarness\Health;
 
 use MrKoopie\LaravelAiHarness\Config\Config;
+use MrKoopie\LaravelAiHarness\Environment\ComposerAuth;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
@@ -47,6 +48,26 @@ final readonly class HealthChecker
 
         if (! $cloud && $config->services === Services::Sail) {
             $checks[] = $this->file(is_executable($root.'/vendor/bin/sail'), 'Sail service manager is available', 'services=sail requires vendor/bin/sail');
+        }
+
+        $composerAuth = ComposerAuth::fromEnvironment();
+
+        if ($composerAuth !== null) {
+            $checks[] = $this->file(
+                $composerAuth->valid(),
+                'COMPOSER_AUTH is valid for '.$composerAuth->summary(),
+                'COMPOSER_AUTH is not valid: '.implode('; ', $composerAuth->errors),
+            );
+
+            // Sail runs Composer in a container, which gets only the variables that the compose file forwards.
+            if (! $cloud && $config->runtime === Runtime::Sail) {
+                $forwarding = ComposerAuth::composeFileForwarding($root);
+                $checks[] = $this->file(
+                    $forwarding !== null,
+                    'COMPOSER_AUTH is forwarded to Sail in '.basename((string) $forwarding),
+                    'COMPOSER_AUTH is set but the Sail compose file does not forward it; add COMPOSER_AUTH to the laravel.test environment, then run ./.ai-harness up',
+                );
+            }
         }
 
         if ($cloud) {

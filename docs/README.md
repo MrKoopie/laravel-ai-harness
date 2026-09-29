@@ -7,6 +7,7 @@
 5. [Local environments](local-environments.md): `setup`, `cleanup`, `up`, `down`, Herd, Valet, and Sail MySQL.
 6. [Coding agents](agents.md): `AGENTS.md`, Codex, Claude Code hooks, and Laravel Boost.
 7. [Cloud environments](cloud.md): Claude and Codex cloud, provisioning, and environment variables.
-8. [Upgrading](upgrading.md): upgrade from version 0.1.
-9. [Troubleshooting](troubleshooting.md): `doctor` failures and common problems.
-10. [Development](development.md): work on the package itself.
+8. [Private packages](private-packages.md): Composer credentials for many hosts with `COMPOSER_AUTH`.
+9. [Upgrading](upgrading.md): upgrade from version 0.1.
+10. [Troubleshooting](troubleshooting.md): `doctor` failures and common problems.
+11. [Development](development.md): work on the package itself.

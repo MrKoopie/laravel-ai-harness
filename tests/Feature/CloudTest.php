@@ -387,3 +387,17 @@ BASH);
         ->and(file_get_contents($root.'/commands.log'))->toContain('SHOW DATABASES;')
         ->and($settings['hooks'])->not->toHaveKey('WorktreeRemove');
 });
+
+test('cloud setup passes COMPOSER_AUTH to Composer unchanged', function (): void {
+    [$root, $environment] = cloud_fixture();
+    $environment['COMPOSER_AUTH'] = '{"http-basic":{"repo.example.com":{"username":"u","password":"p"}},"bearer":{"packages.example.com":"t"}}';
+    write_executable($root.'/fake-bin/composer', <<<'BASH'
+#!/usr/bin/env bash
+[[ "${COMPOSER_AUTH:-}" == '{"http-basic":{"repo.example.com":{"username":"u","password":"p"}},"bearer":{"packages.example.com":"t"}}' ]]
+BASH);
+
+    $setup = harness_process(['cloud', 'setup'], $root, $environment);
+    $setup->run();
+
+    expect($setup->getExitCode())->toBe(0);
+});
