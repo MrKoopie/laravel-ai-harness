@@ -81,6 +81,7 @@ From now on, people and agents use `./.ai-harness` for all Laravel, Composer, PH
 | `./.ai-harness cleanup` | Remove only the resources that the harness owns. |
 | `./.ai-harness up` | Start the configured Sail services. |
 | `./.ai-harness down` | Stop the configured Sail services. Volumes stay. |
+| `./.ai-harness prune-herd` | Remove Herd sites of deleted worktrees, after you confirm. |
 | `./.ai-harness init` | Create the managed project files. |
 | `./.ai-harness update` | Refresh the managed project files. |
 | `./.ai-harness cloud setup\|maintain\|cleanup` | Prepare or clean a cloud checkout. |

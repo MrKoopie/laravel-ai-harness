@@ -56,6 +56,14 @@ FORWARD_DB_PORT=3307
 
 The harness manages databases only when `services=sail` and `mysql` is in `sail_services`. An empty `sail_services` starts the full stack, but the harness does not manage its databases. Refer to [MySQL with Sail](local-environments.md#mysql-with-sail).
 
+### Herd commands fail with exit code 127
+
+Herd can print PHP warnings when it looks up the PHP version of the site. Older harness versions then used the warning text as the program name. Update the package. The harness now finds the PHP binary through the Herd PHAR. Refer to [PHP version of the Herd site](local-environments.md#php-version-of-the-herd-site).
+
+### Herd sites stay after you delete a worktree
+
+Run `./.ai-harness prune-herd --dry-run` to see them. Then run `./.ai-harness prune-herd` to remove them. Refer to [Remove orphaned Herd sites](local-environments.md#remove-orphaned-herd-sites).
+
 ### A Herd or Valet command fails in Codex
 
 Codex runs commands in a sandbox. Herd and Valet commands must run outside the sandbox. Approve the escalation request for the command.
