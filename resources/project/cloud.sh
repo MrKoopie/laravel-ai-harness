@@ -147,7 +147,7 @@ case "${1:-}" in
         requirements_directory="$temporary_directory/requirements"
         mkdir -- "$requirements_directory"
 
-        "$php_binary" -- "$composer_json" "$requirements_directory" > "$temporary_directory/packages" <<'PHP'
+        "$php_binary" -- "$composer_json" "$requirements_directory" > "$temporary_directory/candidates.json" <<'PHP'
 <?php
 
 // Keep parsing independent of Composer autoloading and project code.
@@ -220,8 +220,10 @@ try {
     // A temporary copy lets Composer check the selected manifest even with a
     // custom filename, while retaining locked transitive version constraints.
     $checkManifest = [
-        'name' => 'ai-harness/cloud-platform-check',
-        'version' => '1.0.0',
+        'name' => $manifest->name ?? 'ai-harness/cloud-platform-check',
+        'version' => $manifest->version ?? '1.0.0',
+        'provide' => (object) requirements($manifest, 'provide'),
+        'replace' => (object) requirements($manifest, 'replace'),
         'require' => $lock->platform,
         'require-dev' => $lock->{'platform-dev'},
     ];
@@ -229,8 +231,8 @@ try {
     file_put_contents($argv[2].'/composer.lock', json_encode($lock, JSON_THROW_ON_ERROR));
     $mapping = [
         'dom' => 'xml', 'simplexml' => 'xml', 'xmlreader' => 'xml', 'xmlwriter' => 'xml', 'xsl' => 'xml',
-        'mysqli' => 'mysql', 'pdo_mysql' => 'mysql', 'pdo_sqlite' => 'sqlite3',
-        'pdo_pgsql' => 'pgsql', 'pdo_odbc' => 'odbc', 'pdo_dblib' => 'sybase',
+        'mysqlnd' => 'mysql', 'mysqli' => 'mysql', 'pdo_mysql' => 'mysql', 'pdo_sqlite' => 'sqlite3',
+        'pdo_firebird' => 'interbase', 'pdo_pgsql' => 'pgsql', 'pdo_odbc' => 'odbc', 'pdo_dblib' => 'sybase',
         'exif' => 'common', 'ftp' => 'common', 'gettext' => 'common', 'iconv' => 'common',
         'pdo' => 'common', 'posix' => 'common', 'shmop' => 'common', 'sockets' => 'common',
         'sysvmsg' => 'common', 'sysvsem' => 'common', 'sysvshm' => 'common', 'tokenizer' => 'common',
@@ -248,7 +250,48 @@ try {
         $loadedName = $extension === 'zend-opcache' ? 'Zend OPcache' : $extension;
 
         if (! extension_loaded($loadedName)) {
-            $packages[] = $mapping[$extension] ?? str_replace('_', '-', $extension);
+            $packages[$name] = $mapping[$extension] ?? str_replace('_', '-', $extension);
+        }
+    }
+
+    echo json_encode($packages, JSON_THROW_ON_ERROR), "\n";
+} catch (Throwable $exception) {
+    fwrite(STDERR, 'Composer requirements: '.$exception->getMessage()."\n");
+    exit(1);
+}
+PHP
+
+        # Ask Composer to resolve providers/replacements and their constraints
+        # before installing anything from the project's extension requirements.
+        platform_status=0
+        COMPOSER=composer.json "$php_binary" /usr/bin/composer --no-plugins --no-scripts \
+            --working-dir="$requirements_directory" check-platform-reqs --lock --format=json \
+            > "$temporary_directory/platform.json" || platform_status=$?
+
+        if (( platform_status > 2 )); then
+            exit "$platform_status"
+        fi
+
+        "$php_binary" -- "$temporary_directory/candidates.json" "$temporary_directory/platform.json" > "$temporary_directory/packages" <<'PHP'
+<?php
+
+try {
+    $candidates = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+    $results = json_decode(file_get_contents($argv[2]), true, 512, JSON_THROW_ON_ERROR);
+
+    if (! is_array($results) || ! array_is_list($results)) {
+        throw new RuntimeException('Expected a list from Composer platform validation.');
+    }
+
+    $packages = [];
+
+    foreach ($results as $result) {
+        if (! is_array($result) || ! isset($result['name'], $result['status']) || ! in_array($result['status'], ['success', 'missing', 'failed'], true)) {
+            throw new RuntimeException('Invalid Composer platform validation result.');
+        }
+
+        if ($result['status'] !== 'success' && isset($candidates[$result['name']])) {
+            $packages[] = $candidates[$result['name']];
         }
     }
 

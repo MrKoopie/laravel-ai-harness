@@ -280,7 +280,8 @@ provider to discard its ephemeral container. See
    `composer.json`, plus runtime requirements of packages in both `packages` and
    `packages-dev` in its adjacent `composer.lock`, when present. It installs
    missing `ext-*` requirements for the selected PHP version, skips loaded
-   extensions, and maps grouped extensions such as `ext-dom` to the `xml` package
+   extensions and requirements satisfied by Composer `provide`/`replace`
+   constraints, and maps grouped extensions such as `ext-dom` to the `xml` package
    and `ext-pdo_mysql` to `mysql`. Composer then checks actual PHP and extension
    versions, including development requirements, without executing project
    plugins or scripts. Project files are not modified. Missing packages or

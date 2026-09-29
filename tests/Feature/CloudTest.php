@@ -171,7 +171,7 @@ fi
 }
 ');
         write_executable($root.'/bin/php'.$expectedVersion, "#!/bin/sh\nexec ".escapeshellarg(PHP_BINARY).' "$@"'."\n");
-        write_executable($root.'/bin/composer', "#!/usr/bin/env php\n<?php exit(0);\n");
+        write_executable($root.'/bin/composer', "#!/usr/bin/env php\n<?php echo \"[]\\n\";\n");
 
         $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, [
             'AI_HARNESS_ENV' => 'codex-cloud',

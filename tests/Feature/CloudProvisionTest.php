@@ -55,6 +55,11 @@ foreach ($argv as $argument) {
     }
 }
 
+if (in_array('--format=json', $argv, true)) {
+    $candidates = json_decode(file_get_contents(dirname($directory).'/candidates.json'), true);
+    echo json_encode(array_map(fn ($name) => ['name' => $name, 'status' => 'missing'], array_keys($candidates)));
+}
+
 exit((int) getenv('PLATFORM_EXIT'));
 PHP);
 
@@ -268,15 +273,28 @@ test('cloud provision propagates platform validation failures and cleans tempora
         ->and(is_dir((string) $directory))->toBeFalse();
 });
 
-$platformCheck = function (string $manifest, ?string $lock, bool $success): void {
+$platformCheck = function (string $manifest, ?string $lock, bool $success, ?string $launcher = null): void {
     [$root, $environment] = cloud_provision_fixture();
-    $composer = (new ExecutableFinder)->find('composer');
+    $composer = $launcher ?? (new ExecutableFinder)->find('composer');
 
     if ($composer === null) {
         throw new RuntimeException('Composer is required for cloud provisioning integration tests.');
     }
 
-    copy($composer, $root.'/bin/composer');
+    // Execute the discovered entrypoint normally: it may be a shell shim.
+    $environment['REAL_COMPOSER'] = $composer;
+    $environment['REAL_PATH'] = (string) getenv('PATH');
+    file_put_contents($root.'/bash-env', <<<'BASH'
+function /usr/bin/php8.5 {
+    if [[ "$1" == /usr/bin/composer ]]; then
+        shift
+        PATH="$REAL_PATH" "$REAL_COMPOSER" "$@"
+    else
+        "$CLOUD_BIN/php8.5" "$@"
+    fi
+}
+BASH);
+
     file_put_contents($root.'/composer.json', $manifest);
 
     if ($lock !== null) {
@@ -292,6 +310,10 @@ $platformCheck = function (string $manifest, ?string $lock, bool $success): void
         expect($process->getOutput())->toContain('failed');
     }
 
+    if ($success && str_contains($manifest, 'ext-harness-provider')) {
+        expect(file_get_contents($root.'/commands'))->not->toContain('php8.5-harness-provider');
+    }
+
     expect(file_get_contents($root.'/composer.json'))->toBe($manifest);
 
     if ($lock !== null) {
@@ -300,6 +322,11 @@ $platformCheck = function (string $manifest, ?string $lock, bool $success): void
 };
 
 foreach ([
+    'root provider' => ['{"require":{"ext-harness-provider":"^2"},"provide":{"ext-harness-provider":"2.1"}}', null, true],
+    'root replacement self version' => ['{"version":"2.1.0","require":{"ext-harness-provider":"^2"},"replace":{"ext-harness-provider":"self.version"}}', null, true],
+    'locked provider' => ['{"require":{"ext-harness-provider":"^2"}}', '{"packages":[{"name":"test/provider","version":"2.1.0","provide":{"ext-harness-provider":"self.version"}}]}', true],
+    'locked dev replacement' => ['{"require-dev":{"ext-harness-provider":"^2"}}', '{"packages-dev":[{"name":"test/provider","version":"2.1.0","replace":{"ext-harness-provider":"self.version"}}]}', true],
+    'incompatible provider' => ['{"require":{"ext-harness-provider":"^3"},"provide":{"ext-harness-provider":"2.1"}}', null, false],
     'compatible PHP' => ['{"require":{"php":">=8.2","ext-json":"*"}}', null, true],
     'incompatible PHP despite emulation' => ['{"require":{"php":">=99"},"config":{"platform":{"php":"99.0.0"}}}', null, false],
     'incompatible development extension' => ['{"require-dev":{"ext-json":">=99"}}', null, false],
@@ -324,4 +351,42 @@ test('cloud provision ignores provider PHP and Composer shims', function (): voi
 
     expect($process->getExitCode())->toBe(2)
         ->and(file_get_contents($root.'/commands'))->toContain('check-platform-reqs');
+});
+
+foreach (['ext-mysqlnd' => 'mysql', 'ext-pdo_firebird' => 'interbase'] as $requirement => $package) {
+    test('cloud provision maps '.$requirement.' to its Debian package', function () use ($requirement, $package): void {
+        [$root, $environment] = cloud_provision_fixture();
+        file_put_contents($root.'/composer.json', json_encode(['require' => [$requirement => '*']], JSON_THROW_ON_ERROR));
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
+        $commands = (string) file_get_contents($root.'/commands');
+
+        expect($commands)->not->toContain('php8.5-mysqlnd');
+        expect($commands)->not->toContain('php8.5-pdo-firebird');
+        expect($process->getOutput())->toContain('Installing Composer PHP requirements: php8.5-'.$package."\n");
+    });
+}
+
+test('real Composer test harness accepts a shell launcher', function () use ($platformCheck): void {
+    $root = temp_directory('composer-launcher');
+    $composer = (new ExecutableFinder)->find('composer');
+
+    if ($composer === null) {
+        throw new RuntimeException('Composer is required.');
+    }
+
+    write_executable($root.'/composer', "#!/bin/sh\nexec ".escapeshellarg($composer).' "$@"'."\n");
+    $platformCheck('{"require":{"php":">=99"}}', null, false, $root.'/composer');
+});
+
+test('cloud provision rejects malformed Composer preflight output before extension installation', function (): void {
+    [$root, $environment] = cloud_provision_fixture();
+    file_put_contents($root.'/composer.json', '{"require":{"ext-imagick":"*"}}');
+    write_executable($root.'/bin/composer', "#!/usr/bin/env php\n<?php echo 'not JSON';\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->isSuccessful())->toBeFalse()
+        ->and($process->getErrorOutput())->toContain('Composer requirements:')
+        ->and(file_get_contents($root.'/commands'))->not->toContain('php8.5-imagick');
 });
