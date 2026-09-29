@@ -41,6 +41,7 @@ final readonly class HealthChecker
         $checks[] = match ($cloud ? Runtime::Native : $config->runtime) {
             Runtime::Native => $this->file($this->executables->php() !== null, 'Native PHP is available', 'Native PHP is unavailable'),
             Runtime::Herd => $this->file($this->executables->herd() !== null, 'Laravel Herd is available', 'Laravel Herd is unavailable'),
+            Runtime::Valet => $this->file($this->executables->valet() !== null, 'Laravel Valet is available', 'Laravel Valet is unavailable'),
             Runtime::Sail => $this->file(is_executable($root.'/vendor/bin/sail'), 'Laravel Sail is available', 'Laravel Sail is missing or not executable'),
         };
 

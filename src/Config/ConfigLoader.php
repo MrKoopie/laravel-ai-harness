@@ -21,6 +21,8 @@ final class ConfigLoader
         'sail_services' => '',
         'herd_secure' => 'true',
         'herd_php' => '',
+        'valet_secure' => 'true',
+        'valet_php' => '',
         'worktrees' => 'true',
         'cloud' => 'true',
         'cloud_services' => 'mysql',
@@ -57,7 +59,7 @@ final class ConfigLoader
         $runtime = Runtime::tryFrom($values['runtime']);
 
         if ($runtime === null) {
-            throw new ConfigException('runtime must be one of: native, herd, sail.');
+            throw new ConfigException('runtime must be one of: native, herd, valet, sail.');
         }
 
         $services = Services::tryFrom($values['services']);
@@ -87,6 +89,7 @@ final class ConfigLoader
         }
 
         $herdPhp = trim($values['herd_php']);
+        $valetPhp = trim($values['valet_php']);
 
         $cloudServices = $this->list($values['cloud_services'], 'cloud_services');
 
@@ -102,6 +105,10 @@ final class ConfigLoader
 
         if ($herdPhp !== '' && preg_match('/^\d+\.\d+$/', $herdPhp) !== 1) {
             throw new ConfigException('herd_php must be empty or a major.minor version such as 8.4.');
+        }
+
+        if ($valetPhp !== '' && preg_match('/^\d+\.\d+$/', $valetPhp) !== 1) {
+            throw new ConfigException('valet_php must be empty or a major.minor version such as 8.4.');
         }
 
         /** @var list<'claude'|'codex'> $agents */
@@ -120,6 +127,8 @@ final class ConfigLoader
             cloudSeed: $this->boolean($values['cloud_seed'], 'cloud_seed'),
             cloudBuild: $this->boolean($values['cloud_build'], 'cloud_build'),
             cloudBrowser: $this->boolean($values['cloud_browser'], 'cloud_browser'),
+            valetSecure: $this->boolean($values['valet_secure'], 'valet_secure'),
+            valetPhp: $valetPhp === '' ? null : $valetPhp,
         );
     }
 

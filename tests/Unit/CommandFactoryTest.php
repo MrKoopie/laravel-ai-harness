@@ -5,8 +5,10 @@ declare(strict_types=1);
 use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
 use MrKoopie\LaravelAiHarness\Environment\DatabaseName;
+use MrKoopie\LaravelAiHarness\Environment\EnvironmentException;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
+use MrKoopie\LaravelAiHarness\Environment\SiteName;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 /** @param list<non-empty-string> $sailServices */
@@ -43,6 +45,36 @@ test('runtime commands are built as argv arrays without shell interpolation', fu
         ->toBe(['/tools/herd', 'php', $root.'/artisan', ...$arguments])
         ->and($factory->runtime(harness_config(Runtime::Sail), 'artisan', $arguments, $root))
         ->toBe([$root.'/vendor/bin/sail', 'artisan', ...$arguments]);
+});
+
+test('Valet runtime commands use the PHP version of the checkout-specific site', function (): void {
+    $root = temp_directory('harness-valet-command');
+    $factory = new CommandFactory(new ExecutableLocator(overrides: [
+        'valet' => '/tools/valet',
+        'npm' => '/tools/npm',
+    ]));
+    $config = harness_config(Runtime::Valet);
+    $site = '--site='.SiteName::forPath($root);
+
+    expect($factory->runtime($config, 'artisan', ['migrate'], $root))
+        ->toBe(['/tools/valet', 'php', $site, $root.'/artisan', 'migrate'])
+        ->and($factory->runtime($config, 'test', ['--parallel'], $root))
+        ->toBe(['/tools/valet', 'php', $site, $root.'/artisan', 'test', '--parallel'])
+        ->and($factory->runtime($config, 'composer', ['install'], $root))
+        ->toBe(['/tools/valet', 'composer', $site, 'install'])
+        ->and($factory->runtime($config, 'php', ['-v'], $root))
+        ->toBe(['/tools/valet', 'php', $site, '-v'])
+        ->and($factory->runtime($config, 'npm', ['run', 'build'], $root))
+        ->toBe(['/tools/npm', 'run', 'build'])
+        ->and($factory->valet('link', 'example-site'))
+        ->toBe(['/tools/valet', 'link', 'example-site']);
+});
+
+test('Valet commands report a missing executable', function (): void {
+    $factory = new CommandFactory(new ExecutableLocator(overrides: ['valet' => null]));
+
+    expect(fn () => $factory->valet('link', 'example-site'))
+        ->toThrow(EnvironmentException::class, 'Laravel Valet is configured but its executable cannot be found.');
 });
 
 test('sail services can start and stop a selected subset', function (): void {

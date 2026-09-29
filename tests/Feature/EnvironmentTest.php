@@ -112,6 +112,106 @@ BASH);
         ->and($commands[3])->toBe('stop mysql redis');
 });
 
+test('setup links a checkout-specific Valet site and cleanup removes only owned Valet state', function (): void {
+    $root = temp_directory('harness-valet');
+    $home = temp_directory('harness-valet-home');
+    $fakeBin = $root.'/fake-bin';
+    $valetLog = temp_file('valet-log');
+    mkdir($fakeBin, 0755, true);
+    mkdir($home.'/.config/valet', 0755, true);
+    file_put_contents($home.'/.config/valet/config.json', '{"tld":"localhost","paths":[]}');
+    mkdir($root.'/vendor', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/artisan', "<?php\n");
+    file_put_contents($root.'/.env.example', "APP_KEY=\nAPP_URL=http://localhost\n");
+    file_put_contents($root.'/.ai-harness.config', implode("\n", [
+        'runtime=valet',
+        'agents=',
+        'valet_secure=true',
+        'valet_php=8.3',
+        '',
+    ]));
+    write_executable($fakeBin.'/valet', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${VALET_LOG}"
+BASH);
+
+    $environment = [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HOME' => $home,
+        'VALET_LOG' => $valetLog,
+    ];
+
+    harness_process(['setup'], $root, $environment)->mustRun();
+
+    $site = SiteName::forPath($root);
+    $state = json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($state)->toBe(['valet_site' => $site, 'valet_secured' => true])
+        ->and(environment_log_lines($valetLog))->toBe([
+            'link '.$site,
+            'secure '.$site,
+            'isolate php@8.3 --site='.$site,
+            'php --site='.$site.' '.$root.'/artisan key:generate --ansi',
+        ])
+        ->and((string) file_get_contents($root.'/.env'))->toContain('APP_URL=https://'.$site.'.localhost');
+
+    harness_process(['setup'], $root, $environment)->mustRun();
+
+    expect(array_slice(environment_log_lines($valetLog), 4))->toBe([
+        'isolate php@8.3 --site='.$site,
+        'php --site='.$site.' '.$root.'/artisan key:generate --ansi',
+    ]);
+
+    harness_process(['cleanup'], $root, $environment)->mustRun();
+
+    expect(array_slice(environment_log_lines($valetLog), 6))->toBe([
+        'unsecure '.$site,
+        'unlink '.$site,
+    ])
+        ->and($root.'/.ai-harness.state.json')->not->toBeFile();
+});
+
+test('Valet setup serves HTTP on the default TLD and removes HTTPS it added before', function (): void {
+    $root = temp_directory('harness-valet-http');
+    $home = temp_directory('harness-valet-http-home');
+    $fakeBin = $root.'/fake-bin';
+    $valetLog = temp_file('valet-http-log');
+    mkdir($fakeBin, 0755, true);
+    mkdir($root.'/vendor', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', "<?php\n");
+    file_put_contents($root.'/.env.example', "APP_URL=http://localhost\n");
+    file_put_contents($root.'/.ai-harness.state.json', json_encode([
+        'valet_site' => SiteName::forPath($root),
+        'valet_secured' => true,
+    ], JSON_THROW_ON_ERROR));
+    file_put_contents($root.'/.ai-harness.config', "runtime=valet\nagents=\nvalet_secure=false\n");
+    write_executable($fakeBin.'/valet', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${VALET_LOG}"
+BASH);
+
+    harness_process(['setup'], $root, [
+        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+        'HOME' => $home,
+        'VALET_LOG' => $valetLog,
+    ])->mustRun();
+
+    $site = SiteName::forPath($root);
+    $state = json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR);
+
+    expect(environment_log_lines($valetLog))->toBe(['unsecure '.$site])
+        ->and($state)->toBe(['valet_site' => $site])
+        ->and((string) file_get_contents($root.'/.env'))->toContain('APP_URL=http://'.$site.'.test');
+});
+
+test('each checkout gets its own Valet site name', function (): void {
+    $parent = temp_directory('harness-valet-worktrees');
+
+    expect(SiteName::forPath($parent.'/one/my-app'))->not->toBe(SiteName::forPath($parent.'/two/my-app'))
+        ->and(SiteName::forPath($parent.'/one/my-app'))->toStartWith('my-app-');
+});
+
 test('Sail runtime starts laravel.test with or without explicitly managed supporting services', function (): void {
     foreach ([
         ['services=none', 'sail_services=', 'up -d laravel.test', 'stop laravel.test'],

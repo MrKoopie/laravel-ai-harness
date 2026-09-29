@@ -3,7 +3,7 @@
 - Run Laravel commands through `./.ai-harness artisan ...`.
 - Run tests through `./.ai-harness test ...`.
 - Run Composer, PHP, and npm through `./.ai-harness composer ...`, `./.ai-harness php ...`, and `./.ai-harness npm ...`.
-- In Codex, when planning to execute a command that invokes Laravel Herd, run that command outside the sandbox on the first attempt (`sandbox_permissions=require_escalated`). This applies to direct `herd ...` and `ai-herd ...` commands, and to `./.ai-harness ...` commands that will invoke Herd under the active runtime. Request escalation only for the planned command, not merely because Herd is configured.
+- In Codex, when planning to execute a command that invokes Laravel Herd or Laravel Valet, run that command outside the sandbox on the first attempt (`sandbox_permissions=require_escalated`). This applies to direct `herd ...`, `ai-herd ...`, and `valet ...` commands, and to `./.ai-harness ...` commands that will invoke Herd or Valet under the active runtime. Request escalation only for the planned command, not merely because Herd or Valet is configured.
 - Use `./.ai-harness up`, `./.ai-harness down`, and `./.ai-harness doctor` for the configured local environment.
 - Do not bypass the configured runtime unless the user explicitly asks.
 - Cloud detection uses `CLAUDE_CODE_REMOTE=true` or explicit `AI_HARNESS_ENV=claude-cloud|codex-cloud`; `local` overrides detection. Cloud commands use native PHP and local services.

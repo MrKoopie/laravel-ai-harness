@@ -24,6 +24,7 @@ final readonly class CommandFactory
         $prefix = match ($runtime) {
             Runtime::Native => $this->nativePrefix($tool, $root),
             Runtime::Herd => $this->herdPrefix($tool, $root),
+            Runtime::Valet => $this->valetPrefix($tool, $root),
             Runtime::Sail => $this->sailPrefix($tool, $root),
         };
 
@@ -142,6 +143,22 @@ final readonly class CommandFactory
     }
 
     /**
+     * Build a Laravel Valet command.
+     *
+     * @return non-empty-list<string>
+     */
+    public function valet(string $action, string ...$arguments): array
+    {
+        $valet = $this->executables->valet();
+
+        if ($valet === null) {
+            throw new EnvironmentException('Laravel Valet is configured but its executable cannot be found.');
+        }
+
+        return [$valet, $action, ...array_values($arguments)];
+    }
+
+    /**
      * Build the executable prefix for a native runtime tool.
      *
      * @return non-empty-list<string>
@@ -172,6 +189,28 @@ final readonly class CommandFactory
             'composer' => [$herd, 'composer'],
             'php' => [$herd, 'php'],
             'test' => [$herd, 'php', $root.'/artisan', 'test'],
+            'npm' => [$this->required($this->executables->find('npm'), 'npm')],
+            default => throw new EnvironmentException("Unknown runtime tool [{$tool}]."),
+        };
+    }
+
+    /**
+     * Build the executable prefix for a Valet runtime tool.
+     *
+     * Valet selects the PHP version of the site, so the checkout-specific site name is always passed.
+     *
+     * @return non-empty-list<string>
+     */
+    private function valetPrefix(string $tool, string $root): array
+    {
+        $valet = $this->required($this->executables->valet(), 'Laravel Valet');
+        $site = '--site='.SiteName::forPath($root);
+
+        return match ($tool) {
+            'artisan' => [$valet, 'php', $site, $root.'/artisan'],
+            'composer' => [$valet, 'composer', $site],
+            'php' => [$valet, 'php', $site],
+            'test' => [$valet, 'php', $site, $root.'/artisan', 'test'],
             'npm' => [$this->required($this->executables->find('npm'), 'npm')],
             default => throw new EnvironmentException("Unknown runtime tool [{$tool}]."),
         };

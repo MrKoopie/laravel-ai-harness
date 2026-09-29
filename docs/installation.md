@@ -114,7 +114,7 @@ To upgrade from version 0.1, refer to [Upgrading](upgrading.md).
 - Install dependencies.
 - Start containers.
 - Create databases.
-- Link Herd sites.
+- Link Herd or Valet sites.
 - Run migrations.
 - Read or change Git.
 

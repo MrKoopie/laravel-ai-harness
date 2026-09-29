@@ -9,7 +9,7 @@ When `codex` or `claude` is in `agents`, `init` and `update` add one managed blo
 - Run Laravel, test, Composer, PHP, and npm commands through `./.ai-harness`.
 - Use `up`, `down`, and `doctor` for the local environment.
 - Not bypass the configured runtime unless the user asks.
-- Run Herd commands outside the Codex sandbox.
+- Run Herd and Valet commands outside the Codex sandbox.
 - Use the cloud commands in cloud sessions.
 
 The block starts with `<!-- ai-harness:start -->`. Do not edit the text inside the block. The next refresh replaces it. Put your own instructions above or below the block.

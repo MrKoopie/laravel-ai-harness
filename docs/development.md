@@ -52,7 +52,7 @@ The test suite covers:
 | `bin/ai-harness` | CLI entrypoint. |
 | `src/Config` | Configuration loading and validation. |
 | `src/Console` | CLI commands. |
-| `src/Environment` | Runtimes, Sail, Herd, MySQL, and cloud lifecycle. |
+| `src/Environment` | Runtimes, Sail, Herd, Valet, MySQL, and cloud lifecycle. |
 | `src/Files` | Managed project files, Composer scripts, and Claude settings. |
 | `src/Health` | `doctor` checks. |
 | `resources/project` | Bootstrap, cloud script, default configuration, and `.gitignore` block. |
