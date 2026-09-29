@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use MrKoopie\LaravelAiHarness\Environment\SiteTool;
 use MrKoopie\LaravelAiHarness\Environment\StateStore;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
 
@@ -10,20 +11,20 @@ test('an empty state object remains readable after clearing TLS state', function
     file_put_contents($root.'/.ai-harness.state.json', '{"herd_secured":true}');
 
     $store = new StateStore(new SafeWriter);
-    $store->clearHerdSecured($root);
+    $store->clearSiteSecured($root, SiteTool::Herd);
 
     expect(file_get_contents($root.'/.ai-harness.state.json'))->toBe("{}\n")
-        ->and($store->herdSecured($root))->toBeFalse()
-        ->and($store->herdSite($root))->toBeNull();
+        ->and($store->siteSecured($root, SiteTool::Herd))->toBeFalse()
+        ->and($store->site($root, SiteTool::Herd))->toBeNull();
 });
 
 test('MySQL ownership state survives Herd cleanup and is removable independently', function (): void {
     $root = temp_directory('harness-mysql-state');
     $store = new StateStore(new SafeWriter);
 
-    $store->recordHerdSite($root, 'example-site');
+    $store->recordSite($root, SiteTool::Herd, 'example-site');
     $store->recordMySqlDatabases($root);
-    $store->clearHerdSite($root);
+    $store->clearSite($root, SiteTool::Herd);
 
     expect($store->ownsMySqlDatabases($root))->toBeTrue()
         ->and(json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))

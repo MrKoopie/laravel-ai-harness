@@ -32,6 +32,8 @@ final readonly class Config
         public bool $cloudSeed = false,
         public bool $cloudBuild = false,
         public bool $cloudBrowser = false,
+        public bool $valetSecure = true,
+        public ?string $valetPhp = null,
     ) {}
 
     /** Determine whether the named coding agent is enabled. */

@@ -18,6 +18,7 @@ Each `FAIL` line tells you what is wrong. This page gives the fix for each messa
 | `Automatic Composer refresh hooks are missing; run ./.ai-harness update` | Run `./.ai-harness update`. |
 | `Native PHP is unavailable` | Install PHP 8.2 or newer and add it to `PATH`, or change `runtime`. |
 | `Laravel Herd is unavailable` | Install Herd and make sure that `herd` is on `PATH`, or change `runtime`. |
+| `Laravel Valet is unavailable` | Install Valet and make sure that `valet` is on `PATH`, or change `runtime`. |
 | `Laravel Sail is missing or not executable` | Install Sail with the host Composer: `composer require laravel/sail --dev`. Do not use `./.ai-harness composer`, because with `runtime=sail` it needs Sail. Or change `runtime`. |
 | `services=sail requires vendor/bin/sail` | Install Laravel Sail with `./.ai-harness composer require laravel/sail --dev`, or set `services=none`. |
 | `Cloud mysql is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
@@ -38,6 +39,7 @@ The harness stops when the configuration is not valid. Examples:
 | `sail_services may only be set when services=sail.` | Set `services=sail`, or remove `sail_services`. |
 | `cloud_seed requires cloud_migrate=true` | Set `cloud_migrate=true`, or set `cloud_seed=false`. |
 | `herd_php must be empty or a major.minor version` | Use a value such as `8.4`. |
+| `valet_php must be empty or a major.minor version` | Use a value such as `8.4`, not `php@8.4`. |
 | `AI_HARNESS_ENV must be local, claude-cloud, or codex-cloud.` | Correct the environment variable. |
 
 ## Common problems
@@ -62,9 +64,17 @@ Herd can print PHP warnings when it looks up the PHP version of the site. Older 
 
 Run `./.ai-harness prune-herd --dry-run` to see them. Then run `./.ai-harness prune-herd` to remove them. Refer to [Remove orphaned Herd sites](local-environments.md#remove-orphaned-herd-sites).
 
-### A Herd command fails in Codex
+### Valet sites stay after you delete a worktree
 
-Codex runs commands in a sandbox. Herd commands must run outside the sandbox. Approve the escalation request for the Herd command.
+Run `./.ai-harness prune-valet --dry-run` to see them. Then run `./.ai-harness prune-valet` to remove them. Refer to [Remove orphaned Valet sites](local-environments.md#remove-orphaned-valet-sites).
+
+### A Herd or Valet command fails in Codex
+
+Codex runs commands in a sandbox. Herd and Valet commands must run outside the sandbox. Approve the escalation request for the command.
+
+### A Valet command asks for a password
+
+Valet runs `link`, `secure`, `unsecure`, `unlink`, and `isolate` with `sudo`. An agent cannot type a password. Run `valet trust` one time. After that, Valet does not ask for a password.
 
 ### Composer hooks fail after an upgrade
 

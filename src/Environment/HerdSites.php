@@ -10,16 +10,19 @@ use Symfony\Component\Process\Process;
 
 final class HerdSites
 {
-    /** Resolve the directory Herd actually uses for links. */
-    public static function directory(): string
+    /** Resolve the directory Herd or Valet actually uses for links. */
+    public static function directory(SiteTool $tool = SiteTool::Herd): string
     {
         $home = getenv('HOME');
 
         if (! is_string($home) || $home === '') {
-            throw new EnvironmentException('Cannot locate the Herd sites directory without HOME.');
+            throw new EnvironmentException("Cannot locate the {$tool->label()} sites directory without HOME.");
         }
 
-        return $home.'/Library/Application Support/Herd/config/valet/Sites';
+        return match ($tool) {
+            SiteTool::Herd => $home.'/Library/Application Support/Herd/config/valet/Sites',
+            SiteTool::Valet => $home.'/.config/valet/Sites',
+        };
     }
 
     /**
@@ -36,7 +39,7 @@ final class HerdSites
         $entries = scandir($directory);
 
         if ($entries === false) {
-            throw new EnvironmentException('Cannot read Herd sites directory.');
+            throw new EnvironmentException('Cannot read sites directory.');
         }
 
         $orphans = [];

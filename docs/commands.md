@@ -77,13 +77,14 @@ For each `FAIL` line, refer to [Troubleshooting](troubleshooting.md).
 
 Refer to [Local environments](local-environments.md) for the details of each step.
 
-## Herd maintenance
+## Herd and Valet maintenance
 
 | Command | Description |
 | --- | --- |
 | `./.ai-harness prune-herd` | Find Herd sites whose checkout no longer exists, and remove them after you confirm. |
+| `./.ai-harness prune-valet` | Find Valet sites whose checkout no longer exists, and remove them after you confirm. |
 
-Refer to [Remove orphaned Herd sites](local-environments.md#remove-orphaned-herd-sites).
+Refer to [Remove orphaned Herd sites](local-environments.md#remove-orphaned-herd-sites) and [Remove orphaned Valet sites](local-environments.md#remove-orphaned-valet-sites).
 
 ## Cloud commands
 
@@ -105,7 +106,7 @@ Claude Code calls this command from the hooks in `.claude/settings.json`. You do
 
 ## The `--path` option
 
-`init`, `update`, `doctor`, `setup`, `cleanup`, `up`, `down`, `prune-herd`, and `cloud` accept `--path=/path/to/project`. Use it to operate on a different project directory:
+`init`, `update`, `doctor`, `setup`, `cleanup`, `up`, `down`, `prune-herd`, `prune-valet`, and `cloud` accept `--path=/path/to/project`. Use it to operate on a different project directory:
 
 ```bash
 ./vendor/bin/ai-harness doctor --path=/path/to/project

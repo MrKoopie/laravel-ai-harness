@@ -21,9 +21,11 @@ final readonly class CommandFactory
     public function runtime(Config $config, string $tool, array $arguments, string $root): array
     {
         $runtime = ExecutionEnvironment::current()->isCloud() ? Runtime::Native : $config->runtime;
+        $explicitSite = str_starts_with($arguments[0] ?? '', '--site=');
         $prefix = match ($runtime) {
             Runtime::Native => $this->nativePrefix($tool, $root),
-            Runtime::Herd => $this->herdPrefix($tool, $root, str_starts_with($arguments[0] ?? '', '--site=')),
+            Runtime::Herd => $this->herdPrefix($tool, $root, $explicitSite),
+            Runtime::Valet => $this->valetPrefix($tool, $root, $explicitSite),
             Runtime::Sail => $this->sailPrefix($tool, $root),
         };
 
@@ -142,6 +144,22 @@ final readonly class CommandFactory
     }
 
     /**
+     * Build a Laravel Valet command.
+     *
+     * @return non-empty-list<string>
+     */
+    public function valet(string $action, string ...$arguments): array
+    {
+        $valet = $this->executables->valet();
+
+        if ($valet === null) {
+            throw new EnvironmentException('Laravel Valet is configured but its executable cannot be found.');
+        }
+
+        return [$valet, $action, ...array_values($arguments)];
+    }
+
+    /**
      * Build the executable prefix for a native runtime tool.
      *
      * @return non-empty-list<string>
@@ -186,6 +204,34 @@ final readonly class CommandFactory
             'composer' => [$herd, 'composer'],
             'php' => [$herd, 'php'],
             'test' => [$herd, 'php', $root.'/artisan', 'test'],
+            'npm' => [$this->required($this->executables->find('npm'), 'npm')],
+            default => throw new EnvironmentException("Unknown runtime tool [{$tool}]."),
+        };
+    }
+
+    /**
+     * Build the executable prefix for a Valet runtime tool.
+     *
+     * Valet selects the PHP version of the site, so the checkout-specific site name is passed
+     * unless the caller already selects a site as the first argument.
+     *
+     * @return non-empty-list<string>
+     */
+    private function valetPrefix(string $tool, string $root, bool $explicitSite = false): array
+    {
+        $valet = $this->required($this->executables->valet(), 'Laravel Valet');
+
+        if ($explicitSite && in_array($tool, ['php', 'composer'], true)) {
+            return [$valet, $tool];
+        }
+
+        $site = '--site='.SiteName::forPath($root);
+
+        return match ($tool) {
+            'artisan' => [$valet, 'php', $site, $root.'/artisan'],
+            'composer' => [$valet, 'composer', $site],
+            'php' => [$valet, 'php', $site],
+            'test' => [$valet, 'php', $site, $root.'/artisan', 'test'],
             'npm' => [$this->required($this->executables->find('npm'), 'npm')],
             default => throw new EnvironmentException("Unknown runtime tool [{$tool}]."),
         };

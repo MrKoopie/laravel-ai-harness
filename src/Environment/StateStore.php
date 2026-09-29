@@ -17,59 +17,59 @@ final readonly class StateStore
     /** Create a state store backed by safe writes. */
     public function __construct(private SafeWriter $writer) {}
 
-    /** Return the Herd site recorded as owned by the harness. */
-    public function herdSite(string $root): ?string
+    /** Return the Herd or Valet site recorded as owned by the harness. */
+    public function site(string $root, SiteTool $tool): ?string
     {
         $state = $this->read($root);
-        $site = $state['herd_site'] ?? null;
+        $site = $state[$tool->value.'_site'] ?? null;
 
         return is_string($site) && $site !== '' ? $site : null;
     }
 
-    /** Record the Herd site created for a project. */
-    public function recordHerdSite(string $root, string $site): void
+    /** Record the Herd or Valet site created for a project. */
+    public function recordSite(string $root, SiteTool $tool, string $site): void
     {
         if (preg_match('/^[a-z0-9][a-z0-9-]{0,62}$/', $site) !== 1) {
-            throw new EnvironmentException("Refusing to record invalid Herd site [{$site}].");
+            throw new EnvironmentException("Refusing to record invalid {$tool->label()} site [{$site}].");
         }
 
         $state = $this->read($root);
-        $state['herd_site'] = $site;
+        $state[$tool->value.'_site'] = $site;
         $this->write($root, $state);
     }
 
-    /** Determine whether the recorded Herd site has harness-managed TLS. */
-    public function herdSecured(string $root): bool
+    /** Determine whether the recorded site has harness-managed TLS. */
+    public function siteSecured(string $root, SiteTool $tool): bool
     {
-        return ($this->read($root)['herd_secured'] ?? false) === true;
+        return ($this->read($root)[$tool->value.'_secured'] ?? false) === true;
     }
 
-    /** Record that the harness secured the owned Herd site. */
-    public function recordHerdSecured(string $root): void
+    /** Record that the harness secured the owned site. */
+    public function recordSiteSecured(string $root, SiteTool $tool): void
     {
         $state = $this->read($root);
 
-        if (! is_string($state['herd_site'] ?? null)) {
-            throw new EnvironmentException('Refusing to record Herd TLS state without a harness-owned Herd site.');
+        if (! is_string($state[$tool->value.'_site'] ?? null)) {
+            throw new EnvironmentException("Refusing to record {$tool->label()} TLS state without a harness-owned {$tool->label()} site.");
         }
 
-        $state['herd_secured'] = true;
+        $state[$tool->value.'_secured'] = true;
         $this->write($root, $state);
     }
 
-    /** Clear the harness-managed Herd TLS marker. */
-    public function clearHerdSecured(string $root): void
+    /** Clear the harness-managed TLS marker of a site. */
+    public function clearSiteSecured(string $root, SiteTool $tool): void
     {
         $state = $this->read($root);
-        unset($state['herd_secured']);
+        unset($state[$tool->value.'_secured']);
         $this->write($root, $state);
     }
 
-    /** Clear all recorded state for the owned Herd site. */
-    public function clearHerdSite(string $root): void
+    /** Clear all recorded state for the owned site. */
+    public function clearSite(string $root, SiteTool $tool): void
     {
         $state = $this->read($root);
-        unset($state['herd_site'], $state['herd_secured']);
+        unset($state[$tool->value.'_site'], $state[$tool->value.'_secured']);
 
         $this->writeOrRemove($root, $state);
     }

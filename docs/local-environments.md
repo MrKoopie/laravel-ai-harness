@@ -2,7 +2,7 @@
 
 This page tells you what the environment commands do on a local machine. For cloud containers, refer to [Cloud environments](cloud.md).
 
-Each checkout or worktree gets its own databases, Herd site, and `.env.testing`. The names come from the checkout path. Thus, parallel worktrees do not share data. The harness does not read Git or agent metadata to do this.
+Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.testing`. The names come from the checkout path. Thus, parallel worktrees do not share data. The harness does not read Git or agent metadata to do this.
 
 ## `setup`
 
@@ -12,8 +12,8 @@ Each checkout or worktree gets its own databases, Herd site, and `.env.testing`.
 2. Copy `.env.example` to `.env` when `.env` does not exist.
 3. Set the MySQL values in `.env` when Sail manages MySQL. The host is `127.0.0.1` for the native and Herd runtimes, and `mysql` for the Sail runtime. The harness activates commented default values. It does not add duplicates.
 4. Start the configured Sail services. Create the development and testing databases for this checkout.
-5. Link the directory in Herd when `runtime=herd`. Set `APP_URL` to the HTTPS URL of the site.
-6. Secure the Herd site when `herd_secure=true`. Isolate its PHP version when `herd_php` has a value.
+5. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
+6. Secure the site when `herd_secure=true` or `valet_secure=true`. Isolate its PHP version when `herd_php` or `valet_php` has a value.
 7. Generate `APP_KEY` when the key is empty.
 8. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. Without it, it uses isolated SQLite defaults.
 9. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
@@ -24,10 +24,10 @@ Each checkout or worktree gets its own databases, Herd site, and `.env.testing`.
 - Change `compose.yaml`.
 - Add test-runner options.
 
-You can run `setup` again at any time. It does not replace an existing `.env` or `.env.testing` file, and it does not create duplicate databases or Herd links. But it writes the harness-owned values again on each run:
+You can run `setup` again at any time. It does not replace an existing `.env` or `.env.testing` file, and it does not create duplicate databases or site links. But it writes the harness-owned values again on each run:
 
 - With Sail MySQL: the `DB_*` values in `.env` and `.env.testing`.
-- With Herd: `APP_URL` in `.env`.
+- With Herd or Valet: `APP_URL` in `.env`.
 
 If you change these values by hand, the next `setup` replaces them.
 
@@ -36,10 +36,10 @@ If you change these values by hand, the next `setup` replaces them.
 `cleanup` removes only the resources that the harness created and recorded in `.ai-harness.state.json`:
 
 1. It drops the MySQL databases of this checkout.
-2. It removes HTTPS from the Herd site of this checkout.
-3. It unlinks the Herd site of this checkout.
+2. It removes HTTPS from the Herd or Valet site of this checkout.
+3. It unlinks the Herd or Valet site of this checkout.
 
-Before each Herd action, the harness makes sure that the recorded site name is the expected name for the current path. If the names are different, it stops and changes nothing.
+Before each Herd or Valet action, the harness makes sure that the recorded site name is the expected name for the current path. If the names are different, it stops and changes nothing.
 
 `cleanup` does not stop Sail. Use `down` for that. The generated Codex local environment runs `cleanup` and then `down`.
 
@@ -94,6 +94,37 @@ A moved or copied worktree still fails the ownership check in `setup` and `clean
 ### Codex sandbox
 
 Codex runs commands in a sandbox. Herd commands must run outside the sandbox. The managed `AGENTS.md` block tells Codex to ask for escalation on the first attempt of each Herd command.
+
+## Laravel Valet
+
+With `runtime=valet`, `setup` links the checkout as a Valet site. Valet runs only on macOS.
+
+- The site name is the same as for Herd, for example `my-app-1a2b3c4d5e`.
+- `APP_URL` becomes `https://<site-name>.<tld>`. The harness reads the TLD from `~/.config/valet/config.json`. The default is `test`. With `valet_secure=false`, the URL uses `http`.
+- `valet_secure=true` runs `valet secure <site>`. When you change it to `false`, the next `setup` runs `valet unsecure <site>`.
+- `valet_php=8.4` runs `valet isolate php@8.4 --site=<site>`. When this PHP version is not installed, Valet installs it with Homebrew.
+- `artisan`, `test`, `php`, and `composer` run through `valet php --site=<site>` and `valet composer --site=<site>`. Thus, they use the PHP version of the site. When the first argument of `php` or `composer` is `--site=...`, the harness does not add its own site.
+
+The harness always gives the site name to Valet. Without it, Valet uses the directory name, and that is not the name of the site.
+
+### Remove orphaned Valet sites
+
+When you delete a worktree without `cleanup`, its Valet site stays linked. `prune-valet` finds and removes these sites in `~/.config/valet/Sites`:
+
+```bash
+./.ai-harness prune-valet --dry-run
+./.ai-harness prune-valet
+```
+
+It has the same options and the same safety checks as `prune-herd`. Refer to [Remove orphaned Herd sites](#remove-orphaned-herd-sites).
+
+### Password prompts
+
+Valet runs `link`, `secure`, `unsecure`, `unlink`, and `isolate` with `sudo`. An agent cannot type a password. Run `valet trust` one time before you use `runtime=valet`.
+
+### Codex sandbox
+
+Valet commands must also run outside the Codex sandbox. The managed `AGENTS.md` block tells Codex to ask for escalation on the first attempt of each Valet command.
 
 ## MySQL with Sail
 

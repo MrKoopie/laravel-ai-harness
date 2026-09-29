@@ -9,4 +9,5 @@ enum Runtime: string
     case Native = 'native';
     case Herd = 'herd';
     case Sail = 'sail';
+    case Valet = 'valet';
 }

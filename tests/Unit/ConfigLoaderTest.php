@@ -42,6 +42,21 @@ test('configuration layers from dist through shared and local files', function (
         ]);
 });
 
+test('configuration reads the Valet runtime and its site options', function (): void {
+    $root = temp_directory('harness-config-valet');
+    file_put_contents($root.'/.ai-harness.config', implode("\n", [
+        'runtime=valet',
+        'valet_secure=false',
+        'valet_php=8.3',
+    ]));
+
+    $config = (new ConfigLoader)->load($root);
+
+    expect($config->runtime)->toBe(Runtime::Valet)
+        ->and($config->valetSecure)->toBeFalse()
+        ->and($config->valetPhp)->toBe('8.3');
+});
+
 test('configuration has conservative internal defaults', function (): void {
     $config = (new ConfigLoader)->load(temp_directory('harness-defaults'));
 
@@ -51,6 +66,8 @@ test('configuration has conservative internal defaults', function (): void {
         ->and($config->sailServices)->toBe([])
         ->and($config->herdSecure)->toBeTrue()
         ->and($config->herdPhp)->toBeNull()
+        ->and($config->valetSecure)->toBeTrue()
+        ->and($config->valetPhp)->toBeNull()
         ->and($config->worktrees)->toBeTrue()
         ->and($config->sourceFiles)->toBe([]);
 });
@@ -61,11 +78,13 @@ test('unknown and duplicate configuration keys fail clearly', function (): void 
         ["runtime=herd\nruntime=sail", 'Duplicate configuration key [runtime]'],
         ['herd_secure=perhaps', 'herd_secure must be true or false'],
         ['herd_php=latest', 'herd_php must be empty or a major.minor version'],
+        ['valet_secure=perhaps', 'valet_secure must be true or false'],
+        ['valet_php=php@8.4', 'valet_php must be empty or a major.minor version'],
         ['agents=codex,cursor', 'Unsupported agent [cursor]'],
         ["services=none\nsail_services=mysql", 'sail_services may only be set when services=sail'],
         ['sail_services=mysql,,redis', 'sail_services contains an empty list item'],
         ['runtime="herd', 'Unterminated quoted value'],
-        ['runtime=docker', 'runtime must be one of: native, herd, sail'],
+        ['runtime=docker', 'runtime must be one of: native, herd, valet, sail'],
         ['services=podman', 'services must be one of: none, sail'],
         ["services=sail\nsail_services=my db", 'Invalid Sail service name [my db]'],
     ] as [$contents, $message]) {

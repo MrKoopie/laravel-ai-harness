@@ -70,15 +70,20 @@ final readonly class EnvironmentManager
             $this->state->recordMySqlDatabases($root);
         }
 
-        if ($config->runtime === Runtime::Herd) {
-            $status = $this->setupHerd($config, $root, $output);
+        $tool = SiteTool::forRuntime($config->runtime);
+
+        if ($tool !== null) {
+            $status = $this->setupSite($config, $tool, $root, $output);
 
             if ($status !== 0) {
                 return $status;
             }
 
-            $this->environmentFile->setAppUrl($root, 'https://'.SiteName::forPath($root).'.test');
-            $output->writeln('<info>Configured APP_URL for the Herd site</info>');
+            $url = $tool === SiteTool::Herd
+                ? 'https://'.SiteName::forPath($root).'.test'
+                : ($config->valetSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.ValetTld::current();
+            $this->environmentFile->setAppUrl($root, $url);
+            $output->writeln("<info>Configured APP_URL for the {$tool->label()} site</info>");
         }
 
         if (is_file($root.'/artisan') && $this->environmentFile->appKeyMissing($root)) {
@@ -123,18 +128,26 @@ final readonly class EnvironmentManager
         }
 
         $config = $this->configLoader->load($root);
-        $site = $this->state->herdSite($root);
+        $sites = [];
 
-        if ($site !== null) {
+        foreach (SiteTool::cases() as $tool) {
+            $site = $this->state->site($root, $tool);
+
+            if ($site === null) {
+                continue;
+            }
+
             $expected = SiteName::forPath($root);
 
             if (! hash_equals($expected, $site)) {
-                throw new EnvironmentException("Refusing to unlink unexpected Herd site [{$site}]; expected [{$expected}].");
+                throw new EnvironmentException("Refusing to unlink unexpected {$tool->label()} site [{$site}]; expected [{$expected}].");
             }
+
+            $sites[$tool->value] = $site;
         }
 
         $ownsMySql = $this->state->ownsMySqlDatabases($root)
-            || ($site !== null && $this->usesMySql($config));
+            || ($sites !== [] && $this->usesMySql($config));
 
         if ($ownsMySql) {
             $mysqlCleanup = null;
@@ -161,31 +174,21 @@ final readonly class EnvironmentManager
             }
         }
 
-        if ($site === null) {
-            $output->writeln('<info>No harness-owned Herd site needs cleanup.</info>');
+        if ($sites === []) {
+            $output->writeln('<info>No harness-owned Herd or Valet site needs cleanup.</info>');
 
             return 0;
         }
 
-        if ($this->state->herdSecured($root)) {
-            $output->writeln("<info>Removing HTTPS from Herd site {$site}</info>");
-            $status = $this->processes->run($this->commands->herd('unsecure', $site), $root, $output);
+        foreach ($sites as $value => $site) {
+            $status = $this->cleanupSite(SiteTool::from($value), $site, $root, $output);
 
             if ($status !== 0) {
                 return $status;
             }
-
-            $this->state->clearHerdSecured($root);
         }
 
-        $output->writeln("<info>Unlinking Herd site {$site}</info>");
-        $status = $this->processes->run($this->commands->herd('unlink', $site), $root, $output);
-
-        if ($status === 0) {
-            $this->state->clearHerdSite($root);
-        }
-
-        return $status;
+        return 0;
     }
 
     /** Start the configured Sail services. */
@@ -226,53 +229,104 @@ final readonly class EnvironmentManager
         return $this->processes->run($this->commands->servicesDown($config, $root), $root, $output);
     }
 
-    /** Link, secure, and optionally isolate the project's Herd site. */
-    private function setupHerd(Config $config, string $root, OutputInterface $output): int
+    /** Link, secure, and optionally isolate the project's Herd or Valet site. */
+    private function setupSite(Config $config, SiteTool $tool, string $root, OutputInterface $output): int
     {
         $site = SiteName::forPath($root);
-        $ownedSite = $this->state->herdSite($root);
+        $ownedSite = $this->state->site($root, $tool);
 
         if ($ownedSite !== null && ! hash_equals($site, $ownedSite)) {
-            throw new EnvironmentException("Harness state owns unexpected Herd site [{$ownedSite}].");
+            throw new EnvironmentException("Harness state owns unexpected {$tool->label()} site [{$ownedSite}].");
         }
 
         if ($ownedSite === null) {
-            $output->writeln("<info>Linking Herd site {$site}</info>");
-            $status = $this->processes->run($this->commands->herd('link', $site, '--no-interaction'), $root, $output);
+            $output->writeln("<info>Linking {$tool->label()} site {$site}</info>");
+            $arguments = $tool === SiteTool::Herd ? [$site, '--no-interaction'] : [$site];
+            $status = $this->processes->run($this->siteCommand($tool, 'link', ...$arguments), $root, $output);
 
             if ($status !== 0) {
                 return $status;
             }
 
-            $this->state->recordHerdSite($root, $site);
+            $this->state->recordSite($root, $tool, $site);
         }
 
-        if ($config->herdSecure) {
-            if (! $this->state->herdSecured($root)) {
-                $status = $this->processes->run($this->commands->herd('secure', $site), $root, $output);
+        if ($this->secure($config, $tool)) {
+            if (! $this->state->siteSecured($root, $tool)) {
+                $status = $this->processes->run($this->siteCommand($tool, 'secure', $site), $root, $output);
 
                 if ($status !== 0) {
                     return $status;
                 }
 
-                $this->state->recordHerdSecured($root);
+                $this->state->recordSiteSecured($root, $tool);
             }
-        } elseif ($this->state->herdSecured($root)) {
-            $output->writeln("<info>Removing HTTPS from Herd site {$site}</info>");
-            $status = $this->processes->run($this->commands->herd('unsecure', $site), $root, $output);
+        } elseif ($this->state->siteSecured($root, $tool)) {
+            $output->writeln("<info>Removing HTTPS from {$tool->label()} site {$site}</info>");
+            $status = $this->processes->run($this->siteCommand($tool, 'unsecure', $site), $root, $output);
 
             if ($status !== 0) {
                 return $status;
             }
 
-            $this->state->clearHerdSecured($root);
+            $this->state->clearSiteSecured($root, $tool);
         }
 
-        if ($config->herdPhp !== null) {
-            return $this->processes->run($this->commands->herd('isolate', $config->herdPhp), $root, $output);
+        $php = $tool === SiteTool::Herd ? $config->herdPhp : $config->valetPhp;
+
+        if ($php === null) {
+            return 0;
         }
 
-        return 0;
+        // Valet isolates the directory name by default, which differs from the checkout-specific site name.
+        $command = $tool === SiteTool::Herd
+            ? $this->siteCommand($tool, 'isolate', $php)
+            : $this->siteCommand($tool, 'isolate', 'php@'.$php, '--site='.$site);
+
+        return $this->processes->run($command, $root, $output);
+    }
+
+    /** Remove HTTPS from and unlink one harness-owned site. */
+    private function cleanupSite(SiteTool $tool, string $site, string $root, OutputInterface $output): int
+    {
+        if ($this->state->siteSecured($root, $tool)) {
+            $output->writeln("<info>Removing HTTPS from {$tool->label()} site {$site}</info>");
+            $status = $this->processes->run($this->siteCommand($tool, 'unsecure', $site), $root, $output);
+
+            if ($status !== 0) {
+                return $status;
+            }
+
+            $this->state->clearSiteSecured($root, $tool);
+        }
+
+        $output->writeln("<info>Unlinking {$tool->label()} site {$site}</info>");
+        $status = $this->processes->run($this->siteCommand($tool, 'unlink', $site), $root, $output);
+
+        if ($status === 0) {
+            $this->state->clearSite($root, $tool);
+        }
+
+        return $status;
+    }
+
+    /**
+     * Build a Herd or Valet command.
+     *
+     * @return non-empty-list<string>
+     */
+    private function siteCommand(SiteTool $tool, string $action, string ...$arguments): array
+    {
+        return match ($tool) {
+            SiteTool::Herd => $this->commands->herd($action, ...$arguments),
+            SiteTool::Valet => $this->commands->valet($action, ...$arguments),
+        };
+    }
+
+    /** Determine whether the configured site must use HTTPS. */
+    private function secure(Config $config, SiteTool $tool): bool
+    {
+        return $tool === SiteTool::Herd ? $config->herdSecure : $config->valetSecure;
     }
 
     /** Determine whether the configuration needs Sail containers. */

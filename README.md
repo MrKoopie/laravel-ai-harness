@@ -3,7 +3,7 @@
 [![CI](https://github.com/MrKoopie/laravel-ai-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/MrKoopie/laravel-ai-harness/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
-Laravel AI Harness gives coding agents (Codex and Claude Code) and people one stable command to run a Laravel project. The command is `./.ai-harness`. It works the same way with native PHP, Laravel Herd, and Laravel Sail, and in Claude and Codex cloud environments.
+Laravel AI Harness gives coding agents (Codex and Claude Code) and people one stable command to run a Laravel project. The command is `./.ai-harness`. It works the same way with native PHP, Laravel Herd, Laravel Valet, and Laravel Sail, and in Claude and Codex cloud environments.
 
 ```bash
 ./.ai-harness artisan migrate
@@ -16,7 +16,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
 ## Why use it
 
 - **One command for all runtimes.** Agent instructions stay the same when you change from Herd to Sail.
-- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With Sail MySQL (`mysql` in `sail_services`), it also gets its own databases. With `runtime=herd`, it also gets its own Herd site. Thus, parallel agents do not share data.
+- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With Sail MySQL (`mysql` in `sail_services`), it also gets its own databases. With `runtime=herd` or `runtime=valet`, it also gets its own Herd or Valet site. Thus, parallel agents do not share data.
 - **Safe cleanup.** The harness removes only the resources that it created and recorded.
 - **Agent integration.** It writes a shared `AGENTS.md` block, a Codex local environment, and Claude Code hooks.
 - **Cloud support.** It provisions and prepares Claude and Codex cloud containers with native PHP, MySQL, and Redis.
@@ -28,7 +28,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
 - Composer 2.2 or newer.
 - Bash on macOS, Linux, or WSL.
 - A Laravel application.
-- Optional: [Laravel Herd](https://herd.laravel.com).
+- Optional: [Laravel Herd](https://herd.laravel.com) or [Laravel Valet](https://laravel.com/docs/valet).
 - Optional: [Laravel Sail](https://laravel.com/docs/sail) and Docker.
 
 ## Quick start
@@ -45,11 +45,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
    ./vendor/bin/ai-harness init
    ```
 
-3. Open `.ai-harness.config` and set your runtime. For a Herd project:
-
-   ```ini
-   runtime=herd
-   ```
+3. Open `.ai-harness.config` and set your runtime, for example `runtime=herd` or `runtime=valet`. Refer to the [Quick start guide](docs/quick-start.md) for the settings of each runtime.
 
 4. Make sure that the configuration is correct:
 
@@ -57,7 +53,7 @@ The harness selects the correct runtime from one configuration file. Agents do n
    ./.ai-harness doctor
    ```
 
-5. Prepare the checkout (dependencies, `.env`, databases, Herd site):
+5. Prepare the checkout (dependencies, `.env`, databases, Herd or Valet site):
 
    ```bash
    ./.ai-harness setup
@@ -82,6 +78,7 @@ From now on, people and agents use `./.ai-harness` for all Laravel, Composer, PH
 | `./.ai-harness up` | Start the configured Sail services. |
 | `./.ai-harness down` | Stop the configured Sail services. Volumes stay. |
 | `./.ai-harness prune-herd` | Remove Herd sites of deleted worktrees, after you confirm. |
+| `./.ai-harness prune-valet` | Remove Valet sites of deleted worktrees, after you confirm. |
 | `./.ai-harness init` | Create the managed project files. |
 | `./.ai-harness update` | Refresh the managed project files. |
 | `./.ai-harness cloud setup\|maintain\|cleanup` | Prepare or clean a cloud checkout. |
@@ -92,10 +89,11 @@ Refer to [Commands](docs/commands.md) for all details.
 
 | Page | Contents |
 | --- | --- |
+| [Quick start](docs/quick-start.md) | Step-by-step start for native PHP, Herd, Valet, Sail, and cloud users. |
 | [Installation](docs/installation.md) | Install, generated files, Composer hooks, and updates. |
 | [Configuration](docs/configuration.md) | File format, all keys, and example setups. |
 | [Commands](docs/commands.md) | All commands, runtime mapping, and options. |
-| [Local environments](docs/local-environments.md) | What `setup`, `cleanup`, `up`, and `down` do with Herd, Sail, and MySQL. |
+| [Local environments](docs/local-environments.md) | What `setup`, `cleanup`, `up`, and `down` do with Herd, Valet, Sail, and MySQL. |
 | [Coding agents](docs/agents.md) | `AGENTS.md`, Codex local environments, Claude Code hooks, and Laravel Boost. |
 | [Cloud environments](docs/cloud.md) | Claude and Codex cloud setup, provisioning, and environment variables. |
 | [Upgrading](docs/upgrading.md) | Upgrade from version 0.1. |

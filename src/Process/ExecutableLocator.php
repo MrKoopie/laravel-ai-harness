@@ -87,4 +87,32 @@ final readonly class ExecutableLocator
 
         return is_executable($candidate) ? $candidate : null;
     }
+
+    /** Locate the Laravel Valet executable, including the Composer global bin directories. */
+    public function valet(): ?string
+    {
+        if (array_key_exists('valet', $this->overrides)) {
+            return $this->overrides['valet'];
+        }
+
+        $path = $this->find('valet');
+
+        if ($path !== null) {
+            return $path;
+        }
+
+        $home = getenv('HOME');
+
+        if (! is_string($home) || $home === '') {
+            return null;
+        }
+
+        foreach (['/.composer/vendor/bin/valet', '/.config/composer/vendor/bin/valet'] as $suffix) {
+            if (is_executable($home.$suffix)) {
+                return $home.$suffix;
+            }
+        }
+
+        return null;
+    }
 }

@@ -1,6 +1,6 @@
 # Cloud environments
 
-The harness can prepare Claude Code and Codex cloud containers. In a cloud environment, the harness always uses native PHP and local services in the container. It ignores the local Herd and Sail settings.
+The harness can prepare Claude Code and Codex cloud containers. In a cloud environment, the harness always uses native PHP and local services in the container. It ignores the local Herd, Valet, and Sail settings.
 
 ## Before you start
 

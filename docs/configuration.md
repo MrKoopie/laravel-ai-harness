@@ -50,11 +50,13 @@ After you change `agents`, `worktrees`, or `cloud`, run `./.ai-harness update`. 
 
 | Key | Default | Values | Description |
 | --- | --- | --- | --- |
-| `runtime` | `native` | `native`, `herd`, `sail` | Where PHP, Artisan, Composer, and npm run. |
+| `runtime` | `native` | `native`, `herd`, `valet`, `sail` | Where PHP, Artisan, Composer, and npm run. |
 | `services` | `none` | `none`, `sail` | Use Sail to manage supporting containers. |
 | `sail_services` | (empty) | List of Sail service names | Sail services to start. Empty means the full stack. Only valid with `services=sail`. |
 | `herd_secure` | `true` | Boolean | Serve the Herd site with HTTPS. |
 | `herd_php` | (empty) | Empty or `major.minor`, for example `8.4` | Isolate the Herd site to this PHP version. Empty uses the Herd default. |
+| `valet_secure` | `true` | Boolean | Serve the Valet site with HTTPS. |
+| `valet_php` | (empty) | Empty or `major.minor`, for example `8.4` | Isolate the Valet site to this PHP version (`php@8.4`). Empty uses the global Valet version. |
 
 ### Agents
 
@@ -84,9 +86,12 @@ The `cloud_*` keys apply only in a detected cloud environment. They never change
 | --- | --- | --- | --- | --- | --- |
 | `native` | `php artisan` | `php artisan test` | `composer` | `php` | `npm` |
 | `herd` | `herd php artisan` | `herd php artisan test` | `herd composer` | `herd php` | `npm` |
+| `valet` | `valet php --site=<site> artisan` | `valet php --site=<site> artisan test` | `valet composer --site=<site>` | `valet php --site=<site>` | `npm` |
 | `sail` | `sail artisan` | `sail artisan test` | `sail composer` | `sail php` | `sail npm` |
 
 With `runtime=herd`, the harness runs PHP through the PHP binary of the Herd site when it can find it. Refer to [PHP version of the Herd site](local-environments.md#php-version-of-the-herd-site).
+
+With `runtime=valet`, the harness gives the site of the checkout to `valet php` and `valet composer`. When the first argument is `--site=...`, the harness uses your site instead.
 
 There is no automatic fallback to a different runtime. `doctor` tells you when the configured runtime is not available.
 
@@ -97,7 +102,7 @@ In a cloud environment, the harness always uses `native`. The `runtime` value is
 `services=sail` lets Sail manage the supporting containers. This is independent of the PHP runtime. You can use it for:
 
 - A full Sail project (`runtime=sail`).
-- Herd or native PHP with MySQL, Redis, or Mailpit from Sail.
+- Herd, Valet, or native PHP with MySQL, Redis, or Mailpit from Sail.
 
 With an empty `sail_services`, `up` starts the full stack and `down` runs `sail down`. With a list, `up` starts only those services and `down` runs `sail stop` for them.
 
@@ -121,6 +126,15 @@ runtime=herd
 services=none
 herd_secure=true
 herd_php=8.4
+```
+
+### Laravel Valet with SQLite
+
+```ini
+runtime=valet
+services=none
+valet_secure=true
+valet_php=8.4
 ```
 
 ### Laravel Herd with MySQL and Redis from Sail
