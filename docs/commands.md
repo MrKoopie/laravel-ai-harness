@@ -59,10 +59,13 @@ OK Configuration loaded from .ai-harness.config
 OK Automatic Composer refresh hooks are installed
 OK Laravel Herd is available
 OK Sail service manager is available
+OK COMPOSER_AUTH is valid for http-basic (repo.example.com); github-oauth (github.com)
 OK Agent instructions are installed
 OK Codex local environment is installed
 OK Claude hooks are installed
 ```
+
+The `COMPOSER_AUTH` line shows only when the variable is set. Refer to [Private packages](private-packages.md).
 
 For each `FAIL` line, refer to [Troubleshooting](troubleshooting.md).
 

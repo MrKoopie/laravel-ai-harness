@@ -150,3 +150,60 @@ PHP);
 
     expect(file_get_contents($log))->toBe("from the calling terminal\n");
 });
+
+test('doctor validates COMPOSER_AUTH and never prints its credentials', function (): void {
+    $root = temp_directory('harness-cli-composer-auth');
+    file_put_contents($root.'/artisan', "<?php\n");
+    file_put_contents($root.'/composer.json', json_encode(['name' => 'example/application'], JSON_THROW_ON_ERROR)."\n");
+    harness_process(['init', '--path', $root], $root)->mustRun();
+    $environment = ['AI_HARNESS_ENV' => 'local', 'CLAUDE_CODE_REMOTE' => 'false'];
+
+    $doctor = harness_process(['doctor', '--path', $root], $root, $environment + [
+        'COMPOSER_AUTH' => '{"http-basic":{"repo.example.com":{"username":"deploy","password":"top-secret"}},"github-oauth":{"github.com":"ghp_topsecret"}}',
+    ]);
+    $doctor->mustRun();
+
+    expect($doctor->getOutput())->toContain('OK COMPOSER_AUTH is valid for http-basic (repo.example.com); github-oauth (github.com)')
+        ->and($doctor->getOutput())->not->toContain('secret', 'deploy');
+
+    $doctor = harness_process(['doctor', '--path', $root], $root, $environment + [
+        'COMPOSER_AUTH' => '{"http-basic":{"repo.example.com":{"username":"deploy"}}}',
+    ]);
+    $doctor->run();
+
+    expect($doctor->getExitCode())->toBe(1)
+        ->and($doctor->getOutput())->toContain('FAIL COMPOSER_AUTH is not valid: http-basic for repo.example.com requires a non-empty password')
+        ->and($doctor->getOutput())->not->toContain('deploy');
+
+    $doctor = harness_process(['doctor', '--path', $root], $root, $environment + ['COMPOSER_AUTH' => '']);
+    $doctor->mustRun();
+
+    expect($doctor->getOutput())->not->toContain('COMPOSER_AUTH');
+});
+
+test('doctor reports when COMPOSER_AUTH does not reach the Sail container', function (): void {
+    $root = temp_directory('harness-cli-composer-auth-sail');
+    file_put_contents($root.'/artisan', "<?php\n");
+    file_put_contents($root.'/composer.json', json_encode(['name' => 'example/application'], JSON_THROW_ON_ERROR)."\n");
+    harness_process(['init', '--path', $root], $root)->mustRun();
+    file_put_contents($root.'/.ai-harness.config.local', "runtime=sail\n");
+    file_put_contents($root.'/docker-compose.yml', "services:\n  laravel.test:\n    environment:\n      WWWUSER: '\${WWWUSER}'\n");
+    $environment = [
+        'AI_HARNESS_ENV' => 'local',
+        'CLAUDE_CODE_REMOTE' => 'false',
+        'SAIL_FILES' => '',
+        'COMPOSER_AUTH' => '{"bearer":{"packages.example.com":"top-secret"}}',
+    ];
+
+    $doctor = harness_process(['doctor', '--path', $root], $root, $environment);
+    $doctor->run();
+
+    expect($doctor->getOutput())->toContain('FAIL COMPOSER_AUTH is set but the Sail compose file does not forward it');
+
+    file_put_contents($root.'/docker-compose.yml', "services:\n  laravel.test:\n    environment:\n      COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'\n");
+    $doctor = harness_process(['doctor', '--path', $root], $root, $environment);
+    $doctor->run();
+
+    expect($doctor->getOutput())->toContain('OK COMPOSER_AUTH is forwarded to Sail in docker-compose.yml')
+        ->and($doctor->getOutput())->not->toContain('top-secret');
+});
