@@ -134,6 +134,8 @@ test('only the environment of the Sail application service counts as forwarding'
             'compact list' => ["services:\n  laravel.test:\n    environment:\n    - WWWUSER\n    - COMPOSER_AUTH\n  mysql:\n    image: mysql\n", true],
             'inline list' => ["services:\n  'laravel.test':\n    environment: [WWWUSER, COMPOSER_AUTH]\n", true],
             'inline map' => ["services:\n  laravel.test:\n    environment: {COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'}\n", true],
+            'trailing comments' => ["services: # all services\n  laravel.test: # app\n    environment: # Composer credentials\n      COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'\n", true],
+            'inline list with comment' => ["services:\n  laravel.test:\n    environment: [COMPOSER_AUTH] # forwarded\n", true],
             'after other keys' => ["services:\n  mysql:\n    environment:\n      MYSQL_ROOT_PASSWORD: x\n  laravel.test:\n    ports:\n      - '\${APP_PORT:-80}:80'\n    environment:\n      # comment\n      COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'\n", true],
         ];
 

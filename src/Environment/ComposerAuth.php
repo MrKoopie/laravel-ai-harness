@@ -212,6 +212,11 @@ final readonly class ComposerAuth
             $key = $matches[1];
             $value = trim($matches[2] ?? '');
 
+            // A value that is only a comment, for example environment: # note, opens a block.
+            if (str_starts_with($value, '#')) {
+                $value = '';
+            }
+
             if ($keys === ['services', $service] && $key === 'environment' && $value !== '') {
                 // Inline flow style, for example environment: [COMPOSER_AUTH] or {COMPOSER_AUTH: ...}.
                 return preg_match('/[\[{,][ \t]*["\']?COMPOSER_AUTH["\']?[ \t]*(?:[:=,\]}]|$)/', $value) === 1;
