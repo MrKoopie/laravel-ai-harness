@@ -65,7 +65,7 @@ final readonly class HealthChecker
                 $checks[] = $this->file(
                     $forwarding !== null,
                     'COMPOSER_AUTH is forwarded to Sail in '.basename((string) $forwarding),
-                    'COMPOSER_AUTH is set but the Sail compose file does not forward it; add COMPOSER_AUTH to the laravel.test environment, then run ./.ai-harness up',
+                    'COMPOSER_AUTH is set but the Sail compose file does not forward it; add COMPOSER_AUTH to the '.ComposerAuth::sailService($root).' environment, then run ./.ai-harness up',
                 );
             }
         }

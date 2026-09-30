@@ -23,6 +23,7 @@ test('COMPOSER_AUTH accepts several hosts and authentication types', function ()
         'client-certificate' => ['mtls.example.com' => ['local_cert' => '/certs/client.pem']],
         'gitlab-domains' => ['gitlab.example.com'],
         'github-domains' => ['github.com', 'github.example.com'],
+        'forgejo-domains' => ['codeberg.org'],
     ], JSON_THROW_ON_ERROR));
 
     expect($auth->valid())->toBeTrue()
@@ -109,5 +110,48 @@ test('the Sail compose file forwards COMPOSER_AUTH in map or list form', functio
         expect(ComposerAuth::composeFileForwarding($root))->toBe($root.'/docker-compose.override.yml');
     } finally {
         putenv($previous === false ? 'SAIL_FILES' : 'SAIL_FILES='.$previous);
+    }
+});
+
+test('a host label that looks like a token is hidden in the summary', function (): void {
+    $auth = ComposerAuth::inspect('{"bearer":{"a1b2c3d4e5f6g7h8i9.example.com":"x","repo2.example.com":"y"}}');
+
+    expect($auth->valid())->toBeTrue()
+        ->and($auth->summary())->toBe('bearer ([hidden host], repo2.example.com)');
+});
+
+test('only the environment of the Sail application service counts as forwarding', function (): void {
+    $previous = ['SAIL_FILES' => getenv('SAIL_FILES'), 'APP_SERVICE' => getenv('APP_SERVICE')];
+    putenv('SAIL_FILES');
+    putenv('APP_SERVICE');
+
+    try {
+        $root = temp_directory('harness-composer-auth-service');
+
+        $cases = [
+            'other service' => ["services:\n  laravel.test:\n    image: app\n    environment:\n      WWWUSER: '1000'\n  worker:\n    environment:\n      COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'\n", false],
+            'build argument' => ["services:\n  laravel.test:\n    build:\n      args:\n        COMPOSER_AUTH: x\n", false],
+            'compact list' => ["services:\n  laravel.test:\n    environment:\n    - WWWUSER\n    - COMPOSER_AUTH\n  mysql:\n    image: mysql\n", true],
+            'inline list' => ["services:\n  'laravel.test':\n    environment: [WWWUSER, COMPOSER_AUTH]\n", true],
+            'inline map' => ["services:\n  laravel.test:\n    environment: {COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'}\n", true],
+            'after other keys' => ["services:\n  mysql:\n    environment:\n      MYSQL_ROOT_PASSWORD: x\n  laravel.test:\n    ports:\n      - '\${APP_PORT:-80}:80'\n    environment:\n      # comment\n      COMPOSER_AUTH: '\${COMPOSER_AUTH:-}'\n", true],
+        ];
+
+        foreach ($cases as $name => [$yaml, $forwarded]) {
+            file_put_contents($root.'/compose.yaml', $yaml);
+
+            expect(ComposerAuth::composeFileForwarding($root) !== null)->toBe($forwarded, $name);
+        }
+
+        file_put_contents($root.'/compose.yaml', "services:\n  app:\n    environment:\n      - COMPOSER_AUTH\n");
+        expect(ComposerAuth::composeFileForwarding($root))->toBeNull();
+
+        file_put_contents($root.'/.env', "APP_SERVICE=app\n");
+        expect(ComposerAuth::sailService($root))->toBe('app')
+            ->and(ComposerAuth::composeFileForwarding($root))->toBe($root.'/compose.yaml');
+    } finally {
+        foreach ($previous as $name => $value) {
+            putenv($value === false ? $name : $name.'='.$value);
+        }
     }
 });

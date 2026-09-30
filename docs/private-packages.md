@@ -41,7 +41,7 @@ export COMPOSER_AUTH='{"http-basic":{"repo.example.com":{"username":"deploy","pa
 | `custom-headers` | A list of `"Name: value"` headers. |
 | `client-certificate` | `{"local_cert": "/path/to/cert.pem"}` with optional `local_pk` and `passphrase`. |
 
-You can also add `github-domains` and `gitlab-domains` for GitHub Enterprise and self-hosted GitLab. Refer to [Authentication for private packages](https://getcomposer.org/doc/articles/authentication-for-private-packages.md) in the Composer documentation.
+You can also add `github-domains`, `gitlab-domains`, and `forgejo-domains` for GitHub Enterprise, self-hosted GitLab, and self-hosted Forgejo. Refer to [Authentication for private packages](https://getcomposer.org/doc/articles/authentication-for-private-packages.md) in the Composer documentation.
 
 ## Validate the value
 
@@ -62,7 +62,7 @@ OK COMPOSER_AUTH is valid for http-basic (repo.example.com, satis.example.org); 
 - A host entry does not have the necessary fields, for example `http-basic` without `password`.
 - The value contains no credentials.
 
-When a key does not look like a type name or a host name, `doctor` does not show it, because it can be a secret in the wrong place. An empty `COMPOSER_AUTH` has no effect, as in Composer.
+When a key does not look like a type name or a host name, `doctor` does not show it, because it can be a secret in the wrong place. This also applies to a host name with a long part that mixes letters and digits. An empty `COMPOSER_AUTH` has no effect, as in Composer.
 
 ## Runtimes
 
@@ -95,7 +95,9 @@ Then start the container again, so that Docker Compose creates it with the new v
 
 Do this again each time that you change `COMPOSER_AUTH`. You can also add it to `compose.override.yaml`. When you use `SAIL_FILES`, add the line to one of those files.
 
-With `runtime=sail`, `doctor` checks that the compose file forwards `COMPOSER_AUTH`. It checks only the file, not the container that runs now.
+When you set `APP_SERVICE`, add the line to that service instead of `laravel.test`.
+
+With `runtime=sail`, `doctor` checks that the `environment` of the Sail application service forwards `COMPOSER_AUTH`. It checks only the compose file, not the container that runs now. It reads the usual block style and the inline `[...]` and `{...}` forms.
 
 Docker keeps the value in the container configuration. Any user who can run `docker inspect` can read it. Use this only on a development computer.
 

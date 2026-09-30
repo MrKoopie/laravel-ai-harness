@@ -33,7 +33,7 @@ final readonly class ComposerAuth
     ];
 
     /** Composer settings that often go together with authentication and hold only host names. */
-    private const DOMAIN_LISTS = ['github-domains', 'gitlab-domains'];
+    private const DOMAIN_LISTS = ['github-domains', 'gitlab-domains', 'forgejo-domains'];
 
     /**
      * @param  list<string>  $errors
@@ -138,19 +138,91 @@ final readonly class ComposerAuth
         return implode('; ', $parts);
     }
 
-    /** Find a compose file that forwards COMPOSER_AUTH to a container, or return null. */
+    /** Find a compose file that forwards COMPOSER_AUTH to the Sail application service, or return null. */
     public static function composeFileForwarding(string $root): ?string
     {
+        $service = self::sailService($root);
+
         foreach (self::composeFiles($root) as $file) {
             $contents = is_file($file) && ! is_link($file) ? file_get_contents($file) : false;
 
-            // Accept the map form (COMPOSER_AUTH: ...) and the list form (- COMPOSER_AUTH or - COMPOSER_AUTH=...).
-            if (is_string($contents) && preg_match('/^[ \t]*(?:-[ \t]*)?["\']?COMPOSER_AUTH["\']?[ \t]*(?::|=|$)/m', $contents) === 1) {
+            if (is_string($contents) && self::serviceForwards($contents, $service)) {
                 return $file;
             }
         }
 
         return null;
+    }
+
+    /** Return the Sail application service: APP_SERVICE from the process or .env, else laravel.test. */
+    public static function sailService(string $root): string
+    {
+        $service = getenv('APP_SERVICE');
+
+        // Sail reads .env before it runs Docker Compose, so APP_SERVICE can also come from there.
+        if ((! is_string($service) || $service === '') && is_file($root.'/.env') && ! is_link($root.'/.env')) {
+            $environment = (string) file_get_contents($root.'/.env');
+
+            if (preg_match('/^[ \t]*(?:export[ \t]+)?APP_SERVICE[ \t]*=[ \t]*["\']?([A-Za-z0-9._-]+)["\']?[ \t]*$/m', $environment, $matches) === 1) {
+                $service = $matches[1];
+            }
+        }
+
+        return is_string($service) && $service !== '' ? $service : 'laravel.test';
+    }
+
+    /**
+     * Determine whether one compose file forwards COMPOSER_AUTH in the environment of one service.
+     *
+     * This is a small indentation-based reader for the common block style, so that the harness
+     * does not need a YAML dependency. It accepts the map form (COMPOSER_AUTH: ...), the list
+     * form (- COMPOSER_AUTH or - COMPOSER_AUTH=...), and an inline flow list or map.
+     */
+    private static function serviceForwards(string $contents, string $service): bool
+    {
+        $lines = preg_split('/\R/', $contents) ?: [];
+        $entry = '/^(?:-[ \t]*)?["\']?COMPOSER_AUTH["\']?[ \t]*(?::|=|$)/';
+        $path = [];
+
+        foreach ($lines as $line) {
+            if (trim($line) === '' || str_starts_with(ltrim($line), '#')) {
+                continue;
+            }
+
+            $indent = strlen($line) - strlen(ltrim($line, " \t"));
+            $text = trim($line);
+
+            // Leave the blocks that this line closes. A list item may use the indent of its parent key.
+            $depth = str_starts_with($text, '-') ? $indent + 1 : $indent;
+
+            while ($path !== [] && $depth <= $path[array_key_last($path)][0]) {
+                array_pop($path);
+            }
+
+            $keys = array_map(static fn (array $level): string => $level[1], $path);
+
+            if ($keys === ['services', $service, 'environment'] && preg_match($entry, $text) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^["\']?([^"\':#]+?)["\']?[ \t]*:(?:[ \t]+(.*))?$/', $text, $matches) !== 1) {
+                continue;
+            }
+
+            $key = $matches[1];
+            $value = trim($matches[2] ?? '');
+
+            if ($keys === ['services', $service] && $key === 'environment' && $value !== '') {
+                // Inline flow style, for example environment: [COMPOSER_AUTH] or {COMPOSER_AUTH: ...}.
+                return preg_match('/[\[{,][ \t]*["\']?COMPOSER_AUTH["\']?[ \t]*(?:[:=,\]}]|$)/', $value) === 1;
+            }
+
+            if ($value === '') {
+                $path[] = [$indent, $key];
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -202,7 +274,18 @@ final readonly class ComposerAuth
     {
         $pattern = '/^(?:localhost|(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?::[0-9]{1,5})?$/';
 
-        return strlen($host) <= 253 && preg_match($pattern, $host) === 1 ? $host : '[hidden host]';
+        if (strlen($host) > 253 || preg_match($pattern, $host) !== 1) {
+            return '[hidden host]';
+        }
+
+        // A long label that mixes letters and digits looks like a token, not a host name.
+        foreach (explode('.', explode(':', $host)[0]) as $label) {
+            if (strlen($label) >= 16 && preg_match('/[A-Za-z]/', $label) === 1 && preg_match('/[0-9]/', $label) === 1) {
+                return '[hidden host]';
+            }
+        }
+
+        return $host;
     }
 
     /** Determine whether a key is an authentication type that Composer supports. */
