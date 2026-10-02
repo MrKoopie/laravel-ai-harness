@@ -247,7 +247,19 @@ case "${1:-}" in
                     }
                     /^[[:space:]]*#/ { next }
                     /^[[:space:]]*$/ { flush(); next }
-                    /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field); if (field == "architectures") included = 0 }
+                    /^[^[:space:]]/ {
+                        # A repeated field replaces the earlier value; continuation lines add to it.
+                        field = tolower($0); sub(/:.*/, "", field)
+                        if (field == "uris") matched = 0
+                        if (field == "types") binary = 0
+                        if (field == "suites") suite = (codename == "")
+                        if (field == "components") component = 0
+                        if (field == "architectures") included = 0
+                        if (field == "architectures-add") added = 0
+                        if (field == "architectures-remove") removed = 0
+                        if (field == "enabled") enabled = 1
+                        if (field == "signed-by") { keyring = ""; keyrings = 0 }
+                    }
                     {
                         value = $0
                         if (value ~ /^[^[:space:]]/) sub(/^[^:]*:/, "", value)

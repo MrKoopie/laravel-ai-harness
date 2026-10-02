@@ -863,16 +863,21 @@ foreach (['selected base source' => 'AI_HARNESS_APT_SOURCE_LIST', 'selected extr
     }
 }
 
-test('cloud provision uses the last Architectures field of a found deb822 base source', function (): void {
-    [$root, $environment] = cloud_php_repository_fixture();
-    file_put_contents($root.'/apt-sources/ubuntu.sources', "Types: deb\nURIs: https://base.invalid\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nArchitectures: amd64\nArchitectures: arm64\n");
-    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
-    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
-    $process->run();
+foreach ([
+    'Architectures' => "Components: main\nArchitectures: amd64\nArchitectures: arm64\n",
+    'Components' => "Components: main\nComponents: contrib\n",
+] as $field => $fields) {
+    test('cloud provision uses the last field of a found deb822 base source: '.$field, function () use ($fields): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/apt-sources/ubuntu.sources', "Types: deb\nURIs: https://base.invalid\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\n".$fields);
+        $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->run();
 
-    expect($process->isSuccessful())->toBeFalse()
-        ->and($process->getErrorOutput())->toContain($root.'/apt-sources/ubuntu.sources has an entry for the PHP repository but no deb entry with the main component for this architecture');
-});
+        expect($process->isSuccessful())->toBeFalse()
+            ->and($process->getErrorOutput())->toContain($root.'/apt-sources/ubuntu.sources has an entry for the PHP repository but no deb entry with the main component for this architecture');
+    });
+}
 
 foreach ([
     'native and another architecture' => 'arch=arm64,amd64',
