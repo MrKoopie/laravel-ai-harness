@@ -452,12 +452,12 @@ test('cloud provision registers the sury PHP repository first and retries apt do
     $process->mustRun();
 
     $source = (string) file_get_contents($root.'/apt-sources/ai-harness-php.sources');
+    $curl = (string) file_get_contents($root.'/commands.curl');
 
     expect($source)->toBe("Types: deb\nURIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings/ai-harness-php.gpg\n")
         ->and(file_get_contents($root.'/keyrings/ai-harness-php.gpg'))->toBe("key from https://packages.sury.org/php/apt.gpg\n")
-        ->and(file_get_contents($root.'/commands.curl'))
-        ->toContain('--retry 3 --retry-all-errors', 'https://packages.sury.org/php/dists/noble/Release')
-        ->not->toContain('launchpad', 'keyserver')
+        ->and($curl)->toContain('--retry 3 --retry-all-errors', 'https://packages.sury.org/php/dists/noble/Release')
+        ->and($curl)->not->toContain('launchpad', 'keyserver')
         ->and(file_get_contents($root.'/commands.sources'))->toContain('https://base.invalid', 'URIs: https://packages.sury.org/php')
         ->and(file_get_contents($root.'/commands'))->toContain('Acquire::Retries=5', 'php8.5-cli')
         ->and($root.'/commands.gpg')->not->toBeFile();
@@ -474,14 +474,15 @@ test('cloud provision falls back to the Launchpad content host when sury does no
     $environment['CURL_DOWN'] = 'packages.sury.org';
     $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
     $process->mustRun();
+    $curl = (string) file_get_contents($root.'/commands.curl');
 
     expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu', 'Suites: noble')
-        ->and(file_get_contents($root.'/commands.curl'))->toContain(
+        ->and($curl)->toContain(
             'https://packages.sury.org/php/dists/noble/Release',
             'https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/noble/Release',
             'search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C',
         )
-        ->not->toContain('ppa.launchpad.net')
+        ->and($curl)->not->toContain('ppa.launchpad.net')
         ->and(file_get_contents($root.'/commands.gpg'))->toContain('--dearmor', '--show-keys')
         ->and($process->getErrorOutput())->toContain('https://packages.sury.org/php does not answer');
 });
