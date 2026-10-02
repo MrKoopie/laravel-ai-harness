@@ -637,6 +637,8 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
 foreach ([
     'commented list entry' => ['php.list', "# deb https://packages.sury.org/php/ noble main\n"],
     'disabled deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: no\n"],
+    'deb822 stanza disabled with false' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: false\n"],
+    'deb822 stanza disabled with 0' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: 0\n"],
     'other URI with a sury comment' => ['php.list', "deb https://mirror.invalid/php noble main # packages.sury.org/php\n"],
     'other URI with a sury path' => ['php.sources', "Types: deb\nURIs: https://mirror.invalid/packages.sury.org/php/\nSuites: noble\nComponents: main\n"],
     'commented deb822 field' => ['php.sources', "Types: deb\n# URIs: https://packages.sury.org/php/\nURIs: https://other.invalid/\nSuites: noble\nComponents: main\n"],

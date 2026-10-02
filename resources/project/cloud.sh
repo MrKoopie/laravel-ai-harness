@@ -250,7 +250,7 @@ case "${1:-}" in
                     arch != "" && field == "architectures" { listed = 1; if (has(value, arch)) included = 1 }
                     arch != "" && field == "architectures-add" && has(value, arch) { added = 1 }
                     arch != "" && field == "architectures-remove" && has(value, arch) { removed = 1 }
-                    field == "enabled" && tolower(value) ~ /^[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
+                    field == "enabled" && tolower(value) ~ /^[[:space:]]*(no|false|without|off|disable|0)[[:space:]]*$/ { enabled = 0 }
                     field == "signed-by" { for (i = 1; i <= count; i++) if (tokens[i] != "") { keyring = tokens[i]; keyrings++ } }
                     END { flush() }
                 '
