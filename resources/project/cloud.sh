@@ -151,7 +151,8 @@ case "${1:-}" in
             # counts only for that suite and with exactly one Signed-By keyring
             # file; in mode "entries" that keyring must also be in the trusted
             # list. Mode "entries" prints each entry that counts, mode "keyrings"
-            # prints its keyring.
+            # prints its keyring. Mode "any" prints each entry for the suite,
+            # whatever its keyring.
             scan_source() {
                 local format=list
 
@@ -161,13 +162,13 @@ case "${1:-}" in
 
                 [[ -f "$2" && -r "$2" ]] && awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" '
                     function usable(path) {
-                        if (codename == "") return 1
+                        if (codename == "" || mode == "any") return 1
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
                         return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
                     }
                     function reset() { matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
-                        if (matched && enabled && binary && suite && keyrings <= 1 && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
+                        if (matched && enabled && binary && suite && (keyrings <= 1 || mode == "any") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
                     }
                     BEGIN { reset() }
@@ -371,9 +372,29 @@ case "${1:-}" in
                     "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
                 "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
                 "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
-                "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
-                printf 'Registered PHP repository %s %s.\n' "$php_repository_uri" "$distribution_codename"
-                source_paths+=("$php_source")
+
+                # A second entry for one repository with another Signed-By value
+                # makes later apt commands fail. When sources.list.d already has an
+                # entry that cannot be used, the new entry is used only for this run.
+                conflicting_source=''
+
+                for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
+                    if [[ "$candidate" != "$php_source" ]] \
+                        && [[ -n "$(scan_source any "$candidate" "$existing_pattern" "$distribution_codename")" ]]; then
+                        conflicting_source="$candidate"
+                        break
+                    fi
+                done
+
+                if [[ -n "$conflicting_source" ]]; then
+                    printf 'Using PHP repository %s %s for this run only; %s already has an entry for it.\n' \
+                        "$php_repository_uri" "$distribution_codename" "$conflicting_source" >&2
+                    source_paths+=("$temporary_directory/php-repository.sources")
+                else
+                    "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
+                    printf 'Registered PHP repository %s %s.\n' "$php_repository_uri" "$distribution_codename"
+                    source_paths+=("$php_source")
+                fi
             elif [[ "$php_repository_required" == true ]]; then
                 printf 'No PHP repository answers; allow packages.sury.org in the network policy of the environment.\n' >&2
                 exit 1
