@@ -877,6 +877,7 @@ test('cloud provision uses the last Architectures field of a found deb822 base s
 foreach ([
     'native and another architecture' => 'arch=arm64,amd64',
     'native architecture added' => 'arch=arm64 arch+=amd64',
+    'last of repeated architecture options' => 'arch=arm64 arch=amd64',
 ] as $scenario => $options) {
     test('cloud provision reuses sury from the default source list for the native architecture: '.$scenario, function () use ($options): void {
         [$root, $environment] = cloud_php_repository_fixture();
@@ -896,6 +897,8 @@ foreach ([
     'list entry for another architecture' => "deb [arch=arm64] https://packages.sury.org/php/ noble main\n",
     'list entry that removes the native architecture' => "deb [arch-=amd64] https://packages.sury.org/php/ noble main\n",
     'list entry without the main component' => "deb https://packages.sury.org/php/ noble contrib\n",
+    'list entry with main only in a comment' => "deb https://packages.sury.org/php/ noble contrib # main\n",
+    'list entry whose last architecture option is another architecture' => "deb [arch=amd64 arch=arm64] https://packages.sury.org/php/ noble main\n",
 ] as $scenario => $contents) {
     test('cloud provision stops when the default source list has no sury entry that apt uses for this architecture: '.$scenario, function () use ($contents): void {
         [$root, $environment] = cloud_php_repository_fixture();

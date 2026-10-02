@@ -212,8 +212,11 @@ case "${1:-}" in
                     }
                     BEGIN { reset() }
                     format == "list" {
-                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/ || (mode == "any" && $0 ~ /^[[:space:]]*deb-src[[:space:]]/)) {
-                            entry = $0
+                        # Apt ignores the rest of a line after "#".
+                        line = $0
+                        sub(/#.*/, "", line)
+                        if (line ~ /^[[:space:]]*deb[[:space:]]/ || (mode == "any" && line ~ /^[[:space:]]*deb-src[[:space:]]/)) {
+                            entry = line
                             options = ""
                             sub(/^[[:space:]]*deb(-src)?[[:space:]]+/, "", entry)
                             if (match(entry, /^\[[^]]*\]/)) {
@@ -225,12 +228,19 @@ case "${1:-}" in
                             if (!same(words[1]) || (codename != "" && words[2] != codename)) next
                             component = 0
                             for (i = 3; i in words; i++) if (words[i] == "main") component = 1
+                            # A repeated option replaces the earlier value.
+                            listed = 0; architectures = ""; additions = ""; removals = ""; path = ""
+                            count = split(options, tokens, /[[:space:]]+/)
+                            for (i = 1; i <= count; i++) {
+                                if (tokens[i] ~ /^arch=/) { listed = 1; architectures = substr(tokens[i], 6) }
+                                if (tokens[i] ~ /^arch\+=/) additions = substr(tokens[i], 7)
+                                if (tokens[i] ~ /^arch-=/) removals = substr(tokens[i], 7)
+                                if (tokens[i] ~ /^signed-by=/) path = substr(tokens[i], 11)
+                            }
                             native = 1
-                            if (arch != "" && match(options, /[[:space:]]arch=[^[:space:]]+/)) native = has(substr(options, RSTART + 6, RLENGTH - 6), arch)
-                            if (arch != "" && match(options, /[[:space:]]arch\+=[^[:space:]]+/) && has(substr(options, RSTART + 7, RLENGTH - 7), arch)) native = 1
-                            if (arch != "" && match(options, /[[:space:]]arch-=[^[:space:]]+/) && has(substr(options, RSTART + 7, RLENGTH - 7), arch)) native = 0
-                            path = ""
-                            if (match(options, /[[:space:]]signed-by=[^[:space:]]+/)) path = substr(options, RSTART + 11, RLENGTH - 11)
+                            if (arch != "" && listed) native = has(architectures, arch)
+                            if (arch != "" && has(additions, arch)) native = 1
+                            if (arch != "" && has(removals, arch)) native = 0
                             if (usable(path)) print (mode == "keyrings" ? path : "entry")
                         }
                         next
