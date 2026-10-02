@@ -190,7 +190,9 @@ To find a repository that answers, provisioning requests `dists/<codename>/Relea
 
 - Add `packages.sury.org` to the network allowlist of the cloud environment. For the fallback, also add `ppa.launchpadcontent.net` and `keyserver.ubuntu.com`.
 - Do not use `https://ppa.launchpad.net`. Its TLS certificate does not agree with the host name. Only `ppa.launchpadcontent.net` supports HTTPS.
-- When a selected source or a file in `/etc/apt/sources.list.d` already contains `packages.sury.org/php`, provisioning uses that source and adds no second source. Apt rejects two entries for one repository with different `Signed-By` values.
+- When a selected source or a file in `/etc/apt/sources.list.d` already has an enabled `packages.sury.org/php` entry, provisioning uses that source and adds no second source. The same applies to an enabled `ppa.launchpadcontent.net/ondrej/php` entry when sury does not answer. Apt rejects two entries for one repository with different `Signed-By` values. Commented entries and deb822 stanzas with `Enabled: no` do not count.
+- Provisioning checks `AI_HARNESS_PHP_VERSION` before it adds a repository. An invalid version, or a version before 8.2, stops provisioning without changes.
+- With curl before 7.71, the probes use `--retry 3` without `--retry-all-errors`.
 - With the default `AI_HARNESS_PHP_REPOSITORY=auto`, provisioning continues with the configured sources when no PHP repository answers. Then the package install shows the error. With `sury`, provisioning stops immediately.
 - Set `AI_HARNESS_PHP_REPOSITORY=none` to use only the configured sources.
 

@@ -189,7 +189,7 @@ fi
         if ($expectedVersion === '') {
             expect($process->getExitCode())->toBe(1)
                 ->and($process->getErrorOutput())->toContain('AI_HARNESS_PHP_VERSION')
-                ->and(file_get_contents($root.'/commands'))->not->toContain('install', '--set php');
+                ->and(is_file($root.'/commands') ? (string) file_get_contents($root.'/commands') : '')->not->toContain('install', '--set php');
 
             return;
         }

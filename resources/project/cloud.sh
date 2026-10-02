@@ -48,6 +48,26 @@ case "${1:-}" in
                 ;;
         esac
 
+        # Stop on an invalid or unsupported major.minor version.
+        validate_php_version() {
+            if [[ ! "$1" =~ ^[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+                printf 'Set AI_HARNESS_PHP_VERSION to an available major.minor PHP version with one or two digits per component; the selected version is invalid or undetermined.\n' >&2
+                exit 1
+            fi
+
+            local major="${1%%.*}" minor="${1#*.}"
+
+            if ((10#$major < 8 || (10#$major == 8 && 10#$minor < 2))); then
+                printf 'Cloud setup requires PHP 8.2 or newer; select a compatible image or set AI_HARNESS_PHP_VERSION to a version available in its repositories.\n' >&2
+                exit 1
+            fi
+        }
+
+        # Validate an explicit version before a PHP repository is registered.
+        if [[ -n "${AI_HARNESS_PHP_VERSION:-}" ]]; then
+            validate_php_version "$AI_HARNESS_PHP_VERSION"
+        fi
+
         php_repository_required=true
 
         if [[ "$php_repository" == auto ]]; then
@@ -100,61 +120,66 @@ case "${1:-}" in
             os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
             php_source="$php_sources_directory/ai-harness-php.sources"
             php_keyring="$php_keyrings_directory/ai-harness-php.gpg"
-            existing_source=''
+            sury_pattern='packages\.sury\.org/php'
+            launchpad_pattern='ppa\.launchpadcontent\.net/ondrej/php'
 
-            # Succeed when the file has an enabled sury entry. Apt ignores comments
-            # and deb822 stanzas with "Enabled: no".
-            has_sury_source() {
+            # Succeed when the file has an enabled entry whose URI matches the
+            # pattern. Apt ignores comments and deb822 stanzas with "Enabled: no".
+            has_enabled_source() {
                 local format=list
 
                 if [[ "$1" == *.sources ]]; then
                     format=deb822
                 fi
 
-                [[ -f "$1" && -r "$1" ]] && awk -v format="$format" '
+                [[ -f "$1" && -r "$1" ]] && awk -v format="$format" -v pattern="$2" '
                     BEGIN { enabled = 1 }
                     format == "list" {
-                        if ($0 ~ /^[[:space:]]*deb[[:space:]].*packages\.sury\.org\/php/) found = 1
+                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/ && $0 ~ pattern) found = 1
                         next
                     }
                     /^[[:space:]]*#/ { next }
                     /^[[:space:]]*$/ {
-                        if (sury && enabled) found = 1
-                        sury = 0; enabled = 1; field = ""
+                        if (matched && enabled) found = 1
+                        matched = 0; enabled = 1; field = ""
                         next
                     }
                     /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
-                    field == "uris" && /packages\.sury\.org\/php/ { sury = 1 }
+                    field == "uris" && $0 ~ pattern { matched = 1 }
                     field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
                     END {
-                        if (sury && enabled) found = 1
+                        if (matched && enabled) found = 1
                         exit !found
                     }
                 ' "$1"
             }
 
-            # Do not add a second sury entry: apt rejects conflicting Signed-By values.
-            for source_path in ${apt_sources:+"$apt_sources"} "${source_paths[@]}"; do
-                if [[ "$source_path" != "$php_source" ]] && has_sury_source "$source_path"; then
-                    existing_source=selected
-                    break
-                fi
-            done
+            # Print "selected" when a selected source has an enabled entry for the
+            # pattern, else the first such file in the sources directory. A second
+            # entry for one repository makes apt reject conflicting Signed-By values.
+            find_enabled_source() {
+                local candidate
 
-            if [[ -z "$existing_source" ]]; then
-                for source_path in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
-                    if [[ "$source_path" != "$php_source" ]] && has_sury_source "$source_path"; then
-                        existing_source="$source_path"
-                        break
+                for candidate in ${apt_sources:+"$apt_sources"} "${source_paths[@]}"; do
+                    if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1"; then
+                        printf 'selected\n'
+                        return
                     fi
                 done
-            fi
 
-            if [[ -n "$existing_source" ]]; then
-                if [[ "$existing_source" != selected ]]; then
-                    source_paths+=("$existing_source")
-                fi
-            else
+                for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
+                    if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1"; then
+                        printf '%s\n' "$candidate"
+                        return
+                    fi
+                done
+            }
+
+            existing_source="$(find_enabled_source "$sury_pattern")"
+            php_repository_uri=''
+            php_key_kind=''
+
+            if [[ -z "$existing_source" ]]; then
                 distribution_id=''
                 distribution_codename=''
 
@@ -163,68 +188,79 @@ case "${1:-}" in
                     distribution_codename="$(sed -nE 's/^VERSION_CODENAME="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
                 fi
 
-                php_repository_uri=''
-                php_key_kind=''
-
                 if [[ -z "$distribution_codename" ]]; then
                     printf 'Cannot read VERSION_CODENAME from %s.\n' "$os_release" >&2
                 elif ! command -v curl >/dev/null 2>&1; then
                     printf 'Registering the PHP repository requires curl.\n' >&2
                 else
+                    curl_options=(-fsSL --retry 3 --connect-timeout 10 --max-time 60)
+
+                    # curl 7.71 added --retry-all-errors; it also retries an HTTP 503.
+                    if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+                        curl_options+=(--retry-all-errors)
+                    fi
+
                     # Sury is served through a CDN and also covers new Ubuntu releases.
                     # Launchpad is only a fallback: it often answered 503 since May 2026.
-                    candidates=('https://packages.sury.org/php sury')
+                    sury_uri=https://packages.sury.org/php
+                    launchpad_uri=https://ppa.launchpadcontent.net/ondrej/php/ubuntu
 
-                    if [[ "$distribution_id" == ubuntu ]]; then
-                        candidates+=('https://ppa.launchpadcontent.net/ondrej/php/ubuntu launchpad')
-                    fi
-
-                    for candidate in "${candidates[@]}"; do
-                        candidate_uri="${candidate% *}"
-
-                        if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -o /dev/null \
-                            "$candidate_uri/dists/$distribution_codename/Release"; then
-                            php_repository_uri="$candidate_uri"
-                            php_key_kind="${candidate##* }"
-                            break
-                        fi
-
-                        printf 'PHP repository %s does not answer for %s.\n' "$candidate_uri" "$distribution_codename" >&2
-                    done
-                fi
-
-                if [[ -n "$php_key_kind" ]]; then
-                    key_file="$temporary_directory/php-repository.gpg"
-
-                    if [[ "$php_key_kind" == sury ]]; then
-                        # apt.gpg is a binary keyring that apt can use directly.
-                        curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
-                            -o "$key_file" https://packages.sury.org/php/apt.gpg
+                    if curl "${curl_options[@]}" -o /dev/null "$sury_uri/dists/$distribution_codename/Release"; then
+                        php_repository_uri="$sury_uri"
+                        php_key_kind=sury
                     else
-                        launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
-                        curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
-                            "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$launchpad_fingerprint" \
-                            | gpg --batch --yes --dearmor -o "$key_file"
+                        printf 'PHP repository %s does not answer for %s.\n' "$sury_uri" "$distribution_codename" >&2
 
-                        if ! gpg --batch --with-colons --show-keys "$key_file" 2>/dev/null | grep -qxF "fpr:::::::::$launchpad_fingerprint:"; then
-                            printf 'The Launchpad signing key does not have fingerprint %s.\n' "$launchpad_fingerprint" >&2
-                            exit 1
+                        if [[ "$distribution_id" == ubuntu ]]; then
+                            existing_source="$(find_enabled_source "$launchpad_pattern")"
+
+                            if [[ -z "$existing_source" ]]; then
+                                if curl "${curl_options[@]}" -o /dev/null "$launchpad_uri/dists/$distribution_codename/Release"; then
+                                    php_repository_uri="$launchpad_uri"
+                                    php_key_kind=launchpad
+                                else
+                                    printf 'PHP repository %s does not answer for %s.\n' "$launchpad_uri" "$distribution_codename" >&2
+                                fi
+                            fi
                         fi
                     fi
-
-                    printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                        "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
-                    "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
-                    "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
-                    "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
-                    printf 'Registered PHP repository %s %s.\n' "$php_repository_uri" "$distribution_codename"
-                    source_paths+=("$php_source")
-                elif [[ "$php_repository_required" == true ]]; then
-                    printf 'No PHP repository answers; allow packages.sury.org in the network policy of the environment.\n' >&2
-                    exit 1
-                else
-                    printf 'Continuing without a PHP repository; allow packages.sury.org in the network policy of the environment.\n' >&2
                 fi
+            fi
+
+            if [[ -n "$existing_source" ]]; then
+                if [[ "$existing_source" != selected ]]; then
+                    source_paths+=("$existing_source")
+                fi
+            elif [[ -n "$php_key_kind" ]]; then
+                key_file="$temporary_directory/php-repository.gpg"
+
+                if [[ "$php_key_kind" == sury ]]; then
+                    # apt.gpg is a binary keyring that apt can use directly.
+                    curl "${curl_options[@]}" -o "$key_file" "$sury_uri/apt.gpg"
+                else
+                    launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
+                    curl "${curl_options[@]}" \
+                        "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$launchpad_fingerprint" \
+                        | gpg --batch --yes --dearmor -o "$key_file"
+
+                    if ! gpg --batch --with-colons --show-keys "$key_file" 2>/dev/null | grep -qxF "fpr:::::::::$launchpad_fingerprint:"; then
+                        printf 'The Launchpad signing key does not have fingerprint %s.\n' "$launchpad_fingerprint" >&2
+                        exit 1
+                    fi
+                fi
+
+                printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
+                    "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
+                "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
+                "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
+                "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
+                printf 'Registered PHP repository %s %s.\n' "$php_repository_uri" "$distribution_codename"
+                source_paths+=("$php_source")
+            elif [[ "$php_repository_required" == true ]]; then
+                printf 'No PHP repository answers; allow packages.sury.org in the network policy of the environment.\n' >&2
+                exit 1
+            else
+                printf 'Continuing without a PHP repository; allow packages.sury.org in the network policy of the environment.\n' >&2
             fi
         fi
 
@@ -264,18 +300,7 @@ case "${1:-}" in
             php_version="$(LC_ALL=C apt-cache "${apt_options[@]}" depends php-cli | sed -nE 's/^[[:space:]]*Depends: php([0-9]+\.[0-9]+)-cli$/\1/p' | head -n 1)"
         fi
 
-        if [[ ! "$php_version" =~ ^[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-            printf 'Set AI_HARNESS_PHP_VERSION to an available major.minor PHP version with one or two digits per component; the selected version is invalid or undetermined.\n' >&2
-            exit 1
-        fi
-
-        php_major="${php_version%%.*}"
-        php_minor="${php_version#*.}"
-
-        if ((10#$php_major < 8 || (10#$php_major == 8 && 10#$php_minor < 2))); then
-            printf 'Cloud setup requires PHP 8.2 or newer; select a compatible image or set AI_HARNESS_PHP_VERSION to a version available in its repositories.\n' >&2
-            exit 1
-        fi
+        validate_php_version "$php_version"
 
         packages=(
             "php${php_version}-cli" "php${php_version}-mysql" "php${php_version}-sqlite3"
