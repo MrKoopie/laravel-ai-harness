@@ -459,6 +459,7 @@ case "$*" in
         ;;
 esac
 BASH);
+    write_executable($root.'/bin/dpkg', "#!/usr/bin/env bash\nprintf 'amd64\\n'\n");
     write_executable($root.'/bin/install', <<<'BASH'
 #!/usr/bin/env bash
 printf 'install %s\n' "$*" >> "$CLOUD_LOG"
@@ -827,6 +828,37 @@ test('cloud provision keeps the .asc extension of a reused ASCII-armored keyring
     expect(file_get_contents($root.'/commands.sources'))->toMatch('#Signed-By: \S+/php-repository-reused[.]asc\n#')
         ->and(file_get_contents($root.'/commands.keyrings'))->toMatch('#/php-repository-reused[.]asc 644 755: image key from packages[.]sury[.]org\n#');
 });
+
+test('cloud provision reuses sury from the default source list for the native and another architecture', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [arch=arm64,amd64] https://packages.sury.org/php/ noble main\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+});
+
+foreach ([
+    'source-only list entry' => "deb-src https://packages.sury.org/php/ noble main\n",
+    'list entry for another architecture' => "deb [arch=arm64] https://packages.sury.org/php/ noble main\n",
+    'list entry that removes the native architecture' => "deb [arch-=amd64] https://packages.sury.org/php/ noble main\n",
+] as $scenario => $contents) {
+    test('cloud provision stops when the default source list has no sury entry that apt uses for this architecture: '.$scenario, function () use ($contents): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\n".$contents);
+        $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+        $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->run();
+
+        expect($process->isSuccessful())->toBeFalse()
+            ->and($process->getErrorOutput())->toContain($root.'/sources.list has an entry for the PHP repository but no deb entry for this architecture')
+            ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+    });
+}
 
 test('cloud provision registers sury when the default source list has a sury entry for another suite', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();

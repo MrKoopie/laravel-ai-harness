@@ -156,7 +156,7 @@ case "${1:-}" in
             # file; in mode "entries" that keyring must also be in the trusted
             # list. Mode "entries" prints each entry that counts, mode "keyrings"
             # prints its keyring. Mode "binary" prints each binary entry for the
-            # suite, whatever its keyring. Mode "any" prints each entry for the suite,
+            # suite that apt reads for the native architecture, whatever its keyring. Mode "any" prints each entry for the suite,
             # whatever its keyring, and also source-only (deb-src) entries,
             # because they conflict on Signed-By too.
             scan_source() {
@@ -167,7 +167,12 @@ case "${1:-}" in
                 fi
 
                 # Apt reads root-only source files too, so read them with privileges.
-                [[ -f "$2" ]] && "${privilege[@]}" cat -- "$2" 2>/dev/null | awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" '
+                [[ -f "$2" ]] && "${privilege[@]}" cat -- "$2" 2>/dev/null | awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" -v arch="$native_architecture" '
+                    function has(list, value,    count, i, items) {
+                        count = split(list, items, /[,[:space:]]+/)
+                        for (i = 1; i <= count; i++) if (items[i] == value) return 1
+                        return 0
+                    }
                     # Apt decodes percent escapes and treats the scheme and host
                     # without case; the path keeps its case. Compare the URI in
                     # that form.
@@ -192,11 +197,12 @@ case "${1:-}" in
                         return (head uri) ~ pattern
                     }
                     function usable(path) {
-                        if (codename == "" || mode == "any" || mode == "binary") return 1
+                        if (mode == "binary") return native
+                        if (codename == "" || mode == "any") return 1
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
                         return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
                     }
-                    function reset() { matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
+                    function reset() { matched = 0; enabled = 1; native = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
                         if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || mode == "binary" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
@@ -214,6 +220,9 @@ case "${1:-}" in
                             }
                             split(entry, words, /[[:space:]]+/)
                             if (!same(words[1]) || (codename != "" && words[2] != codename)) next
+                            native = 1
+                            if (arch != "" && match(options, /[[:space:]]arch=[^[:space:]]+/)) native = has(substr(options, RSTART + 6, RLENGTH - 6), arch)
+                            if (arch != "" && match(options, /[[:space:]]arch-=[^[:space:]]+/) && has(substr(options, RSTART + 7, RLENGTH - 7), arch)) native = 0
                             path = ""
                             if (match(options, /[[:space:]]signed-by=[^[:space:]]+/)) path = substr(options, RSTART + 11, RLENGTH - 11)
                             if (usable(path)) print (mode == "keyrings" ? path : "entry")
@@ -231,6 +240,8 @@ case "${1:-}" in
                     field == "uris" { for (i = 1; i <= count; i++) if (tokens[i] != "" && same(tokens[i])) matched = 1 }
                     field == "suites" && (" " value " ") ~ ("[[:space:]]" codename "[[:space:]]") { suite = 1 }
                     field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
+                    arch != "" && field == "architectures" { native = has(value, arch) }
+                    arch != "" && field == "architectures-remove" && has(value, arch) { native = 0 }
                     field == "enabled" && tolower(value) ~ /^[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
                     field == "signed-by" { for (i = 1; i <= count; i++) if (tokens[i] != "") { keyring = tokens[i]; keyrings++ } }
                     END { flush() }
@@ -284,10 +295,18 @@ case "${1:-}" in
                 if [[ -n "${AI_HARNESS_APT_SOURCE_LIST:-}" ]] && has_enabled_source "$apt_sources" "$1"; then
                     printf 'selected\n'
                     return
-                elif [[ -z "${AI_HARNESS_APT_SOURCE_LIST:-}" ]] \
-                    && [[ -n "$(scan_source binary "${apt_sources:-$default_source_list}" "$1" "$distribution_codename")" ]]; then
-                    printf 'selected\n'
-                    return
+                elif [[ -z "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
+                    if [[ -n "$(scan_source binary "${apt_sources:-$default_source_list}" "$1" "$distribution_codename")" ]]; then
+                        printf 'selected\n'
+                        return
+                    fi
+
+                    # A new entry would conflict with that list on Signed-By.
+                    if [[ -n "$(scan_source any "${apt_sources:-$default_source_list}" "$1" "$distribution_codename")" ]]; then
+                        printf '%s has an entry for the PHP repository but no deb entry for this architecture; add one or remove the entry.\n' \
+                            "${apt_sources:-$default_source_list}" >&2
+                        exit 1
+                    fi
                 fi
 
                 for candidate in "${source_paths[@]}"; do
@@ -310,6 +329,7 @@ case "${1:-}" in
 
             distribution_id=''
             distribution_codename=''
+            native_architecture="$(dpkg --print-architecture 2>/dev/null || true)"
 
             if [[ -r "$os_release" ]]; then
                 distribution_id="$(sed -nE 's/^ID="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
