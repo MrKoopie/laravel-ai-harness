@@ -803,15 +803,6 @@ test('cloud provision does not reuse an image sury source when sury does not ans
         ->and($sources)->not->toContain('packages.sury.org');
 });
 
-test('cloud provision registers the sury PHP repository when the existing stanza has only source packages', function (): void {
-    [$root, $environment] = cloud_php_repository_fixture();
-    file_put_contents($root.'/apt-sources/php.sources', "Types: deb-src\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\n");
-    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
-    $process->mustRun();
-
-    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php');
-});
-
 test('cloud provision reuses sury from the default source list when no base source is selected', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
     file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n");
@@ -906,6 +897,8 @@ foreach ([
     'deb822 stanza with an embedded key' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nSigned-By:\n -----BEGIN PGP PUBLIC KEY BLOCK-----\n .\n -----END PGP PUBLIC KEY BLOCK-----\n"],
     'list entry with an unrelated keyring' => ['php.list', "deb [signed-by={root}/keyrings-image/ondrej.gpg] https://packages.sury.org/php/ noble main\n"],
     'list entry with a missing keyring' => ['php.list', "deb [signed-by={root}/keyrings-image/missing.gpg] https://packages.sury.org/php/ noble main\n"],
+    'source-only deb822 stanza' => ['php.sources', "Types: deb-src\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\n"],
+    'source-only list entry' => ['php.list', "deb-src [signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n"],
 ] as $scenario => [$file, $contents]) {
     test('cloud provision uses the sury PHP repository for this run only when an existing entry cannot be used: '.$scenario, function () use ($file, $contents): void {
         [$root, $environment] = cloud_php_repository_fixture();

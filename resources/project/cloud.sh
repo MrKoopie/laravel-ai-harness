@@ -154,7 +154,8 @@ case "${1:-}" in
             # file; in mode "entries" that keyring must also be in the trusted
             # list. Mode "entries" prints each entry that counts, mode "keyrings"
             # prints its keyring. Mode "any" prints each entry for the suite,
-            # whatever its keyring.
+            # whatever its keyring, and also source-only (deb-src) entries,
+            # because they conflict on Signed-By too.
             scan_source() {
                 local format=list
 
@@ -182,15 +183,15 @@ case "${1:-}" in
                     }
                     function reset() { matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
-                        if (matched && enabled && binary && suite && (keyrings <= 1 || mode == "any" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
+                        if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
                     }
                     BEGIN { reset() }
                     format == "list" {
-                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/) {
+                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/ || (mode == "any" && $0 ~ /^[[:space:]]*deb-src[[:space:]]/)) {
                             entry = $0
                             options = ""
-                            sub(/^[[:space:]]*deb[[:space:]]+/, "", entry)
+                            sub(/^[[:space:]]*deb(-src)?[[:space:]]+/, "", entry)
                             if (match(entry, /^\[[^]]*\]/)) {
                                 options = " " substr(entry, 2, RLENGTH - 2) " "
                                 entry = substr(entry, RLENGTH + 1)
