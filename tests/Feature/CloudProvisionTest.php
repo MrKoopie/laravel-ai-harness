@@ -564,7 +564,10 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
         $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
         $process->mustRun();
 
-        expect($root.'/commands.curl')->not->toBeFile()
+        $curl = is_file($root.'/commands.curl') ? (string) file_get_contents($root.'/commands.curl') : '';
+
+        // A selected source is the user's choice; an image source is used only when sury answers.
+        expect($curl)->toBe($location === 'extra' ? '' : "-fsSL --retry 3 --connect-timeout 10 --max-time 60 --retry-all-errors -o /dev/null https://packages.sury.org/php/dists/noble/Release\n")
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
             ->and(substr_count((string) file_get_contents($root.'/commands.sources'), 'packages.sury.org'))->toBeGreaterThan(0);
     });
@@ -592,9 +595,9 @@ test('cloud provision reuses an enabled deb822 sury stanza next to a disabled on
     $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
     $process->mustRun();
 
-    expect($root.'/commands.curl')->not->toBeFile()
+    expect(file_get_contents($root.'/commands.curl'))->not->toContain('apt.gpg')
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-        ->and(file_get_contents($root.'/commands.files'))->toContain('.sources');
+        ->and(file_get_contents($root.'/commands.sources'))->toContain('https://mirror.invalid/');
 });
 
 test('cloud provision probes without --retry-all-errors when curl does not support it', function (): void {
@@ -645,3 +648,15 @@ foreach (['patch version' => '8.5.1', 'unsupported version' => '7.4'] as $scenar
             ->and($root.'/commands')->not->toBeFile();
     });
 }
+
+test('cloud provision does not reuse an image sury source when sury does not answer', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['CURL_DOWN'] = 'packages.sury.org';
+    file_put_contents($root.'/apt-sources/php.list', "deb [signed-by=/usr/share/keyrings/sury.gpg] https://packages.sury.org/php/ noble main\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+    $sources = (string) file_get_contents($root.'/commands.sources');
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
+        ->and($sources)->not->toContain('packages.sury.org');
+});

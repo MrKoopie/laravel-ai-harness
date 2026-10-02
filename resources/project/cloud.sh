@@ -178,6 +178,14 @@ case "${1:-}" in
             existing_source="$(find_enabled_source "$sury_pattern")"
             php_repository_uri=''
             php_key_kind=''
+            image_sury_source=''
+
+            # A sury file in sources.list.d can be left by an earlier run. Use it
+            # only when sury answers now, so that it cannot block the fallback.
+            if [[ -n "$existing_source" && "$existing_source" != selected ]]; then
+                image_sury_source="$existing_source"
+                existing_source=''
+            fi
 
             if [[ -z "$existing_source" ]]; then
                 distribution_id=''
@@ -206,8 +214,12 @@ case "${1:-}" in
                     launchpad_uri=https://ppa.launchpadcontent.net/ondrej/php/ubuntu
 
                     if curl "${curl_options[@]}" -o /dev/null "$sury_uri/dists/$distribution_codename/Release"; then
-                        php_repository_uri="$sury_uri"
-                        php_key_kind=sury
+                        if [[ -n "$image_sury_source" ]]; then
+                            existing_source="$image_sury_source"
+                        else
+                            php_repository_uri="$sury_uri"
+                            php_key_kind=sury
+                        fi
                     else
                         printf 'PHP repository %s does not answer for %s.\n' "$sury_uri" "$distribution_codename" >&2
 
