@@ -711,5 +711,66 @@ test('cloud provision reuses sury from the default source list when no base sour
 
     expect($root.'/commands.curl')->not->toBeFile()
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-        ->and(file_get_contents($root.'/commands'))->not->toContain('Dir::Etc::sourcelist');
+        ->and(file_get_contents($root.'/commands'))->toContain('Dir::Etc::sourcelist='.$root.'/sources.list', 'Dir::Etc::sourceparts=-');
+});
+
+foreach ([
+    'list entry' => ['php.list', "deb https://packages.sury.org/php/ jammy main\n"],
+    'deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: jammy\nComponents: main\n"],
+] as $scenario => [$file, $contents]) {
+    test('cloud provision does not reuse a sury source for another suite: '.$scenario, function () use ($file, $contents): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/apt-sources/'.$file, $contents);
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
+
+        expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php', 'Suites: noble')
+            ->and(file_get_contents($root.'/commands.sources'))->not->toContain('jammy');
+    });
+}
+
+foreach ([
+    'list file' => ['php.list', "deb https://vendor.invalid/ noble main\ndeb [signed-by=/usr/share/keyrings/sury.gpg] https://packages.sury.org/php/ noble main\n"],
+    'deb822 file' => ['php.sources', "Types: deb\nURIs: https://vendor.invalid/\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/sury.gpg\n"],
+] as $scenario => [$file, $contents]) {
+    test('cloud provision reuses only the matching entries of a source file: '.$scenario, function () use ($file, $contents): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/apt-sources/'.$file, $contents);
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
+        $sources = (string) file_get_contents($root.'/commands.sources');
+
+        expect($sources)->toContain('https://packages.sury.org/php/', '/usr/share/keyrings/sury.gpg')
+            ->and($sources)->not->toContain('vendor.invalid')
+            ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+    });
+}
+
+test('cloud provision stops before it writes a key or source without a base source list', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['AI_HARNESS_PHP_REPOSITORY'] = 'sury';
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/missing.list';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('requires a base source list')
+        ->and($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/keyrings')->not->toBeDirectory()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+});
+
+test('cloud provision leaves an unavailable sury source out when it continues with the default source list', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\n");
+    file_put_contents($root.'/apt-sources/ai-harness-php.sources', "Types: deb\nURIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+    $environment['CURL_DOWN'] = 'packages.sury.org launchpadcontent.net';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())->toContain('Continuing without a PHP repository')
+        ->and(file_get_contents($root.'/commands'))->toContain('Dir::Etc::sourcelist='.$root.'/sources.list', 'Dir::Etc::sourceparts=-');
 });

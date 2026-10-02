@@ -117,6 +117,20 @@ case "${1:-}" in
             done
         fi
 
+        # A PHP repository needs a base source list. Without one, the script
+        # stops before it writes a key or a source.
+        if [[ "$php_repository" == sury && -z "$apt_sources" ]]; then
+            if [[ -f "$default_source_list" ]]; then
+                apt_sources="$default_source_list"
+            elif [[ "$php_repository_required" == true ]]; then
+                printf 'A PHP repository requires a base source list; set AI_HARNESS_APT_SOURCE_LIST.\n' >&2
+                exit 1
+            else
+                printf 'Continuing without a PHP repository; no base source list was found.\n' >&2
+                php_repository=none
+            fi
+        fi
+
         if [[ "$php_repository" == sury ]]; then
             # Overrides for tests only.
             php_keyrings_directory="${AI_HARNESS_APT_KEYRINGS_DIR:-/etc/apt/keyrings}"
@@ -126,36 +140,47 @@ case "${1:-}" in
             sury_pattern='packages\.sury\.org/php'
             launchpad_pattern='ppa\.launchpadcontent\.net/ondrej/php'
 
-            # Succeed when the file has an enabled entry whose URI matches the
-            # pattern. Apt ignores comments and deb822 stanzas with "Enabled: no".
-            has_enabled_source() {
+            # Print the enabled entries of the file whose URI matches the pattern.
+            # Apt ignores comments and deb822 stanzas with "Enabled: no". Only
+            # binary entries count, and with a codename only entries for that suite.
+            print_enabled_entries() {
                 local format=list
 
                 if [[ "$1" == *.sources ]]; then
                     format=deb822
                 fi
 
-                [[ -f "$1" && -r "$1" ]] && awk -v format="$format" -v pattern="$2" '
-                    BEGIN { enabled = 1 }
+                [[ -f "$1" && -r "$1" ]] && awk -v format="$format" -v pattern="$2" -v codename="${3:-}" '
+                    function reset() { stanza = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); field = "" }
+                    function flush() {
+                        if (matched && enabled && binary && suite) printf "%s\n", stanza
+                        reset()
+                    }
+                    BEGIN { reset() }
                     format == "list" {
-                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/ && $0 ~ pattern) found = 1
+                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/ && $0 ~ pattern) {
+                            entry = $0
+                            sub(/^[[:space:]]*deb[[:space:]]+/, "", entry)
+                            sub(/^\[[^]]*\][[:space:]]*/, "", entry)
+                            split(entry, words, /[[:space:]]+/)
+                            if (codename == "" || words[2] == codename) print
+                        }
                         next
                     }
                     /^[[:space:]]*#/ { next }
-                    /^[[:space:]]*$/ {
-                        if (matched && enabled && binary) found = 1
-                        matched = 0; enabled = 1; binary = 0; field = ""
-                        next
-                    }
+                    /^[[:space:]]*$/ { flush(); next }
+                    { stanza = stanza $0 "\n" }
                     /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
                     field == "uris" && $0 ~ pattern { matched = 1 }
                     field == "types" && (" " tolower($0) " ") ~ /[[:space:]:]deb[[:space:]]/ { binary = 1 }
+                    field == "suites" && (" " $0 " ") ~ ("[[:space:]:]" codename "[[:space:]]") { suite = 1 }
                     field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
-                    END {
-                        if (matched && enabled && binary) found = 1
-                        exit !found
-                    }
+                    END { flush() }
                 ' "$1"
+            }
+
+            has_enabled_source() {
+                [[ -n "$(print_enabled_entries "$@")" ]]
             }
 
             # Succeed when the keyring file holds a key with this fingerprint.
@@ -165,8 +190,9 @@ case "${1:-}" in
             }
 
             # Print "selected" when a selected source has an enabled entry for the
-            # pattern, else the first such file in the sources directory. A second
-            # entry for one repository makes apt reject conflicting Signed-By values.
+            # pattern, else the first file in the sources directory with such an
+            # entry for the current suite. A second entry for one repository makes
+            # apt reject conflicting Signed-By values.
             find_enabled_source() {
                 local candidate
 
@@ -179,14 +205,23 @@ case "${1:-}" in
                 done
 
                 for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
-                    if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1"; then
+                    if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1" "$distribution_codename"; then
                         printf '%s\n' "$candidate"
                         return
                     fi
                 done
             }
 
+            distribution_id=''
+            distribution_codename=''
+
+            if [[ -r "$os_release" ]]; then
+                distribution_id="$(sed -nE 's/^ID="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
+                distribution_codename="$(sed -nE 's/^VERSION_CODENAME="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
+            fi
+
             existing_source="$(find_enabled_source "$sury_pattern")"
+            existing_pattern="$sury_pattern"
             php_repository_uri=''
             php_key_kind=''
             image_sury_source=''
@@ -199,14 +234,6 @@ case "${1:-}" in
             fi
 
             if [[ -z "$existing_source" ]]; then
-                distribution_id=''
-                distribution_codename=''
-
-                if [[ -r "$os_release" ]]; then
-                    distribution_id="$(sed -nE 's/^ID="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
-                    distribution_codename="$(sed -nE 's/^VERSION_CODENAME="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
-                fi
-
                 if [[ -z "$distribution_codename" ]]; then
                     printf 'Cannot read VERSION_CODENAME from %s.\n' "$os_release" >&2
                 elif ! command -v curl >/dev/null 2>&1; then
@@ -249,6 +276,7 @@ case "${1:-}" in
                     if [[ "$sury_usable" == false ]]; then
                         if [[ "$distribution_id" == ubuntu ]]; then
                             existing_source="$(find_enabled_source "$launchpad_pattern")"
+                            existing_pattern="$launchpad_pattern"
 
                             if [[ -z "$existing_source" ]]; then
                                 if curl "${curl_options[@]}" -o /dev/null "$launchpad_uri/dists/$distribution_codename/Release"; then
@@ -264,8 +292,12 @@ case "${1:-}" in
             fi
 
             if [[ -n "$existing_source" ]]; then
+                # Use only the matching entries, so that other repositories in the
+                # same file cannot make the update fail.
                 if [[ "$existing_source" != selected ]]; then
-                    source_paths+=("$existing_source")
+                    reused_source="$temporary_directory/php-repository-reused.${existing_source##*.}"
+                    print_enabled_entries "$existing_source" "$existing_pattern" "$distribution_codename" > "$reused_source"
+                    source_paths+=("$reused_source")
                 fi
             elif [[ -n "$php_key_kind" ]]; then
                 if [[ "$php_key_kind" == launchpad ]]; then
