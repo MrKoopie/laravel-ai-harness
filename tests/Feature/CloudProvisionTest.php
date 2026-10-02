@@ -86,6 +86,7 @@ for argument in "$@"; do
     esac
 done
 case "$*" in
+    *' update') [[ -z "${APT_UPDATE_OUTPUT:-}" ]] || printf '%s\n' "$APT_UPDATE_OUTPUT" ;;
     *php8.5-imagick*) exit "${EXTENSION_APT_EXIT:-0}" ;;
 esac
 exit "${APT_EXIT:-0}"
@@ -438,7 +439,11 @@ done
 for host in ${CURL_TLS_FAIL:-}; do
     [[ "$url" == *"$host"* ]] && exit 60
 done
-if [[ -n "$output" ]]; then
+if [[ "$url" == */Release ]]; then
+    release_architectures="${RELEASE_ARCHITECTURES-amd64 arm64}"
+    [[ "$url" == *launchpadcontent.net* ]] && release_architectures="${LAUNCHPAD_ARCHITECTURES-amd64 arm64 ppc64el}"
+    printf 'Suite: noble\nArchitectures: %s\n' "$release_architectures" > "${output:-/dev/stdout}"
+elif [[ -n "$output" ]]; then
     printf 'key from %s\n' "$url" > "$output"
 else
     printf 'key from %s\n' "$url"
@@ -453,7 +458,7 @@ case "$*" in
         if grep -q packages.sury.org "${*: -1}"; then
             fingerprint="${GPG_SURY_FINGERPRINT:-15058500A0235D97F5D10063B188E2B695BD4743}"
         else
-            fingerprint="${GPG_FINGERPRINT:-14AA40EC0831756756D7F66C4F4EA0AAE5267A6C}"
+            fingerprint="${GPG_FINGERPRINT:-B8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6}"
         fi
         validity=-
         grep -q packages.sury.org "${*: -1}" && validity="${GPG_SURY_VALIDITY:--}"
@@ -513,12 +518,63 @@ test('cloud provision falls back to the Launchpad content host when sury does no
         ->and($curl)->toContain(
             'https://packages.sury.org/php/dists/noble/Release',
             'https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/noble/Release',
-            'search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C',
+            'search=0xB8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6',
         )
         ->and($curl)->not->toContain('ppa.launchpad.net')
         ->and(file_get_contents($root.'/commands.gpg'))->toContain('--dearmor', '--show-keys')
         ->and($process->getErrorOutput())->toContain('https://packages.sury.org/php does not answer');
 });
+
+test('cloud provision falls back to Launchpad when sury has no packages for the native architecture', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['RELEASE_ARCHITECTURES'] = 'arm64';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
+        ->and($process->getErrorOutput())->toContain('PHP repository https://packages.sury.org/php has no packages for noble amd64');
+});
+
+test('cloud provision stops when no PHP repository has packages for the native architecture', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['RELEASE_ARCHITECTURES'] = 'arm64';
+    $environment['LAUNCHPAD_ARCHITECTURES'] = 'arm64';
+    $environment['AI_HARNESS_PHP_REPOSITORY'] = 'sury';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->isSuccessful())->toBeFalse()
+        ->and($process->getErrorOutput())->toContain('https://ppa.launchpadcontent.net/ondrej/php/ubuntu has no packages for noble amd64')
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+});
+
+test('cloud provision reuses a quoted sury URI from the default source list', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb \"https://packages.sury.org/php/\" noble main\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+});
+
+foreach ([
+    'failed download' => 'W: Failed to fetch https://packages.sury.org/php/dists/noble/InRelease  503  Service Unavailable',
+    'failed index files' => 'E: Some index files failed to download. They have been ignored, or old ones used instead.',
+] as $scenario => $output) {
+    test('cloud provision stops when apt-get update cannot download an index: '.$scenario, function () use ($output): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        $environment['APT_UPDATE_OUTPUT'] = $output;
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->run();
+
+        expect($process->isSuccessful())->toBeFalse()
+            ->and($process->getErrorOutput())->toContain('apt-get update could not download every package index')
+            ->and(file_get_contents($root.'/commands'))->not->toContain('install -y');
+    });
+}
 
 test('cloud provision rejects a Launchpad key with a different fingerprint', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
@@ -631,7 +687,7 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
         $curl = is_file($root.'/commands.curl') ? (string) file_get_contents($root.'/commands.curl') : '';
 
         // A selected source is the user's choice; an image source is used only when sury answers.
-        expect($curl)->toBe($location === 'extra' ? '' : "-fsSL --retry 3 --connect-timeout 10 --max-time 60 --retry-all-errors -o /dev/null https://packages.sury.org/php/dists/noble/Release\n")
+        expect($curl)->toMatch($location === 'extra' ? '/^$/' : '#^-fsSL --retry 3 --connect-timeout 10 --max-time 60 --retry-all-errors -o \S+/php-repository-release https://packages\.sury\.org/php/dists/noble/Release\n$#')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
             ->and(substr_count((string) file_get_contents($root.'/commands.sources'), 'packages.sury.org'))->toBeGreaterThan(0);
     });

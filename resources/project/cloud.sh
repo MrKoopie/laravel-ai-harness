@@ -145,7 +145,7 @@ case "${1:-}" in
             sury_pattern='^https?://packages[.]sury[.]org/php/?$'
             launchpad_pattern='^https?://ppa[.]launchpadcontent[.]net/ondrej/php/ubuntu/?$'
             sury_fingerprint=15058500A0235D97F5D10063B188E2B695BD4743
-            launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
+            launchpad_fingerprint=B8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6
             sury_uri=https://packages.sury.org/php
             launchpad_uri=https://ppa.launchpadcontent.net/ondrej/php/ubuntu
 
@@ -212,9 +212,11 @@ case "${1:-}" in
                     }
                     BEGIN { reset() }
                     format == "list" {
-                        # Apt ignores the rest of a line after "#".
+                        # Apt ignores the rest of a line after "#" and removes the
+                        # double quotes around a word, such as a quoted URI.
                         line = $0
                         sub(/#.*/, "", line)
+                        gsub(/"/, "", line)
                         if (line ~ /^[[:space:]]*deb[[:space:]]/ || (mode == "any" && line ~ /^[[:space:]]*deb-src[[:space:]]/)) {
                             entry = line
                             options = ""
@@ -409,18 +411,32 @@ case "${1:-}" in
                     fi
 
                     # Succeed when the repository publishes a Release file for the
-                    # current suite. curl exits with 60 or 77 when it cannot verify
-                    # the TLS certificate, for example without ca-certificates.
+                    # current suite that lists the native architecture. curl exits
+                    # with 60 or 77 when it cannot verify the TLS certificate, for
+                    # example without ca-certificates.
                     repository_answers() {
-                        local status=0
+                        local release="$temporary_directory/php-repository-release" status=0
 
-                        curl "${curl_options[@]}" -o /dev/null "$1/dists/$distribution_codename/Release" || status=$?
+                        curl "${curl_options[@]}" -o "$release" "$1/dists/$distribution_codename/Release" || status=$?
 
                         if ((status == 60 || status == 77)); then
                             printf 'curl cannot verify the TLS certificate of %s; install ca-certificates.\n' "$1" >&2
                         fi
 
-                        return "$status"
+                        if ((status != 0)); then
+                            printf 'PHP repository %s does not answer for %s.\n' "$1" "$distribution_codename" >&2
+                            return "$status"
+                        fi
+
+                        # Sury does not build every architecture that Launchpad builds,
+                        # for example ppc64el.
+                        if [[ -n "$native_architecture" ]] && ! awk -v arch="$native_architecture" '
+                            /^Architectures:/ { listed = 1; for (i = 2; i <= NF; i++) if ($i == arch) found = 1 }
+                            END { exit !(found || !listed) }
+                        ' "$release"; then
+                            printf 'PHP repository %s has no packages for %s %s.\n' "$1" "$distribution_codename" "$native_architecture" >&2
+                            return 1
+                        fi
                     }
 
                     # Sury is served through a CDN and also covers new Ubuntu releases.
@@ -442,8 +458,6 @@ case "${1:-}" in
                         else
                             printf 'The sury signing key is not one valid key with fingerprint %s.\n' "$sury_fingerprint" >&2
                         fi
-                    else
-                        printf 'PHP repository %s does not answer for %s.\n' "$sury_uri" "$distribution_codename" >&2
                     fi
 
                     if [[ "$sury_usable" == false ]]; then
@@ -463,7 +477,6 @@ case "${1:-}" in
                                     fi
                                 else
                                     existing_source=''
-                                    printf 'PHP repository %s does not answer for %s.\n' "$launchpad_uri" "$distribution_codename" >&2
                                 fi
                             fi
                         fi
@@ -572,7 +585,15 @@ case "${1:-}" in
         # Mirrors and PPAs can answer 503 for a moment; retry each download.
         apt_options=(-o 'Acquire::Retries=5' "${apt_options[@]}")
 
-        "${privilege[@]}" apt-get "${apt_options[@]}" update
+        # apt-get update succeeds when an index cannot be downloaded, and apt then
+        # uses old package lists. Stop on such an error.
+        update_log="$temporary_directory/apt-update.log"
+        "${privilege[@]}" env LC_ALL=C apt-get "${apt_options[@]}" update 2>&1 | tee "$update_log"
+
+        if grep -Eq '^(W|E): (Failed to fetch|Some index files failed to download)' "$update_log"; then
+            printf 'apt-get update could not download every package index; check the network policy and the sources.\n' >&2
+            exit 1
+        fi
         php_version="${AI_HARNESS_PHP_VERSION:-}"
 
         if [[ -z "$php_version" ]]; then
