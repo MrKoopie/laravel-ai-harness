@@ -533,18 +533,17 @@ test('cloud provision falls back to Launchpad when the sury key has a different 
         ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
 });
 
-test('cloud provision falls back to Launchpad when the sury key is not valid', function (string $validity): void {
-    [$root, $environment] = cloud_php_repository_fixture();
-    $environment['GPG_SURY_VALIDITY'] = $validity;
-    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
-    $process->mustRun();
+foreach (['expired' => 'e', 'revoked' => 'r'] as $state => $validity) {
+    test("cloud provision falls back to Launchpad when the sury key is {$state}", function () use ($validity): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        $environment['GPG_SURY_VALIDITY'] = $validity;
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
 
-    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
-        ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
-})->with([
-    'expired' => ['e'],
-    'revoked' => ['r'],
-]);
+        expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
+            ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
+    });
+}
 
 test('cloud provision stops on Debian when the sury key has a different fingerprint', function (): void {
     [$root, $environment] = cloud_php_repository_fixture('debian');
