@@ -402,8 +402,9 @@ function cloud_php_repository_fixture(string $distribution = 'ubuntu'): array
     mkdir($root.'/keyrings-image');
     file_put_contents($root.'/os-release', "ID={$distribution}\nVERSION_CODENAME=noble\n");
 
-    foreach (['deb.sury.org-php', 'ondrej', 'sury'] as $keyring) {
-        file_put_contents($root.'/keyrings-image/'.$keyring.'.gpg', "image key\n");
+    // The gpg stub reports the sury key for a keyring that names packages.sury.org.
+    foreach (['deb.sury.org-php' => 'packages.sury.org', 'ondrej' => 'ondrej/php', 'sury' => 'packages.sury.org'] as $keyring => $origin) {
+        file_put_contents($root.'/keyrings-image/'.$keyring.'.gpg', "image key from {$origin}\n");
     }
 
     // Answer each probe unless its URL contains a host from CURL_DOWN. CURL_OLD
@@ -475,7 +476,8 @@ test('cloud provision registers the sury PHP repository first and retries apt do
     expect($source)->toBe("Types: deb\nURIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings/ai-harness-php.gpg\n")
         ->and(file_get_contents($root.'/keyrings/ai-harness-php.gpg'))->toBe("key from https://packages.sury.org/php/apt.gpg\n")
         ->and($curl)->toContain('--retry 3', '--retry-all-errors', 'https://packages.sury.org/php/dists/noble/Release')
-        ->and($curl)->not->toContain('launchpad', 'keyserver')
+        ->and($curl)->not->toContain('launchpad')
+        ->and($curl)->not->toContain('keyserver')
         ->and(file_get_contents($root.'/commands.sources'))->toContain('https://base.invalid', 'URIs: https://packages.sury.org/php')
         ->and(file_get_contents($root.'/commands'))->toContain('Acquire::Retries=5', 'php8.5-cli')
         ->and(file_get_contents($root.'/commands.gpg'))->toContain('--show-keys');
@@ -616,10 +618,16 @@ foreach ([
     'other URI with a sury comment' => ['php.list', "deb https://mirror.invalid/php noble main # packages.sury.org/php\n"],
     'other URI with a sury path' => ['php.sources', "Types: deb\nURIs: https://mirror.invalid/packages.sury.org/php/\nSuites: noble\nComponents: main\n"],
     'commented deb822 field' => ['php.sources', "Types: deb\n# URIs: https://packages.sury.org/php/\nURIs: https://other.invalid/\nSuites: noble\nComponents: main\n"],
+    'folded disabled deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nSigned-By: {root}/keyrings-image/sury.gpg\nEnabled:\n no\n"],
+    'URI with other characters for the dots' => ['php.list', "deb [signed-by={root}/keyrings-image/sury.gpg] https://packagesXsuryYorg/php/ noble main\n"],
+    'list entry for another architecture' => ['php.list', "deb [arch=ai-harness-other signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n"],
+    'deb822 stanza for another architecture' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nArchitectures: ai-harness-other\nSigned-By: {root}/keyrings-image/sury.gpg\n"],
+    'list entry without a keyring' => ['php.list', "deb https://packages.sury.org/php/ noble main\n"],
+    'list entry with an unrelated keyring' => ['php.list', "deb [signed-by={root}/keyrings-image/ondrej.gpg] https://packages.sury.org/php/ noble main\n"],
 ] as $scenario => [$file, $contents]) {
     test('cloud provision registers the sury PHP repository when the existing source is inactive: '.$scenario, function () use ($file, $contents): void {
         [$root, $environment] = cloud_php_repository_fixture();
-        file_put_contents($root.'/apt-sources/'.$file, $contents);
+        file_put_contents($root.'/apt-sources/'.$file, str_replace('{root}', $root, $contents));
         $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
         $process->mustRun();
 
@@ -630,14 +638,15 @@ foreach ([
 
 test('cloud provision reuses an enabled deb822 sury stanza next to a disabled one', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
-    file_put_contents($root.'/apt-sources/php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: no\n\nTypes: deb\nURIs:\n https://mirror.invalid/\n https://packages.sury.org/php/\nSuites: noble\nComponents: main\n");
+    file_put_contents($root.'/apt-sources/php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: no\n\nTypes: deb\nURIs:\n https://mirror.invalid/\n https://packages.sury.org/php/\nSuites: noble jammy\nComponents: main\nSigned-By: {$root}/keyrings-image/sury.gpg\n");
     $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
     $process->mustRun();
 
     expect(file_get_contents($root.'/commands.curl'))->not->toContain('apt.gpg')
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-        ->and(file_get_contents($root.'/commands.sources'))->toContain('URIs: https://packages.sury.org/php/')
-        ->and(file_get_contents($root.'/commands.sources'))->not->toContain('mirror.invalid');
+        ->and(file_get_contents($root.'/commands.sources'))->toContain('URIs: https://packages.sury.org/php/', "Suites: noble\n")
+        ->and(file_get_contents($root.'/commands.sources'))->not->toContain('mirror.invalid')
+        ->and(file_get_contents($root.'/commands.sources'))->not->toContain('jammy');
 });
 
 test('cloud provision probes without --retry-all-errors when curl does not support it', function (): void {
@@ -667,7 +676,8 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
         $process->mustRun();
         $sources = (string) file_get_contents($root.'/commands.sources');
 
-        expect(file_get_contents($root.'/commands.curl'))->not->toContain('launchpadcontent.net/ondrej/php/ubuntu/dists', 'keyserver')
+        expect(file_get_contents($root.'/commands.curl'))->not->toContain('launchpadcontent.net/ondrej/php/ubuntu/dists')
+            ->and(file_get_contents($root.'/commands.curl'))->not->toContain('keyserver')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
             ->and($sources)->toContain('Signed-By: '.$root.'/keyrings-image/ondrej.gpg')
             ->and($sources)->not->toContain('ai-harness-php.gpg');

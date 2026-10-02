@@ -137,69 +137,117 @@ case "${1:-}" in
             os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
             php_source="$php_sources_directory/ai-harness-php.sources"
             php_keyring="$php_keyrings_directory/ai-harness-php.gpg"
-            sury_pattern='^https?://packages\.sury\.org/php/?$'
-            launchpad_pattern='^https?://ppa\.launchpadcontent\.net/ondrej/php/ubuntu/?$'
+            # Awk -v values lose a backslash before a dot, so a bracket matches it.
+            sury_pattern='^https?://packages[.]sury[.]org/php/?$'
+            launchpad_pattern='^https?://ppa[.]launchpadcontent[.]net/ondrej/php/ubuntu/?$'
+            sury_fingerprint=15058500A0235D97F5D10063B188E2B695BD4743
+            launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
+            native_architecture="$(dpkg --print-architecture 2>/dev/null || true)"
 
-            # Print the enabled entries of the file with a URI that matches the
-            # pattern. A printed deb822 stanza keeps only the matching URIs. Apt
-            # ignores comments and deb822 stanzas with "Enabled: no". Only binary
-            # entries count. With a codename (for files that the script finds
-            # itself), only entries for that suite whose Signed-By keyring exists
-            # count.
-            print_enabled_entries() {
+            # Scan the file for enabled binary entries with a URI that matches the
+            # pattern. Apt ignores comments and deb822 stanzas with "Enabled: no".
+            # With a codename (for files that the script finds itself), an entry
+            # counts only for that suite and the native architecture, and only
+            # with a Signed-By keyring from the trusted list. Mode "entries" prints
+            # the entries; a printed deb822 stanza keeps only the matching URIs and
+            # the current suite. Mode "keyrings" prints the keyring of each entry,
+            # without the trusted-list check.
+            scan_source() {
                 local format=list
 
-                if [[ "$1" == *.sources ]]; then
+                if [[ "$2" == *.sources ]]; then
                     format=deb822
                 fi
 
-                [[ -f "$1" && -r "$1" ]] && awk -v format="$format" -v pattern="$2" -v codename="${3:-}" '
-                    function readable(path,    line, result) { result = (getline line < path); close(path); return result >= 0 }
-                    function reset() { stanza = ""; uris = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = 1; field = "" }
+                [[ -f "$2" && -r "$2" ]] && awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" -v arch="$native_architecture" '
+                    function listed(list, item,    count, items, i) {
+                        count = split(list, items, /[[:space:],]+/)
+                        for (i = 1; i <= count; i++) if (items[i] == item) return 1
+                        return 0
+                    }
+                    function usable(path, architectures) {
+                        if (codename == "") return 1
+                        if (path == "") return 0
+                        if (arch != "" && architectures !~ /^[[:space:],]*$/ && !listed(architectures, arch)) return 0
+                        return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
+                    }
+                    function reset() { stanza = ""; uris = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = ""; architectures = ""; field = "" }
                     function flush() {
-                        if (matched && enabled && binary && suite && keyring) printf "URIs:%s\n%s\n", uris, stanza
+                        if (matched && enabled && binary && suite && usable(keyring, architectures)) {
+                            if (mode == "keyrings") print keyring
+                            else printf "URIs:%s\n%s%s\n", uris, (codename == "" ? "" : "Suites: " codename "\n"), stanza
+                        }
                         reset()
                     }
                     BEGIN { reset() }
                     format == "list" {
                         if ($0 ~ /^[[:space:]]*deb[[:space:]]/) {
                             entry = $0
+                            options = ""
                             sub(/^[[:space:]]*deb[[:space:]]+/, "", entry)
-                            sub(/^\[[^]]*\][[:space:]]*/, "", entry)
+                            if (match(entry, /^\[[^]]*\]/)) {
+                                options = " " substr(entry, 2, RLENGTH - 2) " "
+                                entry = substr(entry, RLENGTH + 1)
+                                sub(/^[[:space:]]+/, "", entry)
+                            }
                             split(entry, words, /[[:space:]]+/)
-                            if (words[1] !~ pattern) next
-                            keyring = 1
-                            if (codename != "" && match($0, /signed-by=[^][:space:]]+/)) keyring = readable(substr($0, RSTART + 10, RLENGTH - 10))
-                            if ((codename == "" || words[2] == codename) && keyring) print
+                            if (words[1] !~ pattern || (codename != "" && words[2] != codename)) next
+                            path = ""
+                            if (match(options, /[[:space:]]signed-by=[^[:space:]]+/)) path = substr(options, RSTART + 11, RLENGTH - 11)
+                            list_architectures = ""
+                            if (match(options, /[[:space:]]arch=[^[:space:]]+/)) list_architectures = substr(options, RSTART + 6, RLENGTH - 6)
+                            if (usable(path, list_architectures)) print (mode == "keyrings" ? path : $0)
                         }
                         next
                     }
                     /^[[:space:]]*#/ { next }
                     /^[[:space:]]*$/ { flush(); next }
                     /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
-                    field == "uris" {
+                    {
                         value = $0
                         if (value ~ /^[^[:space:]]/) sub(/^[^:]*:/, "", value)
+                    }
+                    field == "uris" {
                         count = split(value, tokens, /[[:space:]]+/)
                         for (i = 1; i <= count; i++) if (tokens[i] != "" && tokens[i] ~ pattern) { uris = uris " " tokens[i]; matched = 1 }
                         next
                     }
+                    field == "suites" {
+                        if ((" " value " ") ~ ("[[:space:]]" codename "[[:space:]]")) suite = 1
+                        if (codename == "") stanza = stanza $0 "\n"
+                        next
+                    }
                     { stanza = stanza $0 "\n" }
-                    field == "types" && (" " tolower($0) " ") ~ /[[:space:]:]deb[[:space:]]/ { binary = 1 }
-                    field == "suites" && (" " $0 " ") ~ ("[[:space:]:]" codename "[[:space:]]") { suite = 1 }
-                    field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
-                    codename != "" && field == "signed-by" && $0 ~ /^[^:]*:[[:space:]]*\// {
-                        path = $0
-                        sub(/^[^:]*:[[:space:]]*/, "", path)
-                        sub(/[[:space:]]+$/, "", path)
-                        keyring = readable(path)
+                    field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
+                    field == "enabled" && tolower(value) ~ /^[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
+                    field == "architectures" { architectures = architectures " " value }
+                    field == "signed-by" && value ~ /^[[:space:]]*\// {
+                        keyring = value
+                        sub(/^[[:space:]]+/, "", keyring)
+                        sub(/[[:space:]]+$/, "", keyring)
                     }
                     END { flush() }
-                ' "$1"
+                ' "$2"
+            }
+
+            print_enabled_entries() {
+                scan_source entries "$@"
             }
 
             has_enabled_source() {
                 [[ -n "$(print_enabled_entries "$@")" ]]
+            }
+
+            # Print the keyrings of the matching entries in the file that hold
+            # only the key with the fingerprint.
+            trusted_keyrings() {
+                local keyring
+
+                while IFS= read -r keyring; do
+                    if key_has_fingerprint "$keyring" "$3" 2>/dev/null; then
+                        printf '%s\n' "$keyring"
+                    fi
+                done < <(scan_source keyrings "$1" "$2" "$distribution_codename" | sort -u)
             }
 
             # Succeed when the keyring file holds exactly one key, with this
@@ -220,10 +268,11 @@ case "${1:-}" in
 
             # Print "selected" when a selected source has an enabled entry for the
             # pattern, else the first file in the sources directory with such an
-            # entry for the current suite. A second entry for one repository makes
-            # apt reject conflicting Signed-By values.
+            # entry for the current suite whose keyring holds only the key with the
+            # fingerprint. A second entry for one repository makes apt reject
+            # conflicting Signed-By values.
             find_enabled_source() {
-                local candidate
+                local candidate trusted
 
                 # Without a selected base, apt and the fallback below use the default list.
                 for candidate in "${apt_sources:-$default_source_list}" "${source_paths[@]}"; do
@@ -234,7 +283,10 @@ case "${1:-}" in
                 done
 
                 for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
-                    if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1" "$distribution_codename"; then
+                    [[ "$candidate" != "$php_source" ]] || continue
+                    trusted="$(trusted_keyrings "$candidate" "$1" "$2")"
+
+                    if [[ -n "$trusted" ]] && has_enabled_source "$candidate" "$1" "$distribution_codename" "$trusted"; then
                         printf '%s\n' "$candidate"
                         return
                     fi
@@ -249,8 +301,9 @@ case "${1:-}" in
                 distribution_codename="$(sed -nE 's/^VERSION_CODENAME="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
             fi
 
-            existing_source="$(find_enabled_source "$sury_pattern")"
+            existing_source="$(find_enabled_source "$sury_pattern" "$sury_fingerprint")"
             existing_pattern="$sury_pattern"
+            existing_fingerprint="$sury_fingerprint"
             php_repository_uri=''
             php_key_kind=''
             image_sury_source=''
@@ -278,9 +331,7 @@ case "${1:-}" in
                     # Sury is served through a CDN and also covers new Ubuntu releases.
                     # Launchpad is only a fallback: it often answered 503 since May 2026.
                     sury_uri=https://packages.sury.org/php
-                    sury_fingerprint=15058500A0235D97F5D10063B188E2B695BD4743
                     launchpad_uri=https://ppa.launchpadcontent.net/ondrej/php/ubuntu
-                    launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
                     key_file="$temporary_directory/php-repository.gpg"
                     sury_usable=false
 
@@ -304,8 +355,9 @@ case "${1:-}" in
 
                     if [[ "$sury_usable" == false ]]; then
                         if [[ "$distribution_id" == ubuntu ]]; then
-                            existing_source="$(find_enabled_source "$launchpad_pattern")"
+                            existing_source="$(find_enabled_source "$launchpad_pattern" "$launchpad_fingerprint")"
                             existing_pattern="$launchpad_pattern"
+                            existing_fingerprint="$launchpad_fingerprint"
 
                             if [[ -z "$existing_source" ]]; then
                                 if curl "${curl_options[@]}" -o /dev/null "$launchpad_uri/dists/$distribution_codename/Release"; then
@@ -325,7 +377,8 @@ case "${1:-}" in
                 # same file cannot make the update fail.
                 if [[ "$existing_source" != selected ]]; then
                     reused_source="$temporary_directory/php-repository-reused.${existing_source##*.}"
-                    print_enabled_entries "$existing_source" "$existing_pattern" "$distribution_codename" > "$reused_source"
+                    print_enabled_entries "$existing_source" "$existing_pattern" "$distribution_codename" \
+                        "$(trusted_keyrings "$existing_source" "$existing_pattern" "$existing_fingerprint")" > "$reused_source"
                     source_paths+=("$reused_source")
                 fi
             elif [[ -n "$php_key_kind" ]]; then
