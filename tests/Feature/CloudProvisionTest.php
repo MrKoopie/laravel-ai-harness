@@ -829,6 +829,18 @@ test('cloud provision keeps the .asc extension of a reused ASCII-armored keyring
         ->and(file_get_contents($root.'/commands.keyrings'))->toMatch('#/php-repository-reused[.]asc 644 755: image key from packages[.]sury[.]org\n#');
 });
 
+test('cloud provision reuses sury from ubuntu.sources with folded architectures', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/apt-sources/ubuntu.sources', "Types: deb\nURIs: https://base.invalid\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nArchitectures:\n amd64\n arm64\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and(file_get_contents($root.'/commands'))->toContain('Dir::Etc::sourcelist='.$root.'/apt-sources/ubuntu.sources');
+});
+
 foreach (['selected base source' => 'AI_HARNESS_APT_SOURCE_LIST', 'selected extra source' => 'AI_HARNESS_APT_EXTRA_SOURCES'] as $scenario => $variable) {
     test('cloud provision stops when a source-only sury entry would conflict with a new entry: '.$scenario, function () use ($variable): void {
         [$root, $environment] = cloud_php_repository_fixture();

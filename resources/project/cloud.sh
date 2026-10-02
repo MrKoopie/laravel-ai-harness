@@ -202,9 +202,9 @@ case "${1:-}" in
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
                         return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
                     }
-                    function reset() { matched = 0; enabled = 1; native = 1; added = 0; removed = 0; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
+                    function reset() { matched = 0; enabled = 1; native = 1; listed = 0; included = 0; added = 0; removed = 0; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
-                        if (added) native = 1
+                        if (listed) native = included; if (added) native = 1
                         if (removed) native = 0
                         if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || mode == "binary" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
@@ -243,7 +243,7 @@ case "${1:-}" in
                     field == "uris" { for (i = 1; i <= count; i++) if (tokens[i] != "" && same(tokens[i])) matched = 1 }
                     field == "suites" && (" " value " ") ~ ("[[:space:]]" codename "[[:space:]]") { suite = 1 }
                     field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
-                    arch != "" && field == "architectures" { native = has(value, arch) }
+                    arch != "" && field == "architectures" { listed = 1; if (has(value, arch)) included = 1 }
                     arch != "" && field == "architectures-add" && has(value, arch) { added = 1 }
                     arch != "" && field == "architectures-remove" && has(value, arch) { removed = 1 }
                     field == "enabled" && tolower(value) ~ /^[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
