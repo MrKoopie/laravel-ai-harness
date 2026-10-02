@@ -38,6 +38,26 @@ case "${1:-}" in
         apt_sources="${AI_HARNESS_APT_SOURCE_LIST:-}"
         extra_sources="${AI_HARNESS_APT_EXTRA_SOURCES:-}"
         extra_extensions="${AI_HARNESS_PHP_EXTENSIONS:-}"
+        php_repository="${AI_HARNESS_PHP_REPOSITORY:-auto}"
+
+        case "$php_repository" in
+            auto|sury|none) ;;
+            *)
+                printf 'AI_HARNESS_PHP_REPOSITORY must be auto, sury, or none.\n' >&2
+                exit 1
+                ;;
+        esac
+
+        php_repository_required=true
+
+        if [[ "$php_repository" == auto ]]; then
+            php_repository=none
+            php_repository_required=false
+
+            if [[ -n "${AI_HARNESS_PHP_VERSION:-}" ]]; then
+                php_repository=sury
+            fi
+        fi
 
         if [[ -n "$extra_extensions" && ! "$extra_extensions" =~ ^[a-z0-9]+(-[a-z0-9]+)*(,[a-z0-9]+(-[a-z0-9]+)*)*$ ]]; then
             printf 'AI_HARNESS_PHP_EXTENSIONS must be comma-separated extension names such as imagick,soap.\n' >&2
@@ -50,23 +70,12 @@ case "${1:-}" in
             apt_sources=/etc/apt/sources.list.d/debian.sources
         fi
 
-        if [[ -n "$extra_sources" && -z "$apt_sources" ]]; then
-            if [[ -f /etc/apt/sources.list ]]; then
-                apt_sources=/etc/apt/sources.list
-            else
-                printf 'AI_HARNESS_APT_EXTRA_SOURCES requires a base source list; set AI_HARNESS_APT_SOURCE_LIST.\n' >&2
-                exit 1
-            fi
+        if [[ -n "$apt_sources" && ( "$apt_sources" != /* || ! -f "$apt_sources" ) ]]; then
+            printf 'AI_HARNESS_APT_SOURCE_LIST must identify an existing absolute source-list path.\n' >&2
+            exit 1
         fi
 
-        if [[ -n "$apt_sources" ]]; then
-            if [[ "$apt_sources" != /* || ! -f "$apt_sources" ]]; then
-                printf 'AI_HARNESS_APT_SOURCE_LIST must identify an existing absolute source-list path.\n' >&2
-                exit 1
-            fi
-
-            apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o 'Dir::Etc::sourceparts=-')
-        fi
+        source_paths=()
 
         if [[ -n "$extra_sources" ]]; then
             if [[ "$extra_sources" == :* || "$extra_sources" == *: || "$extra_sources" == *::* || "$extra_sources" == *$'\n'* ]]; then
@@ -82,7 +91,122 @@ case "${1:-}" in
                     exit 1
                 fi
             done
+        fi
 
+        if [[ "$php_repository" == sury ]]; then
+            # Overrides for tests only.
+            php_sources_directory="${AI_HARNESS_APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
+            php_keyrings_directory="${AI_HARNESS_APT_KEYRINGS_DIR:-/etc/apt/keyrings}"
+            os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
+            php_source="$php_sources_directory/ai-harness-php.sources"
+            php_keyring="$php_keyrings_directory/ai-harness-php.gpg"
+            sury_pattern='packages\.sury\.org/php'
+            existing_source=''
+
+            # Do not add a second sury entry: apt rejects conflicting Signed-By values.
+            for source_path in ${apt_sources:+"$apt_sources"} "${source_paths[@]}"; do
+                if [[ "$source_path" != "$php_source" ]] && grep -qsE "$sury_pattern" -- "$source_path"; then
+                    existing_source=selected
+                    break
+                fi
+            done
+
+            if [[ -z "$existing_source" ]]; then
+                existing_source="$(grep -lsE "$sury_pattern" "$php_sources_directory"/*.list "$php_sources_directory"/*.sources | grep -vxF -- "$php_source" | head -n 1 || true)"
+            fi
+
+            if [[ -n "$existing_source" ]]; then
+                if [[ "$existing_source" != selected ]]; then
+                    source_paths+=("$existing_source")
+                fi
+            else
+                distribution_id=''
+                distribution_codename=''
+
+                if [[ -r "$os_release" ]]; then
+                    distribution_id="$(sed -nE 's/^ID="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
+                    distribution_codename="$(sed -nE 's/^VERSION_CODENAME="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
+                fi
+
+                php_repository_uri=''
+                php_key_kind=''
+
+                if [[ -z "$distribution_codename" ]]; then
+                    printf 'Cannot read VERSION_CODENAME from %s.\n' "$os_release" >&2
+                elif ! command -v curl >/dev/null 2>&1; then
+                    printf 'Registering the PHP repository requires curl.\n' >&2
+                else
+                    # Sury is served through a CDN and also covers new Ubuntu releases.
+                    # Launchpad is only a fallback: it often answered 503 since May 2026.
+                    candidates=('https://packages.sury.org/php sury')
+
+                    if [[ "$distribution_id" == ubuntu ]]; then
+                        candidates+=('https://ppa.launchpadcontent.net/ondrej/php/ubuntu launchpad')
+                    fi
+
+                    for candidate in "${candidates[@]}"; do
+                        candidate_uri="${candidate% *}"
+
+                        if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -o /dev/null \
+                            "$candidate_uri/dists/$distribution_codename/Release"; then
+                            php_repository_uri="$candidate_uri"
+                            php_key_kind="${candidate##* }"
+                            break
+                        fi
+
+                        printf 'PHP repository %s does not answer for %s.\n' "$candidate_uri" "$distribution_codename" >&2
+                    done
+                fi
+
+                if [[ -n "$php_key_kind" ]]; then
+                    key_file="$temporary_directory/php-repository.gpg"
+
+                    if [[ "$php_key_kind" == sury ]]; then
+                        # apt.gpg is a binary keyring that apt can use directly.
+                        curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                            -o "$key_file" https://packages.sury.org/php/apt.gpg
+                    else
+                        launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
+                        curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                            "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$launchpad_fingerprint" \
+                            | gpg --batch --yes --dearmor -o "$key_file"
+
+                        if ! gpg --batch --with-colons --show-keys "$key_file" 2>/dev/null | grep -qxF "fpr:::::::::$launchpad_fingerprint:"; then
+                            printf 'The Launchpad signing key does not have fingerprint %s.\n' "$launchpad_fingerprint" >&2
+                            exit 1
+                        fi
+                    fi
+
+                    printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
+                        "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
+                    "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
+                    "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
+                    "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
+                    printf 'Registered PHP repository %s %s.\n' "$php_repository_uri" "$distribution_codename"
+                    source_paths+=("$php_source")
+                elif [[ "$php_repository_required" == true ]]; then
+                    printf 'No PHP repository answers; allow packages.sury.org in the network policy of the environment.\n' >&2
+                    exit 1
+                else
+                    printf 'Continuing without a PHP repository; allow packages.sury.org in the network policy of the environment.\n' >&2
+                fi
+            fi
+        fi
+
+        if (( ${#source_paths[@]} > 0 )) && [[ -z "$apt_sources" ]]; then
+            if [[ -f /etc/apt/sources.list ]]; then
+                apt_sources=/etc/apt/sources.list
+            else
+                printf 'Extra apt sources require a base source list; set AI_HARNESS_APT_SOURCE_LIST.\n' >&2
+                exit 1
+            fi
+        fi
+
+        if [[ -n "$apt_sources" ]]; then
+            apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o 'Dir::Etc::sourceparts=-')
+        fi
+
+        if (( ${#source_paths[@]} > 0 )); then
             source_directory="$temporary_directory/sources"
             mkdir -- "$source_directory"
             source_index=0
@@ -94,6 +218,9 @@ case "${1:-}" in
 
             apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o "Dir::Etc::sourceparts=$source_directory")
         fi
+
+        # Mirrors and PPAs can answer 503 for a moment; retry each download.
+        apt_options=(-o 'Acquire::Retries=5' "${apt_options[@]}")
 
         "${privilege[@]}" apt-get "${apt_options[@]}" update
         php_version="${AI_HARNESS_PHP_VERSION:-}"

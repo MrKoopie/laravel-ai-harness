@@ -93,6 +93,7 @@ BASH);
         'AI_HARNESS_APT_EXTRA_SOURCES' => '',
         'AI_HARNESS_PHP_EXTENSIONS' => '',
         'AI_HARNESS_PHP_VERSION' => '8.5',
+        'AI_HARNESS_PHP_REPOSITORY' => 'none',
         'AI_HARNESS_COMPOSER_JSON' => '',
         'PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'),
         'CLOUD_LOG' => $root.'/commands',
@@ -147,6 +148,8 @@ foreach ([
     'wrong source format' => ['AI_HARNESS_APT_EXTRA_SOURCES', '{root}/bin/php'],
     'empty source entry' => ['AI_HARNESS_APT_EXTRA_SOURCES', '{root}/php.list::{root}/extra.sources'],
     'trailing source separator' => ['AI_HARNESS_APT_EXTRA_SOURCES', '{root}/php.list:'],
+    'unknown PHP repository' => ['AI_HARNESS_PHP_REPOSITORY', 'launchpad'],
+    'missing base source' => ['AI_HARNESS_APT_SOURCE_LIST', '{root}/missing.sources'],
     'extension option' => ['AI_HARNESS_PHP_EXTENSIONS', '--allow-unauthenticated'],
     'extension shell syntax' => ['AI_HARNESS_PHP_EXTENSIONS', 'soap;id'],
     'extension package pattern' => ['AI_HARNESS_PHP_EXTENSIONS', 'soap*'],
@@ -390,3 +393,173 @@ test('cloud provision rejects malformed Composer preflight output before extensi
         ->and($process->getErrorOutput())->toContain('Composer requirements:')
         ->and(file_get_contents($root.'/commands'))->not->toContain('php8.5-imagick');
 });
+
+/** @return array{string, array<string, string>} */
+function cloud_php_repository_fixture(string $distribution = 'ubuntu'): array
+{
+    [$root, $environment] = cloud_provision_fixture();
+    mkdir($root.'/apt-sources');
+    file_put_contents($root.'/os-release', "ID={$distribution}\nVERSION_CODENAME=noble\n");
+
+    // Answer each probe unless its URL contains a host from CURL_DOWN.
+    write_executable($root.'/bin/curl', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLOUD_LOG.curl"
+output=''
+url=''
+while (($#)); do
+    case "$1" in
+        -o) output="$2"; shift ;;
+        http*) url="$1" ;;
+    esac
+    shift
+done
+for host in ${CURL_DOWN:-}; do
+    [[ "$url" == *"$host"* ]] && exit 22
+done
+if [[ -n "$output" ]]; then
+    printf 'key from %s\n' "$url" > "$output"
+else
+    printf 'key from %s\n' "$url"
+fi
+BASH);
+    write_executable($root.'/bin/gpg', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLOUD_LOG.gpg"
+case "$*" in
+    *--dearmor*) cat > "${*: -1}" ;;
+    *--show-keys*) printf 'pub:-:4096:1:4F4EA0AAE5267A6C:::::::::\nfpr:::::::::%s:\n' "${GPG_FINGERPRINT:-14AA40EC0831756756D7F66C4F4EA0AAE5267A6C}" ;;
+esac
+BASH);
+    write_executable($root.'/bin/install', <<<'BASH'
+#!/usr/bin/env bash
+printf 'install %s\n' "$*" >> "$CLOUD_LOG"
+exec /usr/bin/install "$@"
+BASH);
+
+    return [$root, array_merge($environment, [
+        'AI_HARNESS_PHP_REPOSITORY' => 'auto',
+        'AI_HARNESS_APT_SOURCES_DIR' => $root.'/apt-sources',
+        'AI_HARNESS_APT_KEYRINGS_DIR' => $root.'/keyrings',
+        'AI_HARNESS_OS_RELEASE' => $root.'/os-release',
+        'CURL_DOWN' => '',
+    ])];
+}
+
+test('cloud provision registers the sury PHP repository first and retries apt downloads', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    $source = (string) file_get_contents($root.'/apt-sources/ai-harness-php.sources');
+
+    expect($source)->toBe("Types: deb\nURIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings/ai-harness-php.gpg\n")
+        ->and(file_get_contents($root.'/keyrings/ai-harness-php.gpg'))->toBe("key from https://packages.sury.org/php/apt.gpg\n")
+        ->and(file_get_contents($root.'/commands.curl'))
+        ->toContain('--retry 3 --retry-all-errors', 'https://packages.sury.org/php/dists/noble/Release')
+        ->not->toContain('launchpad', 'keyserver')
+        ->and(file_get_contents($root.'/commands.sources'))->toContain('https://base.invalid', 'URIs: https://packages.sury.org/php')
+        ->and(file_get_contents($root.'/commands'))->toContain('Acquire::Retries=5', 'php8.5-cli')
+        ->and($root.'/commands.gpg')->not->toBeFile();
+
+    foreach (explode("\n", trim((string) file_get_contents($root.'/commands'))) as $line) {
+        if (str_contains($line, 'update') || str_contains($line, 'install -y')) {
+            expect($line)->toContain('Acquire::Retries=5');
+        }
+    }
+});
+
+test('cloud provision falls back to the Launchpad content host when sury does not answer', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['CURL_DOWN'] = 'packages.sury.org';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu', 'Suites: noble')
+        ->and(file_get_contents($root.'/commands.curl'))->toContain(
+            'https://packages.sury.org/php/dists/noble/Release',
+            'https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/noble/Release',
+            'search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C',
+        )
+        ->not->toContain('ppa.launchpad.net')
+        ->and(file_get_contents($root.'/commands.gpg'))->toContain('--dearmor', '--show-keys')
+        ->and($process->getErrorOutput())->toContain('https://packages.sury.org/php does not answer');
+});
+
+test('cloud provision rejects a Launchpad key with a different fingerprint', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['CURL_DOWN'] = 'packages.sury.org';
+    $environment['GPG_FINGERPRINT'] = str_repeat('A', 40);
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('fingerprint')
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and($root.'/commands')->not->toBeFile();
+});
+
+test('cloud provision does not use Launchpad on Debian', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture('debian');
+    $environment['AI_HARNESS_PHP_REPOSITORY'] = 'sury';
+    $environment['CURL_DOWN'] = 'packages.sury.org';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and(file_get_contents($root.'/commands.curl'))->not->toContain('launchpad')
+        ->and($process->getErrorOutput())->toContain('allow packages.sury.org');
+});
+
+test('cloud provision stops when a required PHP repository does not answer', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['AI_HARNESS_PHP_REPOSITORY'] = 'sury';
+    $environment['CURL_DOWN'] = 'packages.sury.org launchpadcontent.net';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('allow packages.sury.org in the network policy')
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and($root.'/commands')->not->toBeFile();
+});
+
+test('cloud provision continues with the configured sources when an automatic PHP repository does not answer', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['CURL_DOWN'] = 'packages.sury.org launchpadcontent.net';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())->toContain('Continuing without a PHP repository')
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and(file_get_contents($root.'/commands'))->toContain('php8.5-cli', 'Dir::Etc::sourceparts=-');
+});
+
+test('cloud provision adds no PHP repository without a selected PHP version', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['AI_HARNESS_PHP_VERSION'] = '';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+});
+
+foreach (['selected extra source' => 'extra', 'registered image source' => 'image'] as $scenario => $location) {
+    test('cloud provision reuses an existing sury source: '.$scenario, function () use ($location): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        $existing = $location === 'extra' ? $root.'/sury.list' : $root.'/apt-sources/php.list';
+        file_put_contents($existing, "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ noble main\n");
+
+        if ($location === 'extra') {
+            $environment['AI_HARNESS_APT_EXTRA_SOURCES'] = $existing;
+        }
+
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
+
+        expect($root.'/commands.curl')->not->toBeFile()
+            ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+            ->and(substr_count((string) file_get_contents($root.'/commands.sources'), 'packages.sury.org'))->toBeGreaterThan(0);
+    });
+}

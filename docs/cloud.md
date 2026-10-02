@@ -88,7 +88,7 @@ Do not use a cached provisioning script to restart services.
 
 The Claude setup time is approximately five minutes. Put system provisioning in the environment setup script. Put project setup in `SessionStart`.
 
-Package installs need the registry and archive hosts in the network allowlist of the environment.
+Package installs need the registry and archive hosts in the network allowlist of the environment. When provisioning adds the PHP repository, also add `packages.sury.org` to the allowlist. Refer to [PHP repository](#php-repository).
 
 Refer to [Claude cloud environments](https://code.claude.com/docs/en/cloud-environments) and [SessionEnd hooks](https://code.claude.com/docs/en/hooks#sessionend).
 
@@ -142,10 +142,11 @@ Refer to [Codex cloud environments](https://learn.chatgpt.com/docs/environments/
 - Ubuntu or Debian with `apt-get`.
 - Root access, or `sudo` without a password.
 - Access to the apt repositories.
+- `curl`, when provisioning adds the PHP repository. The Launchpad fallback also needs `gpg`.
 
 ### What it installs
 
-- The default PHP CLI of the distribution. PHP 8.2 or newer is necessary.
+- The default PHP CLI of the distribution, or the version in `AI_HARNESS_PHP_VERSION`. PHP 8.2 or newer is necessary.
 - The common Laravel PHP extensions.
 - Composer.
 - MySQL and Redis.
@@ -168,13 +169,32 @@ It installs the missing extensions for the selected PHP version:
 
 Then Composer checks the actual PHP and extension versions, including the development requirements. It does not run project plugins or scripts. Provisioning does not change project files.
 
-Provisioning stops with an error when a package is missing or a version is not compatible. After such a failure, it does not select a different PHP version automatically. It does not add repositories or build PECL extensions from source. Only `AI_HARNESS_PHP_VERSION` selects a different PHP version.
+Provisioning stops with an error when a package is missing or a version is not compatible. After such a failure, it does not select a different PHP version automatically. It does not add repositories other than the [PHP repository](#php-repository), and it does not build PECL extensions from source. Only `AI_HARNESS_PHP_VERSION` selects a different PHP version.
 
 ### Apt sources
 
 When `ubuntu.sources` or `debian.sources` exists, provisioning uses only that file. This prevents errors from unrelated image repositories that the cloud proxy can block. Package signature verification stays enabled.
 
-The harness never adds third-party apt repositories or imports their signing keys.
+All apt commands retry a failed download five times (`Acquire::Retries=5`).
+
+### PHP repository
+
+When you set `AI_HARNESS_PHP_VERSION`, provisioning adds the PHP repository of Ondřej Surý. The distribution often does not have the version that you select.
+
+1. It reads `VERSION_CODENAME` from `/etc/os-release`.
+2. It tries `https://packages.sury.org/php/`. This repository uses a CDN, and it is the only source for new Ubuntu releases such as 26.04. The signing key is `https://packages.sury.org/php/apt.gpg`.
+3. On Ubuntu only: when sury does not answer, it tries the ondrej/php PPA at `https://ppa.launchpadcontent.net/ondrej/php/ubuntu`. It gets the PPA signing key from `keyserver.ubuntu.com` and checks the fingerprint `14AA40EC0831756756D7F66C4F4EA0AAE5267A6C`.
+4. It writes the key to `/etc/apt/keyrings/ai-harness-php.gpg` and the source to `/etc/apt/sources.list.d/ai-harness-php.sources`, with `Signed-By`. Then it uses the source together with the base source.
+
+To find a repository that answers, provisioning requests `dists/<codename>/Release` with `curl --retry 3 --retry-all-errors`. Since May 2026, the Launchpad servers often answer `503 Service Unavailable`. Thus, the PPA is only a fallback.
+
+- Add `packages.sury.org` to the network allowlist of the cloud environment. For the fallback, also add `ppa.launchpadcontent.net` and `keyserver.ubuntu.com`.
+- Do not use `https://ppa.launchpad.net`. Its TLS certificate does not agree with the host name. Only `ppa.launchpadcontent.net` supports HTTPS.
+- When a selected source or a file in `/etc/apt/sources.list.d` already contains `packages.sury.org/php`, provisioning uses that source and adds no second source. Apt rejects two entries for one repository with different `Signed-By` values.
+- With the default `AI_HARNESS_PHP_REPOSITORY=auto`, provisioning continues with the configured sources when no PHP repository answers. Then the package install shows the error. With `sury`, provisioning stops immediately.
+- Set `AI_HARNESS_PHP_REPOSITORY=none` to use only the configured sources.
+
+Package signature verification stays enabled. The harness does not add other third-party apt repositories.
 
 ### phpenv shims
 
@@ -193,7 +213,8 @@ Set these variables in the cloud environment. They are not `.ai-harness.config` 
 | Variable | Used by | Description |
 | --- | --- | --- |
 | `AI_HARNESS_ENV` | All | `claude-cloud`, `codex-cloud`, or `local`. |
-| `AI_HARNESS_PHP_VERSION` | `provision` | PHP version to install, for example `8.4`. The version must exist in the configured apt repositories. Default: the distribution default. |
+| `AI_HARNESS_PHP_VERSION` | `provision` | PHP version to install, for example `8.4`. Provisioning adds the [PHP repository](#php-repository) for it. Default: the distribution default. |
+| `AI_HARNESS_PHP_REPOSITORY` | `provision` | `auto` (default), `sury`, or `none`. `auto` adds the [PHP repository](#php-repository) only when `AI_HARNESS_PHP_VERSION` is set. `sury` always adds it and stops when no repository answers. `none` adds no repository. |
 | `AI_HARNESS_PHP_EXTENSIONS` | `provision` | More extensions, comma-separated and lowercase without spaces, for example `imagick,soap`. |
 | `AI_HARNESS_APT_SOURCE_LIST` | `provision` | Absolute path to an existing apt source list. Overrides the automatic selection. |
 | `AI_HARNESS_APT_EXTRA_SOURCES` | `provision` | Colon-separated absolute paths to more `.list` or `.sources` files. |
@@ -206,7 +227,7 @@ An empty variable uses the default.
 
 ### `AI_HARNESS_PHP_VERSION`
 
-Use this only when the version exists in the configured apt repositories. When the default PHP of the image is older than 8.2, use a compatible image or set an available version.
+The version must exist in the configured apt repositories or in the [PHP repository](#php-repository). When the default PHP of the image is older than 8.2, set a version such as `8.5`.
 
 ### `AI_HARNESS_PHP_EXTENSIONS`
 
@@ -238,17 +259,32 @@ AI_HARNESS_COMPOSER_JSON=backend/composer.json ./.ai-harness-cloud provision
 
 Set `source` to install packages from Git when archive downloads are blocked. This also applies to the first bootstrap install. It is an explicit network workaround. It is not an automatic fallback, and it does not disable TLS checks.
 
-### Example: a different PHP version from an extra repository
+### Example: PHP 8.5 with more extensions
 
-First, add a trusted PHP repository and its signing key to the Ubuntu image. Then use the actual path of the source file in the environment setup script:
+Use this in the environment setup script:
 
 ```bash
 export PATH="/usr/bin:$PATH"
 export AI_HARNESS_PHP_VERSION=8.5
-export AI_HARNESS_APT_EXTRA_SOURCES=/etc/apt/sources.list.d/ondrej-php.sources
-export AI_HARNESS_PHP_EXTENSIONS=imagick,soap
+export AI_HARNESS_PHP_EXTENSIONS=pcov,imagick,soap
 ./.ai-harness-cloud provision
 ./.ai-harness-cloud setup
+```
+
+Provisioning adds the [PHP repository](#php-repository). The network policy must allow `packages.sury.org`.
+
+Do not also add the ondrej/php PPA from `ppa.launchpad.net` through `AI_HARNESS_APT_EXTRA_SOURCES`. When that host answers `503`, `apt-get update` fails.
+
+### Example: a different PHP version from your own repository
+
+Add a trusted repository and its signing key to the image. Then use the actual path of the source file:
+
+```bash
+export PATH="/usr/bin:$PATH"
+export AI_HARNESS_PHP_VERSION=8.5
+export AI_HARNESS_PHP_REPOSITORY=none
+export AI_HARNESS_APT_EXTRA_SOURCES=/etc/apt/sources.list.d/php.sources
+./.ai-harness-cloud provision
 ```
 
 - The repository file must agree with the distribution and release of the image.

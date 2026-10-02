@@ -177,6 +177,7 @@ fi
             'AI_HARNESS_ENV' => 'codex-cloud',
             'AI_HARNESS_APT_SOURCE_LIST' => $root.'/ubuntu.sources',
             'AI_HARNESS_PHP_VERSION' => $override,
+            'AI_HARNESS_PHP_REPOSITORY' => 'none',
             'AI_HARNESS_COMPOSER_JSON' => '',
             'BASH_ENV' => $root.'/bash-env',
             'CLOUD_BIN' => $root.'/bin',
