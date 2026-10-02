@@ -137,14 +137,15 @@ case "${1:-}" in
             os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
             php_source="$php_sources_directory/ai-harness-php.sources"
             php_keyring="$php_keyrings_directory/ai-harness-php.gpg"
-            sury_pattern='packages\.sury\.org/php'
-            launchpad_pattern='ppa\.launchpadcontent\.net/ondrej/php'
+            sury_pattern='^https?://packages\.sury\.org/php/?$'
+            launchpad_pattern='^https?://ppa\.launchpadcontent\.net/ondrej/php/ubuntu/?$'
 
-            # Print the enabled entries of the file whose URI matches the pattern.
-            # Apt ignores comments and deb822 stanzas with "Enabled: no". Only
-            # binary entries count. With a codename (for files that the script
-            # finds itself), only entries for that suite whose Signed-By keyring
-            # exists count.
+            # Print the enabled entries of the file with a URI that matches the
+            # pattern. A printed deb822 stanza keeps only the matching URIs. Apt
+            # ignores comments and deb822 stanzas with "Enabled: no". Only binary
+            # entries count. With a codename (for files that the script finds
+            # itself), only entries for that suite whose Signed-By keyring exists
+            # count.
             print_enabled_entries() {
                 local format=list
 
@@ -154,18 +155,19 @@ case "${1:-}" in
 
                 [[ -f "$1" && -r "$1" ]] && awk -v format="$format" -v pattern="$2" -v codename="${3:-}" '
                     function readable(path,    line, result) { result = (getline line < path); close(path); return result >= 0 }
-                    function reset() { stanza = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = 1; field = "" }
+                    function reset() { stanza = ""; uris = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = 1; field = "" }
                     function flush() {
-                        if (matched && enabled && binary && suite && keyring) printf "%s\n", stanza
+                        if (matched && enabled && binary && suite && keyring) printf "URIs:%s\n%s\n", uris, stanza
                         reset()
                     }
                     BEGIN { reset() }
                     format == "list" {
-                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/ && $0 ~ pattern) {
+                        if ($0 ~ /^[[:space:]]*deb[[:space:]]/) {
                             entry = $0
                             sub(/^[[:space:]]*deb[[:space:]]+/, "", entry)
                             sub(/^\[[^]]*\][[:space:]]*/, "", entry)
                             split(entry, words, /[[:space:]]+/)
+                            if (words[1] !~ pattern) next
                             keyring = 1
                             if (codename != "" && match($0, /signed-by=[^][:space:]]+/)) keyring = readable(substr($0, RSTART + 10, RLENGTH - 10))
                             if ((codename == "" || words[2] == codename) && keyring) print
@@ -174,9 +176,15 @@ case "${1:-}" in
                     }
                     /^[[:space:]]*#/ { next }
                     /^[[:space:]]*$/ { flush(); next }
-                    { stanza = stanza $0 "\n" }
                     /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
-                    field == "uris" && $0 ~ pattern { matched = 1 }
+                    field == "uris" {
+                        value = $0
+                        if (value ~ /^[^[:space:]]/) sub(/^[^:]*:/, "", value)
+                        count = split(value, tokens, /[[:space:]]+/)
+                        for (i = 1; i <= count; i++) if (tokens[i] != "" && tokens[i] ~ pattern) { uris = uris " " tokens[i]; matched = 1 }
+                        next
+                    }
+                    { stanza = stanza $0 "\n" }
                     field == "types" && (" " tolower($0) " ") ~ /[[:space:]:]deb[[:space:]]/ { binary = 1 }
                     field == "suites" && (" " $0 " ") ~ ("[[:space:]:]" codename "[[:space:]]") { suite = 1 }
                     field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
@@ -197,13 +205,17 @@ case "${1:-}" in
             # Succeed when the keyring file holds exactly one key, with this
             # fingerprint. Signed-By trusts every key in the file.
             key_has_fingerprint() {
-                command -v gpg >/dev/null 2>&1 \
-                    && gpg --batch --with-colons --show-keys "$1" 2>/dev/null | awk -F: -v fingerprint="$2" '
-                        $1 == "pub" { keys++; primary = 1; next }
-                        $1 == "fpr" { if (primary && $10 != fingerprint) other = 1; primary = 0; next }
-                        { primary = 0 }
-                        END { exit !(keys == 1 && !other) }
-                    '
+                if ! command -v gpg >/dev/null 2>&1; then
+                    printf 'Checking the PHP repository key requires gpg.\n' >&2
+                    return 1
+                fi
+
+                gpg --batch --with-colons --show-keys "$1" 2>/dev/null | awk -F: -v fingerprint="$2" '
+                    $1 == "pub" { keys++; primary = 1; next }
+                    $1 == "fpr" { if (primary && $10 != fingerprint) other = 1; primary = 0; next }
+                    { primary = 0 }
+                    END { exit !(keys == 1 && !other) }
+                '
             }
 
             # Print "selected" when a selected source has an enabled entry for the

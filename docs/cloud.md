@@ -142,7 +142,7 @@ Refer to [Codex cloud environments](https://learn.chatgpt.com/docs/environments/
 - Ubuntu or Debian with `apt-get`.
 - Root access, or `sudo` without a password.
 - Access to the apt repositories.
-- `curl`, when provisioning adds the PHP repository. The Launchpad fallback also needs `gpg`.
+- `curl` and `gpg`, when provisioning adds the PHP repository. `gpg` checks the repository signing key.
 
 ### What it installs
 
@@ -190,7 +190,7 @@ To find a repository that answers, provisioning requests `dists/<codename>/Relea
 
 - Add `packages.sury.org` to the network allowlist of the cloud environment. For the fallback, also add `ppa.launchpadcontent.net` and `keyserver.ubuntu.com`.
 - Do not use `https://ppa.launchpad.net`. Its TLS certificate does not agree with the host name. Only `ppa.launchpadcontent.net` supports HTTPS.
-- When a selected source already has an enabled `packages.sury.org/php` entry, provisioning uses it and adds no second source. A file in `/etc/apt/sources.list.d` with such an entry is used only when sury answers. The same applies to an enabled `ppa.launchpadcontent.net/ondrej/php` entry when sury does not answer. Apt rejects two entries for one repository with different `Signed-By` values. Commented entries, deb822 stanzas with `Enabled: no`, source-only (`deb-src`) entries, and entries in `/etc/apt/sources.list.d` for another suite or with a missing `Signed-By` keyring do not count. From such a file, provisioning uses only the matching entries, so other repositories in the file cannot make the update fail.
+- When a selected source already has an enabled entry with the URI `https://packages.sury.org/php/`, provisioning uses it and adds no second source. A file in `/etc/apt/sources.list.d` with such an entry is used only when sury answers. The same applies to an enabled entry with the URI `https://ppa.launchpadcontent.net/ondrej/php/ubuntu` when sury does not answer. Apt rejects two entries for one repository with different `Signed-By` values. Commented entries, deb822 stanzas with `Enabled: no`, source-only (`deb-src`) entries, and entries in `/etc/apt/sources.list.d` for another suite or with a missing `Signed-By` keyring do not count. From such a file, provisioning uses only the matching entries, and from a deb822 stanza only the matching URIs, so other repositories in the file cannot make the update fail.
 - A PHP repository needs a base source list (`ubuntu.sources`, `debian.sources`, `/etc/apt/sources.list`, or `AI_HARNESS_APT_SOURCE_LIST`). Without one, provisioning writes no key and no source. With `sury` it stops; with `auto` it continues without a PHP repository. With a PHP repository, apt always uses only the base source list and the selected sources, so an old PHP source in `/etc/apt/sources.list.d` that does not answer is not used.
 - Provisioning checks `AI_HARNESS_PHP_VERSION` before it adds a repository. An invalid version, or a version before 8.2, stops provisioning without changes.
 - With curl before 7.71, the probes use `--retry 3` without `--retry-all-errors`.

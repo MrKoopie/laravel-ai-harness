@@ -613,6 +613,8 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
 foreach ([
     'commented list entry' => ['php.list', "# deb https://packages.sury.org/php/ noble main\n"],
     'disabled deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: no\n"],
+    'other URI with a sury comment' => ['php.list', "deb https://mirror.invalid/php noble main # packages.sury.org/php\n"],
+    'other URI with a sury path' => ['php.sources', "Types: deb\nURIs: https://mirror.invalid/packages.sury.org/php/\nSuites: noble\nComponents: main\n"],
     'commented deb822 field' => ['php.sources', "Types: deb\n# URIs: https://packages.sury.org/php/\nURIs: https://other.invalid/\nSuites: noble\nComponents: main\n"],
 ] as $scenario => [$file, $contents]) {
     test('cloud provision registers the sury PHP repository when the existing source is inactive: '.$scenario, function () use ($file, $contents): void {
@@ -634,7 +636,8 @@ test('cloud provision reuses an enabled deb822 sury stanza next to a disabled on
 
     expect(file_get_contents($root.'/commands.curl'))->not->toContain('apt.gpg')
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-        ->and(file_get_contents($root.'/commands.sources'))->toContain('https://mirror.invalid/');
+        ->and(file_get_contents($root.'/commands.sources'))->toContain('URIs: https://packages.sury.org/php/')
+        ->and(file_get_contents($root.'/commands.sources'))->not->toContain('mirror.invalid');
 });
 
 test('cloud provision probes without --retry-all-errors when curl does not support it', function (): void {
