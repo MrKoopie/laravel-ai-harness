@@ -723,7 +723,7 @@ test('cloud provision leaves the PHP entries of a selected extra source out and 
 
     expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php')
         ->and($sources)->toContain('deb https://extra.invalid noble main')
-        ->not->toContain('packages.sury.org/PHP')
+        ->and($sources)->not->toContain('packages.sury.org/PHP')
         // The selected file stays as it is.
         ->and(file_get_contents($root.'/extra.list'))->toContain('packages.sury.org/PHP');
 });
@@ -821,7 +821,7 @@ test('cloud provision uses the sury PHP repository for this run only when the de
 
     expect($process->getErrorOutput())->toContain('for this run only; '.$root.'/sources.list already has an entry for it')
         ->and($sources)->toContain("deb https://base.invalid noble main\n")
-        ->not->toContain('https://packages.sury.org/php/ noble')
+        ->and($sources)->not->toContain('https://packages.sury.org/php/ noble')
         // Each apt command reads one sury entry: the new one.
         ->and(substr_count($sources, 'URIs: https://packages.sury.org/php'))->toBe(substr_count($sources, 'deb https://base.invalid'));
 });
