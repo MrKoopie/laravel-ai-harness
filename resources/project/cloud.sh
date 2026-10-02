@@ -84,10 +84,14 @@ case "${1:-}" in
             exit 1
         fi
 
-        if [[ -z "$apt_sources" && -f /etc/apt/sources.list.d/ubuntu.sources ]]; then
-            apt_sources=/etc/apt/sources.list.d/ubuntu.sources
-        elif [[ -z "$apt_sources" && -f /etc/apt/sources.list.d/debian.sources ]]; then
-            apt_sources=/etc/apt/sources.list.d/debian.sources
+        # Overrides for tests only.
+        default_source_list="${AI_HARNESS_APT_DEFAULT_SOURCE_LIST:-/etc/apt/sources.list}"
+        php_sources_directory="${AI_HARNESS_APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
+
+        if [[ -z "$apt_sources" && -f "$php_sources_directory/ubuntu.sources" ]]; then
+            apt_sources="$php_sources_directory/ubuntu.sources"
+        elif [[ -z "$apt_sources" && -f "$php_sources_directory/debian.sources" ]]; then
+            apt_sources="$php_sources_directory/debian.sources"
         fi
 
         if [[ -n "$apt_sources" && ( "$apt_sources" != /* || ! -f "$apt_sources" ) ]]; then
@@ -115,7 +119,6 @@ case "${1:-}" in
 
         if [[ "$php_repository" == sury ]]; then
             # Overrides for tests only.
-            php_sources_directory="${AI_HARNESS_APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
             php_keyrings_directory="${AI_HARNESS_APT_KEYRINGS_DIR:-/etc/apt/keyrings}"
             os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
             php_source="$php_sources_directory/ai-harness-php.sources"
@@ -140,15 +143,16 @@ case "${1:-}" in
                     }
                     /^[[:space:]]*#/ { next }
                     /^[[:space:]]*$/ {
-                        if (matched && enabled) found = 1
-                        matched = 0; enabled = 1; field = ""
+                        if (matched && enabled && binary) found = 1
+                        matched = 0; enabled = 1; binary = 0; field = ""
                         next
                     }
                     /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
                     field == "uris" && $0 ~ pattern { matched = 1 }
+                    field == "types" && (" " tolower($0) " ") ~ /[[:space:]:]deb[[:space:]]/ { binary = 1 }
                     field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
                     END {
-                        if (matched && enabled) found = 1
+                        if (matched && enabled && binary) found = 1
                         exit !found
                     }
                 ' "$1"
@@ -160,7 +164,8 @@ case "${1:-}" in
             find_enabled_source() {
                 local candidate
 
-                for candidate in ${apt_sources:+"$apt_sources"} "${source_paths[@]}"; do
+                # Without a selected base, apt and the fallback below use the default list.
+                for candidate in "${apt_sources:-$default_source_list}" "${source_paths[@]}"; do
                     if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1"; then
                         printf 'selected\n'
                         return
@@ -277,8 +282,8 @@ case "${1:-}" in
         fi
 
         if (( ${#source_paths[@]} > 0 )) && [[ -z "$apt_sources" ]]; then
-            if [[ -f /etc/apt/sources.list ]]; then
-                apt_sources=/etc/apt/sources.list
+            if [[ -f "$default_source_list" ]]; then
+                apt_sources="$default_source_list"
             else
                 printf 'Extra apt sources require a base source list; set AI_HARNESS_APT_SOURCE_LIST.\n' >&2
                 exit 1

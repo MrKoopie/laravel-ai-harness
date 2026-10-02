@@ -660,3 +660,25 @@ test('cloud provision does not reuse an image sury source when sury does not ans
     expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
         ->and($sources)->not->toContain('packages.sury.org');
 });
+
+test('cloud provision registers the sury PHP repository when the existing stanza has only source packages', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/apt-sources/php.sources', "Types: deb-src\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php');
+});
+
+test('cloud provision reuses sury from the default source list when no base source is selected', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [signed-by=/usr/share/keyrings/sury.gpg] https://packages.sury.org/php/ noble main\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and(file_get_contents($root.'/commands'))->not->toContain('Dir::Etc::sourcelist');
+});
