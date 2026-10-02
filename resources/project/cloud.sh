@@ -33,9 +33,11 @@ case "${1:-}" in
         fi
 
         temporary_directory="$(mktemp -d)"
-        trap 'rm -rf -- "$temporary_directory"' EXIT
-        # apt reads Signed-By keyrings as the _apt user.
-        chmod 0755 "$temporary_directory"
+        # apt reads Signed-By keyrings as the _apt user. Only the keyrings go in
+        # this directory; other temporary files stay private.
+        keyring_directory="$(mktemp -d)"
+        trap 'rm -rf -- "$temporary_directory" "$keyring_directory"' EXIT
+        chmod 0755 "$keyring_directory"
         apt_options=()
         apt_sources="${AI_HARNESS_APT_SOURCE_LIST:-}"
         extra_sources="${AI_HARNESS_APT_EXTRA_SOURCES:-}"
@@ -153,7 +155,8 @@ case "${1:-}" in
             # counts only for that suite and with exactly one Signed-By keyring
             # file; in mode "entries" that keyring must also be in the trusted
             # list. Mode "entries" prints each entry that counts, mode "keyrings"
-            # prints its keyring. Mode "any" prints each entry for the suite,
+            # prints its keyring. Mode "binary" prints each binary entry for the
+            # suite, whatever its keyring. Mode "any" prints each entry for the suite,
             # whatever its keyring, and also source-only (deb-src) entries,
             # because they conflict on Signed-By too.
             scan_source() {
@@ -165,25 +168,37 @@ case "${1:-}" in
 
                 # Apt reads root-only source files too, so read them with privileges.
                 [[ -f "$2" ]] && "${privilege[@]}" cat -- "$2" 2>/dev/null | awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" '
-                    # Apt treats the scheme and host without case and decodes
-                    # %2F; the path keeps its case. Compare the URI in that form.
+                    # Apt decodes percent escapes and treats the scheme and host
+                    # without case; the path keeps its case. Compare the URI in
+                    # that form.
+                    function decode(uri,    decoded, digits, high, low) {
+                        decoded = ""
+                        digits = "0123456789abcdef"
+                        while (match(uri, /%[0-9A-Fa-f][0-9A-Fa-f]/)) {
+                            high = index(digits, tolower(substr(uri, RSTART + 1, 1))) - 1
+                            low = index(digits, tolower(substr(uri, RSTART + 2, 1))) - 1
+                            decoded = decoded substr(uri, 1, RSTART - 1) sprintf("%c", high * 16 + low)
+                            uri = substr(uri, RSTART + 3)
+                        }
+                        return decoded uri
+                    }
                     function same(uri,    head) {
                         head = ""
+                        uri = decode(uri)
                         if (match(uri, /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/]*/)) {
                             head = tolower(substr(uri, 1, RLENGTH))
                             uri = substr(uri, RLENGTH + 1)
                         }
-                        gsub(/%2[fF]/, "/", uri)
                         return (head uri) ~ pattern
                     }
                     function usable(path) {
-                        if (codename == "" || mode == "any") return 1
+                        if (codename == "" || mode == "any" || mode == "binary") return 1
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
                         return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
                     }
                     function reset() { matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
-                        if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
+                        if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || mode == "binary" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
                     }
                     BEGIN { reset() }
@@ -263,8 +278,19 @@ case "${1:-}" in
             find_enabled_source() {
                 local candidate trusted
 
-                # Without a selected base, apt and the fallback below use the default list.
-                for candidate in "${apt_sources:-$default_source_list}" "${source_paths[@]}"; do
+                # Without a selected base, apt and the fallback below use the default
+                # list. A base that was not configured counts only with an entry for
+                # the current suite; configured sources are used as is.
+                if [[ -n "${AI_HARNESS_APT_SOURCE_LIST:-}" ]] && has_enabled_source "$apt_sources" "$1"; then
+                    printf 'selected\n'
+                    return
+                elif [[ -z "${AI_HARNESS_APT_SOURCE_LIST:-}" ]] \
+                    && [[ -n "$(scan_source binary "${apt_sources:-$default_source_list}" "$1" "$distribution_codename")" ]]; then
+                    printf 'selected\n'
+                    return
+                fi
+
+                for candidate in "${source_paths[@]}"; do
                     if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1"; then
                         printf 'selected\n'
                         return
@@ -335,7 +361,7 @@ case "${1:-}" in
 
                     # Sury is served through a CDN and also covers new Ubuntu releases.
                     # Launchpad is only a fallback: it often answered 503 since May 2026.
-                    key_file="$temporary_directory/php-repository.gpg"
+                    key_file="$keyring_directory/php-repository.gpg"
                     sury_usable=false
 
                     if repository_answers "$sury_uri"; then
@@ -388,12 +414,19 @@ case "${1:-}" in
                 if [[ "$existing_source" != selected ]]; then
                     reused_keyring="$(trusted_keyrings "$existing_source" "$existing_pattern" "$existing_fingerprint" | head -n 1)"
                     # Copy the keyring with mode 0644, so that the _apt user can
-                    # read it also when the file or its directory is private.
-                    "${privilege[@]}" cat -- "$reused_keyring" > "$temporary_directory/php-repository-reused.gpg"
-                    chmod 0644 "$temporary_directory/php-repository-reused.gpg"
+                    # read it also when the file or its directory is private. Apt
+                    # reads an .asc keyring as ASCII-armored, so keep that extension.
+                    reused_copy="$keyring_directory/php-repository-reused.gpg"
+
+                    if [[ "$reused_keyring" == *.asc ]]; then
+                        reused_copy="$keyring_directory/php-repository-reused.asc"
+                    fi
+
+                    "${privilege[@]}" cat -- "$reused_keyring" > "$reused_copy"
+                    chmod 0644 "$reused_copy"
                     reused_source="$temporary_directory/php-repository-reused.sources"
                     printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                        "$existing_uri" "$distribution_codename" "$temporary_directory/php-repository-reused.gpg" > "$reused_source"
+                        "$existing_uri" "$distribution_codename" "$reused_copy" > "$reused_source"
                     source_paths+=("$reused_source")
                 fi
             elif [[ -n "$php_key_kind" ]]; then

@@ -671,6 +671,7 @@ foreach ([
     'deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble jammy\nComponents: universe\nArchitectures-Remove: amd64\nTrusted: yes\nSigned-By: {root}/keyrings-image/sury.gpg\n"],
     'list entry with an upper-case scheme and host' => ['php.list', "deb [signed-by={root}/keyrings-image/sury.gpg] HTTPS://PACKAGES.SURY.ORG/php noble main\n"],
     'deb822 stanza with an encoded slash' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php%2F\nSuites: noble\nComponents: main\nSigned-By: {root}/keyrings-image/sury.gpg\n"],
+    'list entry with an encoded path letter' => ['php.list', "deb [signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/%70hp noble main\n"],
 ] as $scenario => [$file, $contents]) {
     test('cloud provision reuses only the verified keyring of a found sury source: '.$scenario, function () use ($file, $contents): void {
         [$root, $environment] = cloud_php_repository_fixture();
@@ -814,6 +815,29 @@ test('cloud provision reuses sury from the default source list when no base sour
     expect($root.'/commands.curl')->not->toBeFile()
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
         ->and(file_get_contents($root.'/commands'))->toContain('Dir::Etc::sourcelist='.$root.'/sources.list', 'Dir::Etc::sourceparts=-');
+});
+
+test('cloud provision keeps the .asc extension of a reused ASCII-armored keyring', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    copy($root.'/keyrings-image/sury.gpg', $root.'/keyrings-image/sury.asc');
+    file_put_contents($root.'/apt-sources/php.list', "deb [signed-by={$root}/keyrings-image/sury.asc] https://packages.sury.org/php/ noble main\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/commands.sources'))->toMatch('#Signed-By: \S+/php-repository-reused[.]asc\n#')
+        ->and(file_get_contents($root.'/commands.keyrings'))->toMatch('#/php-repository-reused[.]asc 644 755: image key from packages[.]sury[.]org\n#');
+});
+
+test('cloud provision registers sury when the default source list has a sury entry for another suite', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ jammy main\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php', 'Suites: noble')
+        ->and(file_get_contents($root.'/commands.curl'))->toContain('apt.gpg');
 });
 
 foreach ([
