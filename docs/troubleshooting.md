@@ -103,7 +103,7 @@ The image probably puts phpenv shims first in `PATH`. Add `export PATH="/usr/bin
 
 ### Cloud provisioning fails with `503 Service Unavailable` from Launchpad
 
-The ondrej/php PPA on Launchpad often answers `503`. Remove the PPA from `AI_HARNESS_APT_EXTRA_SOURCES`. Set `AI_HARNESS_PHP_VERSION`, and add `packages.sury.org` to the network allowlist. Provisioning then uses the sury repository. Refer to [PHP repository](cloud.md#php-repository).
+The ondrej/php PPA on Launchpad often answers `503`. Set `AI_HARNESS_PHP_VERSION`, and add `packages.sury.org` to the network allowlist. Provisioning then uses the sury repository and leaves the PPA entries of the selected sources out. Refer to [PHP repository](cloud.md#php-repository).
 
 ### Cloud archive downloads are blocked
 

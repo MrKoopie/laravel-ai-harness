@@ -141,159 +141,47 @@ case "${1:-}" in
             os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
             php_source="$php_sources_directory/ai-harness-php.sources"
             php_keyring="$php_keyrings_directory/ai-harness-php.gpg"
-            # Awk -v values lose a backslash before a dot, so a bracket matches it.
-            sury_pattern='^https?://packages[.]sury[.]org/php/?$'
-            launchpad_pattern='^https?://ppa[.]launchpadcontent[.]net/ondrej/php/ubuntu/?$'
             sury_fingerprint=15058500A0235D97F5D10063B188E2B695BD4743
             launchpad_fingerprint=B8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6
             sury_uri=https://packages.sury.org/php
             launchpad_uri=https://ppa.launchpadcontent.net/ondrej/php/ubuntu
+            # Every entry for sury or the ondrej/php PPA, on any Launchpad host.
+            # Awk -v values lose a backslash before a dot, so a bracket matches it.
+            php_entry_pattern='packages[.]sury[.]org|launchpad(content)?[.]net/ondrej/php'
 
-            # Scan the file for enabled binary entries with a URI that matches the
-            # pattern. Apt ignores comments and deb822 stanzas with "Enabled: no".
-            # With a codename (for files that the script finds itself), an entry
-            # counts only for that suite and with exactly one Signed-By keyring
-            # file; in mode "entries" that keyring must also be in the trusted
-            # list. Mode "entries" prints each entry that counts, mode "keyrings"
-            # prints its keyring. Mode "binary" prints each binary entry for the
-            # suite with the main component that apt reads for the native
-            # architecture, whatever its keyring. Mode "any" prints each entry for the suite,
-            # whatever its keyring, and also source-only (deb-src) entries,
-            # because they conflict on Signed-By too.
-            scan_source() {
-                local format=list
-
-                if [[ "$2" == *.sources ]]; then
-                    format=deb822
-                fi
-
-                # Apt reads root-only source files too, so read them with privileges.
-                [[ -f "$2" ]] && "${privilege[@]}" cat -- "$2" 2>/dev/null | awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" -v arch="$native_architecture" '
-                    function has(list, value,    count, i, items) {
-                        count = split(list, items, /[,[:space:]]+/)
-                        for (i = 1; i <= count; i++) if (items[i] == value) return 1
-                        return 0
-                    }
-                    # Apt decodes percent escapes and treats the scheme and host
-                    # without case; the path keeps its case. Compare the URI in
-                    # that form.
-                    function decode(uri,    decoded, digits, high, low) {
-                        decoded = ""
-                        digits = "0123456789abcdef"
-                        while (match(uri, /%[0-9A-Fa-f][0-9A-Fa-f]/)) {
-                            high = index(digits, tolower(substr(uri, RSTART + 1, 1))) - 1
-                            low = index(digits, tolower(substr(uri, RSTART + 2, 1))) - 1
-                            decoded = decoded substr(uri, 1, RSTART - 1) sprintf("%c", high * 16 + low)
-                            uri = substr(uri, RSTART + 3)
+            # Copy a source file without the entries for the PHP repositories. A
+            # one-line file loses those lines. A deb822 stanza loses those URIs,
+            # and a stanza without other URIs is left out. Apt then reads only the
+            # PHP source that provisioning writes, so another entry for the same
+            # repository cannot conflict with it on Signed-By.
+            copy_without_php_entries() {
+                if [[ "$1" == *.sources ]]; then
+                    awk -v pattern="$php_entry_pattern" '
+                        function flush() {
+                            if (stanza != "" && (kept || !removed)) { printf "%s%s", (printed ? "\n" : ""), stanza; printed = 1 }
+                            stanza = ""; kept = 0; removed = 0; field = ""
                         }
-                        return decoded uri
-                    }
-                    function same(uri,    head) {
-                        head = ""
-                        uri = decode(uri)
-                        if (match(uri, /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/]*/)) {
-                            head = tolower(substr(uri, 1, RLENGTH))
-                            uri = substr(uri, RLENGTH + 1)
-                        }
-                        return (head uri) ~ pattern
-                    }
-                    function usable(path) {
-                        if (mode == "binary") return native && component
-                        if (codename == "" || mode == "any") return 1
-                        if (path !~ /^\/[^,[:space:]]*$/) return 0
-                        return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
-                    }
-                    function reset() { matched = 0; enabled = 1; native = 1; component = 0; listed = 0; included = 0; added = 0; removed = 0; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
-                    function flush() {
-                        if (listed) native = included; if (added) native = 1
-                        if (removed) native = 0
-                        if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || mode == "binary" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
-                        reset()
-                    }
-                    BEGIN { reset() }
-                    format == "list" {
-                        # Apt ignores the rest of a line after "#" and removes the
-                        # double quotes around a word, such as a quoted URI.
-                        line = $0
-                        sub(/#.*/, "", line)
-                        gsub(/"/, "", line)
-                        if (line ~ /^[[:space:]]*deb[[:space:]]/ || (mode == "any" && line ~ /^[[:space:]]*deb-src[[:space:]]/)) {
-                            entry = line
-                            options = ""
-                            sub(/^[[:space:]]*deb(-src)?[[:space:]]+/, "", entry)
-                            if (match(entry, /^\[[^]]*\]/)) {
-                                options = " " substr(entry, 2, RLENGTH - 2) " "
-                                entry = substr(entry, RLENGTH + 1)
-                                sub(/^[[:space:]]+/, "", entry)
-                            }
-                            split(entry, words, /[[:space:]]+/)
-                            if (!same(words[1]) || (codename != "" && words[2] != codename)) next
-                            component = 0
-                            for (i = 3; i in words; i++) if (words[i] == "main") component = 1
-                            # A repeated option replaces the earlier value.
-                            listed = 0; architectures = ""; additions = ""; removals = ""; path = ""
-                            count = split(options, tokens, /[[:space:]]+/)
+                        /^[[:space:]]*$/ { flush(); next }
+                        /^[[:space:]]*#/ { stanza = stanza $0 "\n"; next }
+                        /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
+                        field == "uris" {
+                            line = $0; prefix = ""; uris = ""
+                            if (line ~ /^[^[:space:]]/) { prefix = substr(line, 1, index(line, ":")); line = substr(line, index(line, ":") + 1) }
+                            count = split(line, tokens, /[[:space:]]+/)
                             for (i = 1; i <= count; i++) {
-                                if (tokens[i] ~ /^arch=/) { listed = 1; architectures = substr(tokens[i], 6) }
-                                if (tokens[i] ~ /^arch\+=/) additions = substr(tokens[i], 7)
-                                if (tokens[i] ~ /^arch-=/) removals = substr(tokens[i], 7)
-                                if (tokens[i] ~ /^signed-by=/) path = substr(tokens[i], 11)
+                                if (tokens[i] == "") continue
+                                if (tolower(tokens[i]) ~ pattern) { removed = 1; continue }
+                                kept = 1; uris = uris " " tokens[i]
                             }
-                            native = 1
-                            if (arch != "" && listed) native = has(architectures, arch)
-                            if (arch != "" && has(additions, arch)) native = 1
-                            if (arch != "" && has(removals, arch)) native = 0
-                            if (usable(path)) print (mode == "keyrings" ? path : "entry")
+                            if (prefix != "" || uris != "") stanza = stanza prefix uris "\n"
+                            next
                         }
-                        next
-                    }
-                    /^[[:space:]]*#/ { next }
-                    /^[[:space:]]*$/ { flush(); next }
-                    /^[^[:space:]]/ {
-                        # A repeated field replaces the earlier value; continuation lines add to it.
-                        field = tolower($0); sub(/:.*/, "", field)
-                        if (field == "uris") matched = 0
-                        if (field == "types") binary = 0
-                        if (field == "suites") suite = (codename == "")
-                        if (field == "components") component = 0
-                        if (field == "architectures") included = 0
-                        if (field == "architectures-add") added = 0
-                        if (field == "architectures-remove") removed = 0
-                        if (field == "enabled") enabled = 1
-                        if (field == "signed-by") { keyring = ""; keyrings = 0 }
-                    }
-                    {
-                        value = $0
-                        if (value ~ /^[^[:space:]]/) sub(/^[^:]*:/, "", value)
-                        count = split(value, tokens, /[[:space:]]+/)
-                    }
-                    field == "uris" { for (i = 1; i <= count; i++) if (tokens[i] != "" && same(tokens[i])) matched = 1 }
-                    field == "components" && has(value, "main") { component = 1 }
-                    field == "suites" && (" " value " ") ~ ("[[:space:]]" codename "[[:space:]]") { suite = 1 }
-                    field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
-                    arch != "" && field == "architectures" { listed = 1; if (has(value, arch)) included = 1 }
-                    arch != "" && field == "architectures-add" && has(value, arch) { added = 1 }
-                    arch != "" && field == "architectures-remove" && has(value, arch) { removed = 1 }
-                    field == "enabled" && tolower(value) ~ /^[[:space:]]*(no|false|without|off|disable|0)[[:space:]]*$/ { enabled = 0 }
-                    field == "signed-by" { for (i = 1; i <= count; i++) if (tokens[i] != "") { keyring = tokens[i]; keyrings++ } }
-                    END { flush() }
-                '
-            }
-
-            has_enabled_source() {
-                [[ -n "$(scan_source entries "$@")" ]]
-            }
-
-            # Print the keyrings of the matching entries in the file that hold
-            # only the key with the fingerprint.
-            trusted_keyrings() {
-                local keyring
-
-                while IFS= read -r keyring; do
-                    if key_has_fingerprint "$keyring" "$3" 2>/dev/null; then
-                        printf '%s\n' "$keyring"
-                    fi
-                done < <(scan_source keyrings "$1" "$2" "$distribution_codename" | sort -u)
+                        { stanza = stanza $0 "\n" }
+                        END { flush() }
+                    ' "$1" > "$2"
+                else
+                    grep -Eiv -- "$php_entry_pattern" "$1" > "$2" || true
+                fi
             }
 
             # Succeed when the keyring file holds exactly one key, with this
@@ -313,64 +201,6 @@ case "${1:-}" in
                 '
             }
 
-            # Print "selected" when a selected source has an enabled entry for the
-            # pattern, else the first file in the sources directory with such an
-            # entry for the current suite whose keyring holds only the key with the
-            # fingerprint. A second entry for one repository makes apt reject
-            # conflicting Signed-By values.
-            find_enabled_source() {
-                local candidate trusted
-
-                # Without a selected base, apt and the fallback below use the default
-                # list. A base that was not configured counts only with a binary
-                # entry for the current suite and the native architecture;
-                # a configured source counts with a binary entry with main for the
-                # native architecture in any suite, and is then used as is.
-                local found_base="${apt_sources:-$default_source_list}" selected=()
-
-                if [[ -n "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
-                    selected+=("$apt_sources")
-                elif [[ -n "$(scan_source binary "$found_base" "$1" "$distribution_codename")" ]]; then
-                    printf 'selected\n'
-                    return
-                fi
-
-                for candidate in "${source_paths[@]}"; do
-                    [[ "$candidate" == "$php_source" ]] || selected+=("$candidate")
-                done
-
-                for candidate in "${selected[@]}"; do
-                    if [[ -n "$(scan_source binary "$candidate" "$1")" ]]; then
-                        printf 'selected\n'
-                        return
-                    fi
-                done
-
-                # A new entry would conflict on Signed-By with any other entry for
-                # the repository and the current suite that apt reads.
-                if [[ -z "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
-                    selected+=("$found_base")
-                fi
-
-                for candidate in "${selected[@]}"; do
-                    if [[ -n "$(scan_source any "$candidate" "$1" "$distribution_codename")" ]]; then
-                        printf '%s has an entry for the PHP repository but no deb entry with the main component for this architecture; add one or remove the entry.\n' \
-                            "$candidate" >&2
-                        exit 1
-                    fi
-                done
-
-                for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
-                    [[ "$candidate" != "$php_source" ]] || continue
-                    trusted="$(trusted_keyrings "$candidate" "$1" "$2")"
-
-                    if [[ -n "$trusted" ]] && has_enabled_source "$candidate" "$1" "$distribution_codename" "$trusted"; then
-                        printf '%s\n' "$candidate"
-                        return
-                    fi
-                done
-            }
-
             distribution_id=''
             distribution_codename=''
             native_architecture="$(dpkg --print-architecture 2>/dev/null || true)"
@@ -380,134 +210,68 @@ case "${1:-}" in
                 distribution_codename="$(sed -nE 's/^VERSION_CODENAME="?([a-z0-9._-]+)"?$/\1/p' "$os_release" | head -n 1)"
             fi
 
-            existing_source="$(find_enabled_source "$sury_pattern" "$sury_fingerprint")"
-            existing_pattern="$sury_pattern"
-            existing_fingerprint="$sury_fingerprint"
-            existing_uri="$sury_uri"
             php_repository_uri=''
-            php_key_kind=''
-            image_sury_source=''
+            php_repository_pattern=''
+            key_file="$keyring_directory/php-repository.gpg"
 
-            # A sury file in sources.list.d can be left by an earlier run. Use it
-            # only when sury answers now, so that it cannot block the fallback.
-            if [[ -n "$existing_source" && "$existing_source" != selected ]]; then
-                image_sury_source="$existing_source"
-                existing_source=''
-            fi
+            if [[ -z "$distribution_codename" ]]; then
+                printf 'Cannot read VERSION_CODENAME from %s.\n' "$os_release" >&2
+            elif ! command -v curl >/dev/null 2>&1; then
+                printf 'Registering the PHP repository requires curl.\n' >&2
+            else
+                curl_options=(-fsSL --retry 3 --connect-timeout 10 --max-time 60)
 
-            if [[ -z "$existing_source" ]]; then
-                if [[ -z "$distribution_codename" ]]; then
-                    printf 'Cannot read VERSION_CODENAME from %s.\n' "$os_release" >&2
-                elif ! command -v curl >/dev/null 2>&1; then
-                    printf 'Registering the PHP repository requires curl.\n' >&2
-                else
-                    curl_options=(-fsSL --retry 3 --connect-timeout 10 --max-time 60)
+                # curl 7.71 added --retry-all-errors; it retries errors that plain --retry does not,
+                # such as a reset connection. grep reads all of the help text: with -q it can stop
+                # early, and then curl fails with SIGPIPE under pipefail.
+                if curl --help all 2>/dev/null | grep -- '--retry-all-errors' >/dev/null; then
+                    curl_options+=(--retry-all-errors)
+                fi
 
-                    # curl 7.71 added --retry-all-errors; it retries errors that plain --retry does not,
-                    # such as a reset connection. grep reads all of the help text: with -q it can stop
-                    # early, and then curl fails with SIGPIPE under pipefail.
-                    if curl --help all 2>/dev/null | grep -- '--retry-all-errors' >/dev/null; then
-                        curl_options+=(--retry-all-errors)
+                # Succeed when the repository publishes a Release file for the
+                # current suite that lists the native architecture. curl exits
+                # with 60 or 77 when it cannot verify the TLS certificate, for
+                # example without ca-certificates.
+                repository_answers() {
+                    local release="$temporary_directory/php-repository-release" status=0
+
+                    curl "${curl_options[@]}" -o "$release" "$1/dists/$distribution_codename/Release" || status=$?
+
+                    if ((status == 60 || status == 77)); then
+                        printf 'curl cannot verify the TLS certificate of %s; install ca-certificates.\n' "$1" >&2
                     fi
 
-                    # Succeed when the repository publishes a Release file for the
-                    # current suite that lists the native architecture. curl exits
-                    # with 60 or 77 when it cannot verify the TLS certificate, for
-                    # example without ca-certificates.
-                    repository_answers() {
-                        local release="$temporary_directory/php-repository-release" status=0
-
-                        curl "${curl_options[@]}" -o "$release" "$1/dists/$distribution_codename/Release" || status=$?
-
-                        if ((status == 60 || status == 77)); then
-                            printf 'curl cannot verify the TLS certificate of %s; install ca-certificates.\n' "$1" >&2
-                        fi
-
-                        if ((status != 0)); then
-                            printf 'PHP repository %s does not answer for %s.\n' "$1" "$distribution_codename" >&2
-                            return "$status"
-                        fi
-
-                        # Sury does not build every architecture that Launchpad builds,
-                        # for example ppc64el.
-                        if [[ -n "$native_architecture" ]] && ! awk -v arch="$native_architecture" '
-                            /^Architectures:/ { for (i = 2; i <= NF; i++) if ($i == arch) found = 1 }
-                            END { exit !found }
-                        ' "$release"; then
-                            printf 'PHP repository %s has no packages for %s %s.\n' "$1" "$distribution_codename" "$native_architecture" >&2
-                            return 1
-                        fi
-                    }
-
-                    # Sury is served through a CDN and also covers new Ubuntu releases.
-                    # Launchpad is only a fallback: it often answered 503 since May 2026.
-                    key_file="$keyring_directory/php-repository.gpg"
-                    sury_usable=false
-
-                    if repository_answers "$sury_uri"; then
-                        if [[ -n "$image_sury_source" ]]; then
-                            existing_source="$image_sury_source"
-                            sury_usable=true
-                        # apt.gpg is a binary keyring that apt can use directly. A key
-                        # with another fingerprint sends the run to the fallback.
-                        elif curl "${curl_options[@]}" -o "$key_file" "$sury_uri/apt.gpg" \
-                            && key_has_fingerprint "$key_file" "$sury_fingerprint"; then
-                            php_repository_uri="$sury_uri"
-                            php_key_kind=sury
-                            sury_usable=true
-                        else
-                            printf 'The sury signing key is not one valid key with fingerprint %s.\n' "$sury_fingerprint" >&2
-                        fi
+                    if ((status != 0)); then
+                        printf 'PHP repository %s does not answer for %s.\n' "$1" "$distribution_codename" >&2
+                        return "$status"
                     fi
 
-                    if [[ "$sury_usable" == false ]]; then
-                        if [[ "$distribution_id" == ubuntu ]]; then
-                            existing_source="$(find_enabled_source "$launchpad_pattern" "$launchpad_fingerprint")"
-                            existing_pattern="$launchpad_pattern"
-                            existing_fingerprint="$launchpad_fingerprint"
-                            existing_uri="$launchpad_uri"
+                    # Sury does not build every architecture that Launchpad builds,
+                    # for example ppc64el.
+                    if [[ -n "$native_architecture" ]] && ! awk -v arch="$native_architecture" '
+                        /^Architectures:/ { for (i = 2; i <= NF; i++) if ($i == arch) found = 1 }
+                        END { exit !found }
+                    ' "$release"; then
+                        printf 'PHP repository %s has no packages for %s %s.\n' "$1" "$distribution_codename" "$native_architecture" >&2
+                        return 1
+                    fi
+                }
 
-                            # A selected source is the user's choice; any other
-                            # Launchpad source is used only when Launchpad answers.
-                            if [[ "$existing_source" != selected ]]; then
-                                if repository_answers "$launchpad_uri"; then
-                                    if [[ -z "$existing_source" ]]; then
-                                        php_repository_uri="$launchpad_uri"
-                                        php_key_kind=launchpad
-                                    fi
-                                else
-                                    existing_source=''
-                                fi
-                            fi
-                        fi
+                # Sury is served through a CDN and also covers new Ubuntu releases.
+                # Launchpad is only a fallback: it often answered 503 since May 2026.
+                # apt.gpg is a binary keyring that apt can use directly. A key with
+                # another fingerprint sends the run to the fallback.
+                if repository_answers "$sury_uri"; then
+                    if curl "${curl_options[@]}" -o "$key_file" "$sury_uri/apt.gpg" \
+                        && key_has_fingerprint "$key_file" "$sury_fingerprint"; then
+                        php_repository_uri="$sury_uri"
+                        php_repository_pattern='packages[.]sury[.]org/php'
+                    else
+                        printf 'The sury signing key is not one valid key with fingerprint %s.\n' "$sury_fingerprint" >&2
                     fi
                 fi
-            fi
 
-            if [[ -n "$existing_source" ]]; then
-                # Write a new entry with the verified keyring of the found file, so
-                # that other repositories, suites, components and options in that
-                # file cannot change the update.
-                if [[ "$existing_source" != selected ]]; then
-                    reused_keyring="$(trusted_keyrings "$existing_source" "$existing_pattern" "$existing_fingerprint" | head -n 1)"
-                    # Copy the keyring with mode 0644, so that the _apt user can
-                    # read it also when the file or its directory is private. Apt
-                    # reads an .asc keyring as ASCII-armored, so keep that extension.
-                    reused_copy="$keyring_directory/php-repository-reused.gpg"
-
-                    if [[ "$reused_keyring" == *.asc ]]; then
-                        reused_copy="$keyring_directory/php-repository-reused.asc"
-                    fi
-
-                    "${privilege[@]}" cat -- "$reused_keyring" > "$reused_copy"
-                    chmod 0644 "$reused_copy"
-                    reused_source="$temporary_directory/php-repository-reused.sources"
-                    printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                        "$existing_uri" "$distribution_codename" "$reused_copy" > "$reused_source"
-                    source_paths+=("$reused_source")
-                fi
-            elif [[ -n "$php_key_kind" ]]; then
-                if [[ "$php_key_kind" == launchpad ]]; then
+                if [[ -z "$php_repository_uri" && "$distribution_id" == ubuntu ]] && repository_answers "$launchpad_uri"; then
                     curl "${curl_options[@]}" \
                         "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$launchpad_fingerprint" \
                         | gpg --batch --yes --dearmor -o "$key_file"
@@ -516,32 +280,54 @@ case "${1:-}" in
                         printf 'The Launchpad signing key is not one valid key with fingerprint %s.\n' "$launchpad_fingerprint" >&2
                         exit 1
                     fi
-                fi
 
-                # A second entry for one repository with another Signed-By value
-                # makes later apt commands fail. When sources.list.d already has an
-                # entry that cannot be used, the new entry and its key are used only
-                # for this run, so the persistent keyring of an earlier source stays.
+                    php_repository_uri="$launchpad_uri"
+                    php_repository_pattern='ppa[.]launchpadcontent[.]net/ondrej/php'
+                fi
+            fi
+
+            if [[ -n "$php_repository_uri" ]]; then
+                filtered_directory="$temporary_directory/filtered"
+                mkdir -- "$filtered_directory"
+                filtered_base="$filtered_directory/base.${apt_sources##*.}"
+                copy_without_php_entries "$apt_sources" "$filtered_base"
+                apt_sources="$filtered_base"
+
+                for source_index in "${!source_paths[@]}"; do
+                    filtered_source="$filtered_directory/$source_index.${source_paths[$source_index]##*.}"
+                    copy_without_php_entries "${source_paths[$source_index]}" "$filtered_source"
+                    source_paths[source_index]="$filtered_source"
+                done
+
+                chmod 0644 "$key_file"
+
+                # Later apt commands read every source. Another entry for the
+                # repository would conflict with this one on Signed-By, so then the
+                # source and its key are used for this run only. Apt reads
+                # root-only source files too, so read them with privileges.
                 conflicting_source=''
 
-                for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
-                    if [[ "$candidate" != "$php_source" ]] \
-                        && [[ -n "$(scan_source any "$candidate" "$existing_pattern" "$distribution_codename")" ]]; then
+                for candidate in "$default_source_list" "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
+                    if [[ "$candidate" != "$php_source" && -f "$candidate" ]] \
+                        && "${privilege[@]}" cat -- "$candidate" 2>/dev/null | grep -Ev '^[[:space:]]*#' \
+                        | grep -Ei -- "$php_repository_pattern" >/dev/null; then
                         conflicting_source="$candidate"
                         break
                     fi
                 done
 
-                if [[ -n "$conflicting_source" ]]; then
-                    chmod 0644 "$key_file"
+                write_php_source() {
                     printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                        "$php_repository_uri" "$distribution_codename" "$key_file" > "$temporary_directory/php-repository.sources"
+                        "$php_repository_uri" "$distribution_codename" "$1" > "$temporary_directory/php-repository.sources"
+                }
+
+                if [[ -n "$conflicting_source" ]]; then
+                    write_php_source "$key_file"
                     printf 'Using PHP repository %s %s for this run only; %s already has an entry for it.\n' \
                         "$php_repository_uri" "$distribution_codename" "$conflicting_source" >&2
                     source_paths+=("$temporary_directory/php-repository.sources")
                 else
-                    printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                        "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
+                    write_php_source "$php_keyring"
                     "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
                     "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
                     "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
