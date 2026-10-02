@@ -431,8 +431,8 @@ case "${1:-}" in
                         # Sury does not build every architecture that Launchpad builds,
                         # for example ppc64el.
                         if [[ -n "$native_architecture" ]] && ! awk -v arch="$native_architecture" '
-                            /^Architectures:/ { listed = 1; for (i = 2; i <= NF; i++) if ($i == arch) found = 1 }
-                            END { exit !(found || !listed) }
+                            /^Architectures:/ { for (i = 2; i <= NF; i++) if ($i == arch) found = 1 }
+                            END { exit !found }
                         ' "$release"; then
                             printf 'PHP repository %s has no packages for %s %s.\n' "$1" "$distribution_codename" "$native_architecture" >&2
                             return 1

@@ -442,7 +442,8 @@ done
 if [[ "$url" == */Release ]]; then
     release_architectures="${RELEASE_ARCHITECTURES-amd64 arm64}"
     [[ "$url" == *launchpadcontent.net* ]] && release_architectures="${LAUNCHPAD_ARCHITECTURES-amd64 arm64 ppc64el}"
-    printf 'Suite: noble\nArchitectures: %s\n' "$release_architectures" > "${output:-/dev/stdout}"
+    [[ -n "${RELEASE_WITHOUT_ARCHITECTURES:-}" && "$url" == *packages.sury.org* ]] && release_architectures=''
+    printf 'Suite: noble\n%s' "${release_architectures:+Architectures: $release_architectures$'\n'}" > "${output:-/dev/stdout}"
 elif [[ -n "$output" ]]; then
     printf 'key from %s\n' "$url" > "$output"
 else
@@ -525,15 +526,20 @@ test('cloud provision falls back to the Launchpad content host when sury does no
         ->and($process->getErrorOutput())->toContain('https://packages.sury.org/php does not answer');
 });
 
-test('cloud provision falls back to Launchpad when sury has no packages for the native architecture', function (): void {
-    [$root, $environment] = cloud_php_repository_fixture();
-    $environment['RELEASE_ARCHITECTURES'] = 'arm64';
-    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
-    $process->mustRun();
+foreach ([
+    'another architecture' => ['RELEASE_ARCHITECTURES' => 'arm64'],
+    'no Architectures field' => ['RELEASE_WITHOUT_ARCHITECTURES' => '1'],
+] as $scenario => $release) {
+    test('cloud provision falls back to Launchpad when sury has no packages for the native architecture: '.$scenario, function () use ($release): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        $environment = array_merge($environment, $release);
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
 
-    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
-        ->and($process->getErrorOutput())->toContain('PHP repository https://packages.sury.org/php has no packages for noble amd64');
-});
+        expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
+            ->and($process->getErrorOutput())->toContain('PHP repository https://packages.sury.org/php has no packages for noble amd64');
+    });
+}
 
 test('cloud provision stops when no PHP repository has packages for the native architecture', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
