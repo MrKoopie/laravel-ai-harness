@@ -843,17 +843,22 @@ foreach (['selected base source' => 'AI_HARNESS_APT_SOURCE_LIST', 'selected extr
     });
 }
 
-test('cloud provision reuses sury from the default source list for the native and another architecture', function (): void {
-    [$root, $environment] = cloud_php_repository_fixture();
-    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [arch=arm64,amd64] https://packages.sury.org/php/ noble main\n");
-    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
-    $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
-    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
-    $process->mustRun();
+foreach ([
+    'native and another architecture' => 'arch=arm64,amd64',
+    'native architecture added' => 'arch=arm64 arch+=amd64',
+] as $scenario => $options) {
+    test('cloud provision reuses sury from the default source list for the native architecture: '.$scenario, function () use ($options): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [{$options}] https://packages.sury.org/php/ noble main\n");
+        $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+        $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
 
-    expect($root.'/commands.curl')->not->toBeFile()
-        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
-});
+        expect($root.'/commands.curl')->not->toBeFile()
+            ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+    });
+}
 
 foreach ([
     'source-only list entry' => "deb-src https://packages.sury.org/php/ noble main\n",

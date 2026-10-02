@@ -202,8 +202,10 @@ case "${1:-}" in
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
                         return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
                     }
-                    function reset() { matched = 0; enabled = 1; native = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
+                    function reset() { matched = 0; enabled = 1; native = 1; added = 0; removed = 0; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
+                        if (added) native = 1
+                        if (removed) native = 0
                         if (matched && enabled && (binary || mode == "any") && suite && (keyrings <= 1 || mode == "any" || mode == "binary" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
                     }
@@ -222,6 +224,7 @@ case "${1:-}" in
                             if (!same(words[1]) || (codename != "" && words[2] != codename)) next
                             native = 1
                             if (arch != "" && match(options, /[[:space:]]arch=[^[:space:]]+/)) native = has(substr(options, RSTART + 6, RLENGTH - 6), arch)
+                            if (arch != "" && match(options, /[[:space:]]arch\+=[^[:space:]]+/) && has(substr(options, RSTART + 7, RLENGTH - 7), arch)) native = 1
                             if (arch != "" && match(options, /[[:space:]]arch-=[^[:space:]]+/) && has(substr(options, RSTART + 7, RLENGTH - 7), arch)) native = 0
                             path = ""
                             if (match(options, /[[:space:]]signed-by=[^[:space:]]+/)) path = substr(options, RSTART + 11, RLENGTH - 11)
@@ -241,7 +244,8 @@ case "${1:-}" in
                     field == "suites" && (" " value " ") ~ ("[[:space:]]" codename "[[:space:]]") { suite = 1 }
                     field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
                     arch != "" && field == "architectures" { native = has(value, arch) }
-                    arch != "" && field == "architectures-remove" && has(value, arch) { native = 0 }
+                    arch != "" && field == "architectures-add" && has(value, arch) { added = 1 }
+                    arch != "" && field == "architectures-remove" && has(value, arch) { removed = 1 }
                     field == "enabled" && tolower(value) ~ /^[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
                     field == "signed-by" { for (i = 1; i <= count; i++) if (tokens[i] != "") { keyring = tokens[i]; keyrings++ } }
                     END { flush() }
