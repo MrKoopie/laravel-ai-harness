@@ -156,7 +156,8 @@ case "${1:-}" in
             # file; in mode "entries" that keyring must also be in the trusted
             # list. Mode "entries" prints each entry that counts, mode "keyrings"
             # prints its keyring. Mode "binary" prints each binary entry for the
-            # suite that apt reads for the native architecture, whatever its keyring. Mode "any" prints each entry for the suite,
+            # suite with the main component that apt reads for the native
+            # architecture, whatever its keyring. Mode "any" prints each entry for the suite,
             # whatever its keyring, and also source-only (deb-src) entries,
             # because they conflict on Signed-By too.
             scan_source() {
@@ -197,12 +198,12 @@ case "${1:-}" in
                         return (head uri) ~ pattern
                     }
                     function usable(path) {
-                        if (mode == "binary") return native
+                        if (mode == "binary") return native && component
                         if (codename == "" || mode == "any") return 1
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
                         return mode == "keyrings" || index("\n" trusted "\n", "\n" path "\n") > 0
                     }
-                    function reset() { matched = 0; enabled = 1; native = 1; listed = 0; included = 0; added = 0; removed = 0; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
+                    function reset() { matched = 0; enabled = 1; native = 1; component = 0; listed = 0; included = 0; added = 0; removed = 0; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
                         if (listed) native = included; if (added) native = 1
                         if (removed) native = 0
@@ -222,6 +223,8 @@ case "${1:-}" in
                             }
                             split(entry, words, /[[:space:]]+/)
                             if (!same(words[1]) || (codename != "" && words[2] != codename)) next
+                            component = 0
+                            for (i = 3; i in words; i++) if (words[i] == "main") component = 1
                             native = 1
                             if (arch != "" && match(options, /[[:space:]]arch=[^[:space:]]+/)) native = has(substr(options, RSTART + 6, RLENGTH - 6), arch)
                             if (arch != "" && match(options, /[[:space:]]arch\+=[^[:space:]]+/) && has(substr(options, RSTART + 7, RLENGTH - 7), arch)) native = 1
@@ -241,6 +244,7 @@ case "${1:-}" in
                         count = split(value, tokens, /[[:space:]]+/)
                     }
                     field == "uris" { for (i = 1; i <= count; i++) if (tokens[i] != "" && same(tokens[i])) matched = 1 }
+                    field == "components" && has(value, "main") { component = 1 }
                     field == "suites" && (" " value " ") ~ ("[[:space:]]" codename "[[:space:]]") { suite = 1 }
                     field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
                     arch != "" && field == "architectures" { listed = 1; if (has(value, arch)) included = 1 }
@@ -325,7 +329,7 @@ case "${1:-}" in
 
                 for candidate in "${selected[@]}"; do
                     if [[ -n "$(scan_source any "$candidate" "$1" "$distribution_codename")" ]]; then
-                        printf '%s has an entry for the PHP repository but no deb entry for this architecture; add one or remove the entry.\n' \
+                        printf '%s has an entry for the PHP repository but no deb entry with the main component for this architecture; add one or remove the entry.\n' \
                             "$candidate" >&2
                         exit 1
                     fi

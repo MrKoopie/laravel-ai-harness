@@ -850,7 +850,7 @@ foreach (['selected base source' => 'AI_HARNESS_APT_SOURCE_LIST', 'selected extr
         $process->run();
 
         expect($process->isSuccessful())->toBeFalse()
-            ->and($process->getErrorOutput())->toContain($root.'/sury.list has an entry for the PHP repository but no deb entry for this architecture')
+            ->and($process->getErrorOutput())->toContain($root.'/sury.list has an entry for the PHP repository but no deb entry with the main component for this architecture')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
     });
 }
@@ -876,6 +876,7 @@ foreach ([
     'source-only list entry' => "deb-src https://packages.sury.org/php/ noble main\n",
     'list entry for another architecture' => "deb [arch=arm64] https://packages.sury.org/php/ noble main\n",
     'list entry that removes the native architecture' => "deb [arch-=amd64] https://packages.sury.org/php/ noble main\n",
+    'list entry without the main component' => "deb https://packages.sury.org/php/ noble contrib\n",
 ] as $scenario => $contents) {
     test('cloud provision stops when the default source list has no sury entry that apt uses for this architecture: '.$scenario, function () use ($contents): void {
         [$root, $environment] = cloud_php_repository_fixture();
@@ -886,7 +887,7 @@ foreach ([
         $process->run();
 
         expect($process->isSuccessful())->toBeFalse()
-            ->and($process->getErrorOutput())->toContain($root.'/sources.list has an entry for the PHP repository but no deb entry for this architecture')
+            ->and($process->getErrorOutput())->toContain($root.'/sources.list has an entry for the PHP repository but no deb entry with the main component for this architecture')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
     });
 }
