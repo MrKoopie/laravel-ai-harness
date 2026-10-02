@@ -401,8 +401,10 @@ case "${1:-}" in
                 else
                     curl_options=(-fsSL --retry 3 --connect-timeout 10 --max-time 60)
 
-                    # curl 7.71 added --retry-all-errors; it also retries an HTTP 503.
-                    if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+                    # curl 7.71 added --retry-all-errors; it retries errors that plain --retry does not,
+                    # such as a reset connection. grep reads all of the help text: with -q it can stop
+                    # early, and then curl fails with SIGPIPE under pipefail.
+                    if curl --help all 2>/dev/null | grep -- '--retry-all-errors' >/dev/null; then
                         curl_options+=(--retry-all-errors)
                     fi
 

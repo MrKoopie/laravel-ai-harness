@@ -417,6 +417,9 @@ function cloud_php_repository_fixture(string $distribution = 'ubuntu'): array
 #!/usr/bin/env bash
 if [[ "$1" == --help ]]; then
     [[ -n "${CURL_OLD:-}" ]] || printf ' --retry-all-errors  Retry all errors\n'
+    # Like real curl, print more help after the match than a pipe buffer holds,
+    # and fail when the reader has closed the pipe.
+    for ((option = 0; option < 5000; option++)); do printf ' --option-%d  Option\n' "$option" 2>/dev/null || exit 23; done
     exit 0
 fi
 printf '%s\n' "$*" >> "$CLOUD_LOG.curl"
