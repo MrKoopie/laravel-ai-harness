@@ -433,7 +433,14 @@ BASH);
 printf '%s\n' "$*" >> "$CLOUD_LOG.gpg"
 case "$*" in
     *--dearmor*) cat > "${*: -1}" ;;
-    *--show-keys*) printf 'pub:-:4096:1:4F4EA0AAE5267A6C:::::::::\nfpr:::::::::%s:\n' "${GPG_FINGERPRINT:-14AA40EC0831756756D7F66C4F4EA0AAE5267A6C}" ;;
+    *--show-keys*)
+        if grep -q packages.sury.org "${*: -1}"; then
+            fingerprint="${GPG_SURY_FINGERPRINT:-15058500A0235D97F5D10063B188E2B695BD4743}"
+        else
+            fingerprint="${GPG_FINGERPRINT:-14AA40EC0831756756D7F66C4F4EA0AAE5267A6C}"
+        fi
+        printf 'pub:-:3072:1:%s:::::::::\nfpr:::::::::%s:\n' "${fingerprint: -16}" "$fingerprint"
+        ;;
 esac
 BASH);
     write_executable($root.'/bin/install', <<<'BASH'
@@ -465,7 +472,7 @@ test('cloud provision registers the sury PHP repository first and retries apt do
         ->and($curl)->not->toContain('launchpad', 'keyserver')
         ->and(file_get_contents($root.'/commands.sources'))->toContain('https://base.invalid', 'URIs: https://packages.sury.org/php')
         ->and(file_get_contents($root.'/commands'))->toContain('Acquire::Retries=5', 'php8.5-cli')
-        ->and($root.'/commands.gpg')->not->toBeFile();
+        ->and(file_get_contents($root.'/commands.gpg'))->toContain('--show-keys');
 
     foreach (explode("\n", trim((string) file_get_contents($root.'/commands'))) as $line) {
         if (str_contains($line, 'update') || str_contains($line, 'install -y')) {
@@ -501,6 +508,30 @@ test('cloud provision rejects a Launchpad key with a different fingerprint', fun
 
     expect($process->getExitCode())->toBe(1)
         ->and($process->getErrorOutput())->toContain('fingerprint')
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and($root.'/commands')->not->toBeFile();
+});
+
+test('cloud provision falls back to Launchpad when the sury key has a different fingerprint', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['GPG_SURY_FINGERPRINT'] = str_repeat('B', 40);
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
+        ->and(file_get_contents($root.'/keyrings/ai-harness-php.gpg'))->toContain('keyserver.ubuntu.com')
+        ->and($process->getErrorOutput())->toContain('The sury signing key does not have fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
+});
+
+test('cloud provision stops on Debian when the sury key has a different fingerprint', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture('debian');
+    $environment['AI_HARNESS_PHP_REPOSITORY'] = 'sury';
+    $environment['GPG_SURY_FINGERPRINT'] = str_repeat('B', 40);
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('The sury signing key does not have fingerprint')
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
         ->and($root.'/commands')->not->toBeFile();
 });

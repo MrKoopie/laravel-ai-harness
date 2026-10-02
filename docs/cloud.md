@@ -182,8 +182,8 @@ All apt commands retry a failed download five times (`Acquire::Retries=5`).
 When you set `AI_HARNESS_PHP_VERSION`, provisioning adds the PHP repository of Ondřej Surý. The distribution often does not have the version that you select.
 
 1. It reads `VERSION_CODENAME` from `/etc/os-release`.
-2. It tries `https://packages.sury.org/php/`. This repository uses a CDN, and it is the only source for new Ubuntu releases such as 26.04. The signing key is `https://packages.sury.org/php/apt.gpg`.
-3. On Ubuntu only: when sury does not answer, it tries the ondrej/php PPA at `https://ppa.launchpadcontent.net/ondrej/php/ubuntu`. It gets the PPA signing key from `keyserver.ubuntu.com` and checks the fingerprint `14AA40EC0831756756D7F66C4F4EA0AAE5267A6C`.
+2. It tries `https://packages.sury.org/php/`. This repository uses a CDN, and it is the only source for new Ubuntu releases such as 26.04. The signing key is `https://packages.sury.org/php/apt.gpg`. The script checks the fingerprint `15058500A0235D97F5D10063B188E2B695BD4743`; a key with another fingerprint makes the script use the fallback.
+3. On Ubuntu only: when sury does not answer or its key does not match, it tries the ondrej/php PPA at `https://ppa.launchpadcontent.net/ondrej/php/ubuntu`. It gets the PPA signing key from `keyserver.ubuntu.com` and checks the fingerprint `14AA40EC0831756756D7F66C4F4EA0AAE5267A6C`.
 4. It writes the key to `/etc/apt/keyrings/ai-harness-php.gpg` and the source to `/etc/apt/sources.list.d/ai-harness-php.sources`, with `Signed-By`. Then it uses the source together with the base source.
 
 To find a repository that answers, provisioning requests `dists/<codename>/Release` with `curl --retry 3 --retry-all-errors`. Since May 2026, the Launchpad servers often answer `503 Service Unavailable`. Thus, the PPA is only a fallback.

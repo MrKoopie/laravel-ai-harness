@@ -158,6 +158,12 @@ case "${1:-}" in
                 ' "$1"
             }
 
+            # Succeed when the keyring file holds a key with this fingerprint.
+            key_has_fingerprint() {
+                command -v gpg >/dev/null 2>&1 \
+                    && gpg --batch --with-colons --show-keys "$1" 2>/dev/null | grep -qxF "fpr:::::::::$2:"
+            }
+
             # Print "selected" when a selected source has an enabled entry for the
             # pattern, else the first such file in the sources directory. A second
             # entry for one repository makes apt reject conflicting Signed-By values.
@@ -216,18 +222,31 @@ case "${1:-}" in
                     # Sury is served through a CDN and also covers new Ubuntu releases.
                     # Launchpad is only a fallback: it often answered 503 since May 2026.
                     sury_uri=https://packages.sury.org/php
+                    sury_fingerprint=15058500A0235D97F5D10063B188E2B695BD4743
                     launchpad_uri=https://ppa.launchpadcontent.net/ondrej/php/ubuntu
+                    launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
+                    key_file="$temporary_directory/php-repository.gpg"
+                    sury_usable=false
 
                     if curl "${curl_options[@]}" -o /dev/null "$sury_uri/dists/$distribution_codename/Release"; then
                         if [[ -n "$image_sury_source" ]]; then
                             existing_source="$image_sury_source"
-                        else
+                            sury_usable=true
+                        # apt.gpg is a binary keyring that apt can use directly. A key
+                        # with another fingerprint sends the run to the fallback.
+                        elif curl "${curl_options[@]}" -o "$key_file" "$sury_uri/apt.gpg" \
+                            && key_has_fingerprint "$key_file" "$sury_fingerprint"; then
                             php_repository_uri="$sury_uri"
                             php_key_kind=sury
+                            sury_usable=true
+                        else
+                            printf 'The sury signing key does not have fingerprint %s.\n' "$sury_fingerprint" >&2
                         fi
                     else
                         printf 'PHP repository %s does not answer for %s.\n' "$sury_uri" "$distribution_codename" >&2
+                    fi
 
+                    if [[ "$sury_usable" == false ]]; then
                         if [[ "$distribution_id" == ubuntu ]]; then
                             existing_source="$(find_enabled_source "$launchpad_pattern")"
 
@@ -249,18 +268,12 @@ case "${1:-}" in
                     source_paths+=("$existing_source")
                 fi
             elif [[ -n "$php_key_kind" ]]; then
-                key_file="$temporary_directory/php-repository.gpg"
-
-                if [[ "$php_key_kind" == sury ]]; then
-                    # apt.gpg is a binary keyring that apt can use directly.
-                    curl "${curl_options[@]}" -o "$key_file" "$sury_uri/apt.gpg"
-                else
-                    launchpad_fingerprint=14AA40EC0831756756D7F66C4F4EA0AAE5267A6C
+                if [[ "$php_key_kind" == launchpad ]]; then
                     curl "${curl_options[@]}" \
                         "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$launchpad_fingerprint" \
                         | gpg --batch --yes --dearmor -o "$key_file"
 
-                    if ! gpg --batch --with-colons --show-keys "$key_file" 2>/dev/null | grep -qxF "fpr:::::::::$launchpad_fingerprint:"; then
+                    if ! key_has_fingerprint "$key_file" "$launchpad_fingerprint"; then
                         printf 'The Launchpad signing key does not have fingerprint %s.\n' "$launchpad_fingerprint" >&2
                         exit 1
                     fi
