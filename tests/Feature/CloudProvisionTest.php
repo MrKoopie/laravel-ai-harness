@@ -432,6 +432,9 @@ done
 for host in ${CURL_DOWN:-}; do
     [[ "$url" == *"$host"* ]] && exit 22
 done
+for host in ${CURL_TLS_FAIL:-}; do
+    [[ "$url" == *"$host"* ]] && exit 60
+done
 if [[ -n "$output" ]]; then
     printf 'key from %s\n' "$url" > "$output"
 else
@@ -727,8 +730,11 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
         $process->mustRun();
         $sources = (string) file_get_contents($root.'/commands.sources');
 
-        expect(file_get_contents($root.'/commands.curl'))->not->toContain('launchpadcontent.net/ondrej/php/ubuntu/dists')
-            ->and(file_get_contents($root.'/commands.curl'))->not->toContain('keyserver')
+        $curl = (string) file_get_contents($root.'/commands.curl');
+
+        // A registered source is used only when Launchpad answers.
+        expect(str_contains($curl, 'launchpadcontent.net/ondrej/php/ubuntu/dists/noble/Release'))->toBe($location === 'image')
+            ->and($curl)->not->toContain('keyserver')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
             // A selected source is used as it is; a registered one gets a copy of its keyring.
             ->and($sources)->toMatch($location === 'extra'
@@ -753,6 +759,37 @@ foreach (['patch version' => '8.5.1', 'unsupported version' => '7.4'] as $scenar
             ->and($root.'/commands')->not->toBeFile();
     });
 }
+
+test('cloud provision does not reuse an image Launchpad source when Launchpad does not answer', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['CURL_DOWN'] = 'packages.sury.org ppa.launchpadcontent.net';
+    file_put_contents($root.'/apt-sources/ondrej.sources', "Types: deb\nURIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings-image/ondrej.gpg\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())->toContain('PHP repository https://ppa.launchpadcontent.net/ondrej/php/ubuntu does not answer for noble.')
+        ->toContain('Continuing without a PHP repository')
+        ->and((string) file_get_contents($root.'/commands.sources'))->not->toContain('launchpadcontent');
+});
+
+test('cloud provision names ca-certificates when curl cannot verify the repository certificate', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['CURL_TLS_FAIL'] = 'packages.sury.org';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())->toContain('curl cannot verify the TLS certificate of https://packages.sury.org/php; install ca-certificates.');
+});
+
+test('cloud provision keeps the case of a selected repository path', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sury.list', "deb [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/PHP/ noble main\n");
+    $environment['AI_HARNESS_APT_EXTRA_SOURCES'] = $root.'/sury.list';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php');
+});
 
 test('cloud provision does not reuse an image sury source when sury does not answer', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();

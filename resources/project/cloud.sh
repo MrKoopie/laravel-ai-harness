@@ -165,11 +165,15 @@ case "${1:-}" in
                 # Apt reads root-only source files too, so read them with privileges.
                 [[ -f "$2" ]] && "${privilege[@]}" cat -- "$2" 2>/dev/null | awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" '
                     # Apt treats the scheme and host without case and decodes
-                    # %2F, so compare the URI in that form.
-                    function same(uri) {
-                        uri = tolower(uri)
-                        gsub(/%2f/, "/", uri)
-                        return uri ~ pattern
+                    # %2F; the path keeps its case. Compare the URI in that form.
+                    function same(uri,    head) {
+                        head = ""
+                        if (match(uri, /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/]*/)) {
+                            head = tolower(substr(uri, 1, RLENGTH))
+                            uri = substr(uri, RLENGTH + 1)
+                        }
+                        gsub(/%2[fF]/, "/", uri)
+                        return (head uri) ~ pattern
                     }
                     function usable(path) {
                         if (codename == "" || mode == "any") return 1
@@ -313,12 +317,27 @@ case "${1:-}" in
                         curl_options+=(--retry-all-errors)
                     fi
 
+                    # Succeed when the repository publishes a Release file for the
+                    # current suite. curl exits with 60 or 77 when it cannot verify
+                    # the TLS certificate, for example without ca-certificates.
+                    repository_answers() {
+                        local status=0
+
+                        curl "${curl_options[@]}" -o /dev/null "$1/dists/$distribution_codename/Release" || status=$?
+
+                        if ((status == 60 || status == 77)); then
+                            printf 'curl cannot verify the TLS certificate of %s; install ca-certificates.\n' "$1" >&2
+                        fi
+
+                        return "$status"
+                    }
+
                     # Sury is served through a CDN and also covers new Ubuntu releases.
                     # Launchpad is only a fallback: it often answered 503 since May 2026.
                     key_file="$temporary_directory/php-repository.gpg"
                     sury_usable=false
 
-                    if curl "${curl_options[@]}" -o /dev/null "$sury_uri/dists/$distribution_codename/Release"; then
+                    if repository_answers "$sury_uri"; then
                         if [[ -n "$image_sury_source" ]]; then
                             existing_source="$image_sury_source"
                             sury_usable=true
@@ -343,11 +362,16 @@ case "${1:-}" in
                             existing_fingerprint="$launchpad_fingerprint"
                             existing_uri="$launchpad_uri"
 
-                            if [[ -z "$existing_source" ]]; then
-                                if curl "${curl_options[@]}" -o /dev/null "$launchpad_uri/dists/$distribution_codename/Release"; then
-                                    php_repository_uri="$launchpad_uri"
-                                    php_key_kind=launchpad
+                            # A selected source is the user's choice; any other
+                            # Launchpad source is used only when Launchpad answers.
+                            if [[ "$existing_source" != selected ]]; then
+                                if repository_answers "$launchpad_uri"; then
+                                    if [[ -z "$existing_source" ]]; then
+                                        php_repository_uri="$launchpad_uri"
+                                        php_key_kind=launchpad
+                                    fi
                                 else
+                                    existing_source=''
                                     printf 'PHP repository %s does not answer for %s.\n' "$launchpad_uri" "$distribution_codename" >&2
                                 fi
                             fi
