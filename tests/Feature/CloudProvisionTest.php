@@ -399,7 +399,12 @@ function cloud_php_repository_fixture(string $distribution = 'ubuntu'): array
 {
     [$root, $environment] = cloud_provision_fixture();
     mkdir($root.'/apt-sources');
+    mkdir($root.'/keyrings-image');
     file_put_contents($root.'/os-release', "ID={$distribution}\nVERSION_CODENAME=noble\n");
+
+    foreach (['deb.sury.org-php', 'ondrej', 'sury'] as $keyring) {
+        file_put_contents($root.'/keyrings-image/'.$keyring.'.gpg', "image key\n");
+    }
 
     // Answer each probe unless its URL contains a host from CURL_DOWN. CURL_OLD
     // simulates curl before 7.71, which lacks --retry-all-errors.
@@ -440,6 +445,7 @@ case "$*" in
             fingerprint="${GPG_FINGERPRINT:-14AA40EC0831756756D7F66C4F4EA0AAE5267A6C}"
         fi
         printf 'pub:-:3072:1:%s:::::::::\nfpr:::::::::%s:\n' "${fingerprint: -16}" "$fingerprint"
+        [[ -z "${GPG_EXTRA_KEY:-}" ]] || printf 'pub:-:3072:1:CCCCCCCCCCCCCCCC:::::::::\nfpr:::::::::%s:\n' "$(printf 'C%.0s' {1..40})"
         ;;
 esac
 BASH);
@@ -586,7 +592,7 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
     test('cloud provision reuses an existing sury source: '.$scenario, function () use ($location): void {
         [$root, $environment] = cloud_php_repository_fixture();
         $existing = $location === 'extra' ? $root.'/sury.list' : $root.'/apt-sources/php.list';
-        file_put_contents($existing, "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ noble main\n");
+        file_put_contents($existing, "deb [signed-by={$root}/keyrings-image/deb.sury.org-php.gpg] https://packages.sury.org/php/ noble main\n");
 
         if ($location === 'extra') {
             $environment['AI_HARNESS_APT_EXTRA_SOURCES'] = $existing;
@@ -648,7 +654,7 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
         [$root, $environment] = cloud_php_repository_fixture();
         $environment['CURL_DOWN'] = 'packages.sury.org';
         $existing = $location === 'extra' ? $root.'/ondrej.sources' : $root.'/apt-sources/ondrej.sources';
-        file_put_contents($existing, "Types: deb\nURIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/ondrej.gpg\n");
+        file_put_contents($existing, "Types: deb\nURIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings-image/ondrej.gpg\n");
 
         if ($location === 'extra') {
             $environment['AI_HARNESS_APT_EXTRA_SOURCES'] = $existing;
@@ -660,7 +666,7 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
 
         expect(file_get_contents($root.'/commands.curl'))->not->toContain('launchpadcontent.net/ondrej/php/ubuntu/dists', 'keyserver')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-            ->and($sources)->toContain('Signed-By: /usr/share/keyrings/ondrej.gpg')
+            ->and($sources)->toContain('Signed-By: '.$root.'/keyrings-image/ondrej.gpg')
             ->and($sources)->not->toContain('ai-harness-php.gpg');
     });
 }
@@ -683,7 +689,7 @@ foreach (['patch version' => '8.5.1', 'unsupported version' => '7.4'] as $scenar
 test('cloud provision does not reuse an image sury source when sury does not answer', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
     $environment['CURL_DOWN'] = 'packages.sury.org';
-    file_put_contents($root.'/apt-sources/php.list', "deb [signed-by=/usr/share/keyrings/sury.gpg] https://packages.sury.org/php/ noble main\n");
+    file_put_contents($root.'/apt-sources/php.list', "deb [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n");
     $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
     $process->mustRun();
     $sources = (string) file_get_contents($root.'/commands.sources');
@@ -703,7 +709,7 @@ test('cloud provision registers the sury PHP repository when the existing stanza
 
 test('cloud provision reuses sury from the default source list when no base source is selected', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
-    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [signed-by=/usr/share/keyrings/sury.gpg] https://packages.sury.org/php/ noble main\n");
+    file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n");
     $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
     $environment['AI_HARNESS_APT_DEFAULT_SOURCE_LIST'] = $root.'/sources.list';
     $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
@@ -730,17 +736,17 @@ foreach ([
 }
 
 foreach ([
-    'list file' => ['php.list', "deb https://vendor.invalid/ noble main\ndeb [signed-by=/usr/share/keyrings/sury.gpg] https://packages.sury.org/php/ noble main\n"],
-    'deb822 file' => ['php.sources', "Types: deb\nURIs: https://vendor.invalid/\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/sury.gpg\n"],
+    'list file' => ['php.list', "deb https://vendor.invalid/ noble main\ndeb [signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n"],
+    'deb822 file' => ['php.sources', "Types: deb\nURIs: https://vendor.invalid/\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nSigned-By: {root}/keyrings-image/sury.gpg\n"],
 ] as $scenario => [$file, $contents]) {
     test('cloud provision reuses only the matching entries of a source file: '.$scenario, function () use ($file, $contents): void {
         [$root, $environment] = cloud_php_repository_fixture();
-        file_put_contents($root.'/apt-sources/'.$file, $contents);
+        file_put_contents($root.'/apt-sources/'.$file, str_replace('{root}', $root, $contents));
         $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
         $process->mustRun();
         $sources = (string) file_get_contents($root.'/commands.sources');
 
-        expect($sources)->toContain('https://packages.sury.org/php/', '/usr/share/keyrings/sury.gpg')
+        expect($sources)->toContain('https://packages.sury.org/php/', $root.'/keyrings-image/sury.gpg')
             ->and($sources)->not->toContain('vendor.invalid')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
     });
@@ -773,4 +779,27 @@ test('cloud provision leaves an unavailable sury source out when it continues wi
 
     expect($process->getErrorOutput())->toContain('Continuing without a PHP repository')
         ->and(file_get_contents($root.'/commands'))->toContain('Dir::Etc::sourcelist='.$root.'/sources.list', 'Dir::Etc::sourceparts=-');
+});
+
+test('cloud provision falls back to Launchpad when the sury keyring holds another key too', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['GPG_EXTRA_KEY'] = '1';
+    $environment['AI_HARNESS_PHP_REPOSITORY'] = 'sury';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    // The Launchpad key gets the extra key too, so provisioning stops before it writes a source.
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getErrorOutput())->toContain('The sury signing key does not have fingerprint', 'The Launchpad signing key does not have fingerprint')
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+});
+
+test('cloud provision does not reuse a sury source whose keyring is missing', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/apt-sources/php.list', "deb [signed-by={$root}/keyrings-image/missing.gpg] https://packages.sury.org/php/ noble main\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php')
+        ->and(file_get_contents($root.'/commands.sources'))->not->toContain('missing.gpg');
 });

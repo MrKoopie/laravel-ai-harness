@@ -142,7 +142,9 @@ case "${1:-}" in
 
             # Print the enabled entries of the file whose URI matches the pattern.
             # Apt ignores comments and deb822 stanzas with "Enabled: no". Only
-            # binary entries count, and with a codename only entries for that suite.
+            # binary entries count. With a codename (for files that the script
+            # finds itself), only entries for that suite whose Signed-By keyring
+            # exists count.
             print_enabled_entries() {
                 local format=list
 
@@ -151,9 +153,10 @@ case "${1:-}" in
                 fi
 
                 [[ -f "$1" && -r "$1" ]] && awk -v format="$format" -v pattern="$2" -v codename="${3:-}" '
-                    function reset() { stanza = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); field = "" }
+                    function readable(path,    line, result) { result = (getline line < path); close(path); return result >= 0 }
+                    function reset() { stanza = ""; matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = 1; field = "" }
                     function flush() {
-                        if (matched && enabled && binary && suite) printf "%s\n", stanza
+                        if (matched && enabled && binary && suite && keyring) printf "%s\n", stanza
                         reset()
                     }
                     BEGIN { reset() }
@@ -163,7 +166,9 @@ case "${1:-}" in
                             sub(/^[[:space:]]*deb[[:space:]]+/, "", entry)
                             sub(/^\[[^]]*\][[:space:]]*/, "", entry)
                             split(entry, words, /[[:space:]]+/)
-                            if (codename == "" || words[2] == codename) print
+                            keyring = 1
+                            if (codename != "" && match($0, /signed-by=[^][:space:]]+/)) keyring = readable(substr($0, RSTART + 10, RLENGTH - 10))
+                            if ((codename == "" || words[2] == codename) && keyring) print
                         }
                         next
                     }
@@ -175,6 +180,12 @@ case "${1:-}" in
                     field == "types" && (" " tolower($0) " ") ~ /[[:space:]:]deb[[:space:]]/ { binary = 1 }
                     field == "suites" && (" " $0 " ") ~ ("[[:space:]:]" codename "[[:space:]]") { suite = 1 }
                     field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
+                    codename != "" && field == "signed-by" && $0 ~ /^[^:]*:[[:space:]]*\// {
+                        path = $0
+                        sub(/^[^:]*:[[:space:]]*/, "", path)
+                        sub(/[[:space:]]+$/, "", path)
+                        keyring = readable(path)
+                    }
                     END { flush() }
                 ' "$1"
             }
@@ -183,10 +194,16 @@ case "${1:-}" in
                 [[ -n "$(print_enabled_entries "$@")" ]]
             }
 
-            # Succeed when the keyring file holds a key with this fingerprint.
+            # Succeed when the keyring file holds exactly one key, with this
+            # fingerprint. Signed-By trusts every key in the file.
             key_has_fingerprint() {
                 command -v gpg >/dev/null 2>&1 \
-                    && gpg --batch --with-colons --show-keys "$1" 2>/dev/null | grep -qxF "fpr:::::::::$2:"
+                    && gpg --batch --with-colons --show-keys "$1" 2>/dev/null | awk -F: -v fingerprint="$2" '
+                        $1 == "pub" { keys++; primary = 1; next }
+                        $1 == "fpr" { if (primary && $10 != fingerprint) other = 1; primary = 0; next }
+                        { primary = 0 }
+                        END { exit !(keys == 1 && !other) }
+                    '
             }
 
             # Print "selected" when a selected source has an enabled entry for the
