@@ -290,29 +290,40 @@ case "${1:-}" in
                 local candidate trusted
 
                 # Without a selected base, apt and the fallback below use the default
-                # list. A base that was not configured counts only with an entry for
-                # the current suite; configured sources are used as is.
-                if [[ -n "${AI_HARNESS_APT_SOURCE_LIST:-}" ]] && has_enabled_source "$apt_sources" "$1"; then
+                # list. A base that was not configured counts only with a binary
+                # entry for the current suite and the native architecture;
+                # configured sources are used as is.
+                local found_base="${apt_sources:-$default_source_list}" selected=()
+
+                if [[ -n "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
+                    selected+=("$apt_sources")
+                elif [[ -n "$(scan_source binary "$found_base" "$1" "$distribution_codename")" ]]; then
                     printf 'selected\n'
                     return
-                elif [[ -z "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
-                    if [[ -n "$(scan_source binary "${apt_sources:-$default_source_list}" "$1" "$distribution_codename")" ]]; then
-                        printf 'selected\n'
-                        return
-                    fi
-
-                    # A new entry would conflict with that list on Signed-By.
-                    if [[ -n "$(scan_source any "${apt_sources:-$default_source_list}" "$1" "$distribution_codename")" ]]; then
-                        printf '%s has an entry for the PHP repository but no deb entry for this architecture; add one or remove the entry.\n' \
-                            "${apt_sources:-$default_source_list}" >&2
-                        exit 1
-                    fi
                 fi
 
                 for candidate in "${source_paths[@]}"; do
-                    if [[ "$candidate" != "$php_source" ]] && has_enabled_source "$candidate" "$1"; then
+                    [[ "$candidate" == "$php_source" ]] || selected+=("$candidate")
+                done
+
+                for candidate in "${selected[@]}"; do
+                    if has_enabled_source "$candidate" "$1"; then
                         printf 'selected\n'
                         return
+                    fi
+                done
+
+                # A new entry would conflict on Signed-By with any other entry for
+                # the repository and the current suite that apt reads.
+                if [[ -z "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
+                    selected+=("$found_base")
+                fi
+
+                for candidate in "${selected[@]}"; do
+                    if [[ -n "$(scan_source any "$candidate" "$1" "$distribution_codename")" ]]; then
+                        printf '%s has an entry for the PHP repository but no deb entry for this architecture; add one or remove the entry.\n' \
+                            "$candidate" >&2
+                        exit 1
                     fi
                 done
 

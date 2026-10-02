@@ -829,6 +829,20 @@ test('cloud provision keeps the .asc extension of a reused ASCII-armored keyring
         ->and(file_get_contents($root.'/commands.keyrings'))->toMatch('#/php-repository-reused[.]asc 644 755: image key from packages[.]sury[.]org\n#');
 });
 
+foreach (['selected base source' => 'AI_HARNESS_APT_SOURCE_LIST', 'selected extra source' => 'AI_HARNESS_APT_EXTRA_SOURCES'] as $scenario => $variable) {
+    test('cloud provision stops when a source-only sury entry would conflict with a new entry: '.$scenario, function () use ($variable): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/sury.list', "deb https://base.invalid noble main\ndeb-src [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n");
+        $environment[$variable] = $root.'/sury.list';
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->run();
+
+        expect($process->isSuccessful())->toBeFalse()
+            ->and($process->getErrorOutput())->toContain($root.'/sury.list has an entry for the PHP repository but no deb entry for this architecture')
+            ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+    });
+}
+
 test('cloud provision reuses sury from the default source list for the native and another architecture', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();
     file_put_contents($root.'/sources.list', "deb https://base.invalid noble main\ndeb [arch=arm64,amd64] https://packages.sury.org/php/ noble main\n");
