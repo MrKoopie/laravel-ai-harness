@@ -100,19 +100,54 @@ case "${1:-}" in
             os_release="${AI_HARNESS_OS_RELEASE:-/etc/os-release}"
             php_source="$php_sources_directory/ai-harness-php.sources"
             php_keyring="$php_keyrings_directory/ai-harness-php.gpg"
-            sury_pattern='packages\.sury\.org/php'
             existing_source=''
+
+            # Succeed when the file has an enabled sury entry. Apt ignores comments
+            # and deb822 stanzas with "Enabled: no".
+            has_sury_source() {
+                local format=list
+
+                if [[ "$1" == *.sources ]]; then
+                    format=deb822
+                fi
+
+                [[ -f "$1" && -r "$1" ]] && awk -v format="$format" '
+                    BEGIN { enabled = 1 }
+                    format == "list" {
+                        if ($0 ~ /^[[:space:]]*deb[[:space:]].*packages\.sury\.org\/php/) found = 1
+                        next
+                    }
+                    /^[[:space:]]*#/ { next }
+                    /^[[:space:]]*$/ {
+                        if (sury && enabled) found = 1
+                        sury = 0; enabled = 1; field = ""
+                        next
+                    }
+                    /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
+                    field == "uris" && /packages\.sury\.org\/php/ { sury = 1 }
+                    field == "enabled" && tolower($0) ~ /^enabled:[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
+                    END {
+                        if (sury && enabled) found = 1
+                        exit !found
+                    }
+                ' "$1"
+            }
 
             # Do not add a second sury entry: apt rejects conflicting Signed-By values.
             for source_path in ${apt_sources:+"$apt_sources"} "${source_paths[@]}"; do
-                if [[ "$source_path" != "$php_source" ]] && grep -qsE "$sury_pattern" -- "$source_path"; then
+                if [[ "$source_path" != "$php_source" ]] && has_sury_source "$source_path"; then
                     existing_source=selected
                     break
                 fi
             done
 
             if [[ -z "$existing_source" ]]; then
-                existing_source="$(grep -lsE "$sury_pattern" "$php_sources_directory"/*.list "$php_sources_directory"/*.sources | grep -vxF -- "$php_source" | head -n 1 || true)"
+                for source_path in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
+                    if [[ "$source_path" != "$php_source" ]] && has_sury_source "$source_path"; then
+                        existing_source="$source_path"
+                        break
+                    fi
+                done
             fi
 
             if [[ -n "$existing_source" ]]; then

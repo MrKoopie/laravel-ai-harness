@@ -564,3 +564,30 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
             ->and(substr_count((string) file_get_contents($root.'/commands.sources'), 'packages.sury.org'))->toBeGreaterThan(0);
     });
 }
+
+foreach ([
+    'commented list entry' => ['php.list', "# deb https://packages.sury.org/php/ noble main\n"],
+    'disabled deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: no\n"],
+    'commented deb822 field' => ['php.sources', "Types: deb\n# URIs: https://packages.sury.org/php/\nURIs: https://other.invalid/\nSuites: noble\nComponents: main\n"],
+] as $scenario => [$file, $contents]) {
+    test('cloud provision registers the sury PHP repository when the existing source is inactive: '.$scenario, function () use ($file, $contents): void {
+        [$root, $environment] = cloud_php_repository_fixture();
+        file_put_contents($root.'/apt-sources/'.$file, $contents);
+        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+        $process->mustRun();
+
+        expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://packages.sury.org/php')
+            ->and(file_get_contents($root.'/commands.sources'))->toContain('Signed-By: '.$root.'/keyrings/ai-harness-php.gpg');
+    });
+}
+
+test('cloud provision reuses an enabled deb822 sury stanza next to a disabled one', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/apt-sources/php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nEnabled: no\n\nTypes: deb\nURIs:\n https://mirror.invalid/\n https://packages.sury.org/php/\nSuites: noble\nComponents: main\n");
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and(file_get_contents($root.'/commands.files'))->toContain('.sources');
+});
