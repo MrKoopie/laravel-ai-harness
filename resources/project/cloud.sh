@@ -237,7 +237,7 @@ case "${1:-}" in
                     }
                     /^[[:space:]]*#/ { next }
                     /^[[:space:]]*$/ { flush(); next }
-                    /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field) }
+                    /^[^[:space:]]/ { field = tolower($0); sub(/:.*/, "", field); if (field == "architectures") included = 0 }
                     {
                         value = $0
                         if (value ~ /^[^[:space:]]/) sub(/^[^:]*:/, "", value)
@@ -300,7 +300,8 @@ case "${1:-}" in
                 # Without a selected base, apt and the fallback below use the default
                 # list. A base that was not configured counts only with a binary
                 # entry for the current suite and the native architecture;
-                # configured sources are used as is.
+                # a configured source counts with a binary entry with main for the
+                # native architecture in any suite, and is then used as is.
                 local found_base="${apt_sources:-$default_source_list}" selected=()
 
                 if [[ -n "${AI_HARNESS_APT_SOURCE_LIST:-}" ]]; then
@@ -315,7 +316,7 @@ case "${1:-}" in
                 done
 
                 for candidate in "${selected[@]}"; do
-                    if has_enabled_source "$candidate" "$1"; then
+                    if [[ -n "$(scan_source binary "$candidate" "$1")" ]]; then
                         printf 'selected\n'
                         return
                     fi

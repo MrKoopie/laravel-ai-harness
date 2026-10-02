@@ -844,18 +844,35 @@ test('cloud provision reuses sury from ubuntu.sources with folded architectures'
 });
 
 foreach (['selected base source' => 'AI_HARNESS_APT_SOURCE_LIST', 'selected extra source' => 'AI_HARNESS_APT_EXTRA_SOURCES'] as $scenario => $variable) {
-    test('cloud provision stops when a source-only sury entry would conflict with a new entry: '.$scenario, function () use ($variable): void {
-        [$root, $environment] = cloud_php_repository_fixture();
-        file_put_contents($root.'/sury.list', "deb https://base.invalid noble main\ndeb-src [signed-by={$root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main\n");
-        $environment[$variable] = $root.'/sury.list';
-        $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
-        $process->run();
+    foreach ([
+        'source-only entry' => 'deb-src [signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main',
+        'entry for another architecture' => 'deb [arch=arm64 signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble main',
+        'entry without the main component' => 'deb [signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble contrib',
+    ] as $kind => $entry) {
+        test('cloud provision stops when a sury entry that apt cannot use would conflict with a new entry: '.$scenario.', '.$kind, function () use ($variable, $entry): void {
+            [$root, $environment] = cloud_php_repository_fixture();
+            file_put_contents($root.'/sury.list', "deb https://base.invalid noble main\n".str_replace('{root}', $root, $entry)."\n");
+            $environment[$variable] = $root.'/sury.list';
+            $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+            $process->run();
 
-        expect($process->isSuccessful())->toBeFalse()
-            ->and($process->getErrorOutput())->toContain($root.'/sury.list has an entry for the PHP repository but no deb entry with the main component for this architecture')
-            ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
-    });
+            expect($process->isSuccessful())->toBeFalse()
+                ->and($process->getErrorOutput())->toContain($root.'/sury.list has an entry for the PHP repository but no deb entry with the main component for this architecture')
+                ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
+        });
+    }
 }
+
+test('cloud provision uses the last Architectures field of a found deb822 base source', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/apt-sources/ubuntu.sources', "Types: deb\nURIs: https://base.invalid\nSuites: noble\nComponents: main\n\nTypes: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nArchitectures: amd64\nArchitectures: arm64\n");
+    $environment['AI_HARNESS_APT_SOURCE_LIST'] = '';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->run();
+
+    expect($process->isSuccessful())->toBeFalse()
+        ->and($process->getErrorOutput())->toContain($root.'/apt-sources/ubuntu.sources has an entry for the PHP repository but no deb entry with the main component for this architecture');
+});
 
 foreach ([
     'native and another architecture' => 'arch=arm64,amd64',
