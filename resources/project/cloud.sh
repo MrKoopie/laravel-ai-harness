@@ -407,14 +407,10 @@ case "${1:-}" in
                     fi
                 fi
 
-                printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                    "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
-                "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
-                "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
-
                 # A second entry for one repository with another Signed-By value
                 # makes later apt commands fail. When sources.list.d already has an
-                # entry that cannot be used, the new entry is used only for this run.
+                # entry that cannot be used, the new entry and its key are used only
+                # for this run, so the persistent keyring of an earlier source stays.
                 conflicting_source=''
 
                 for candidate in "$php_sources_directory"/*.list "$php_sources_directory"/*.sources; do
@@ -426,10 +422,17 @@ case "${1:-}" in
                 done
 
                 if [[ -n "$conflicting_source" ]]; then
+                    chmod 0644 "$key_file"
+                    printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
+                        "$php_repository_uri" "$distribution_codename" "$key_file" > "$temporary_directory/php-repository.sources"
                     printf 'Using PHP repository %s %s for this run only; %s already has an entry for it.\n' \
                         "$php_repository_uri" "$distribution_codename" "$conflicting_source" >&2
                     source_paths+=("$temporary_directory/php-repository.sources")
                 else
+                    printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
+                        "$php_repository_uri" "$distribution_codename" "$php_keyring" > "$temporary_directory/php-repository.sources"
+                    "${privilege[@]}" install -d -m 0755 -- "$php_keyrings_directory" "$php_sources_directory"
+                    "${privilege[@]}" install -m 0644 -- "$key_file" "$php_keyring"
                     "${privilege[@]}" install -m 0644 -- "$temporary_directory/php-repository.sources" "$php_source"
                     printf 'Registered PHP repository %s %s.\n' "$php_repository_uri" "$distribution_codename"
                     source_paths+=("$php_source")

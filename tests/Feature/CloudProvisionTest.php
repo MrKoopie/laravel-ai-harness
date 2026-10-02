@@ -915,7 +915,9 @@ foreach ([
 
         expect($process->getErrorOutput())->toContain('for this run only; '.$root.'/apt-sources/'.$file.' already has an entry for it')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-            ->and(file_get_contents($root.'/keyrings/ai-harness-php.gpg'))->toBe("key from https://packages.sury.org/php/apt.gpg\n")
-            ->and(file_get_contents($root.'/commands.sources'))->toContain("URIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings/ai-harness-php.gpg\n");
+            // The persistent keyring stays as it is; the run-only entry has its own key.
+            ->and($root.'/keyrings/ai-harness-php.gpg')->not->toBeFile()
+            ->and(file_get_contents($root.'/commands.sources'))->toMatch('#'.preg_quote("URIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: ", '#').'\S+/php-repository[.]gpg\n#')
+            ->and(file_get_contents($root.'/commands.keyrings'))->toMatch('#/php-repository[.]gpg 644 755: key from https://packages[.]sury[.]org/php/apt[.]gpg\n#');
     });
 }
