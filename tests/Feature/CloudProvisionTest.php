@@ -76,6 +76,10 @@ for argument in "$@"; do
                 for source in "$directory"/*; do
                     cat "$source" >> "$CLOUD_LOG.sources"
                     printf '%s\n' "$source" >> "$CLOUD_LOG.files"
+                    sed -n 's/^Signed-By: //p' "$source" | while read -r keyring; do
+                        [[ -f "$keyring" ]] || continue
+                        printf '%s %s %s: %s\n' "$keyring" "$(stat -c %a "$keyring")" "$(stat -c %a "$(dirname "$keyring")")" "$(cat "$keyring")" >> "$CLOUD_LOG.keyrings"
+                    done
                 done
             fi
             ;;
@@ -674,7 +678,8 @@ foreach ([
 
         expect(file_get_contents($root.'/commands.curl'))->not->toContain('apt.gpg')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-            ->and($sources)->toContain("URIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: {$root}/keyrings-image/sury.gpg\n")
+            ->and($sources)->toMatch('#'.preg_quote("URIs: https://packages.sury.org/php\nSuites: noble\nComponents: main\nSigned-By: ", '#').'\S+/php-repository-reused[.]gpg\n#')
+            ->and(file_get_contents($root.'/commands.keyrings'))->toMatch('#/php-repository-reused[.]gpg 644 755: image key from packages[.]sury[.]org\n#')
             ->and($sources)->not->toContain('jammy')
             ->and($sources)->not->toContain('universe')
             ->and(strtolower($sources))->not->toContain('trusted')
@@ -725,7 +730,11 @@ foreach (['selected extra source' => 'extra', 'registered image source' => 'imag
         expect(file_get_contents($root.'/commands.curl'))->not->toContain('launchpadcontent.net/ondrej/php/ubuntu/dists')
             ->and(file_get_contents($root.'/commands.curl'))->not->toContain('keyserver')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
-            ->and($sources)->toContain('Signed-By: '.$root.'/keyrings-image/ondrej.gpg')
+            // A selected source is used as it is; a registered one gets a copy of its keyring.
+            ->and($sources)->toMatch($location === 'extra'
+                ? '#'.preg_quote('Signed-By: '.$root.'/keyrings-image/ondrej.gpg', '#').'\n#'
+                : '#Signed-By: \S+/php-repository-reused[.]gpg\n#')
+            ->and(file_get_contents($root.'/commands.keyrings'))->toContain('image key from ondrej/php')
             ->and($sources)->not->toContain('ai-harness-php.gpg');
     });
 }
@@ -805,7 +814,8 @@ foreach ([
         $process->mustRun();
         $sources = (string) file_get_contents($root.'/commands.sources');
 
-        expect($sources)->toContain('URIs: https://packages.sury.org/php', 'Signed-By: '.$root.'/keyrings-image/sury.gpg')
+        expect($sources)->toContain('URIs: https://packages.sury.org/php')
+            ->toMatch('#Signed-By: \S+/php-repository-reused[.]gpg\n#')
             ->and($sources)->not->toContain('vendor.invalid')
             ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
     });

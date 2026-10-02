@@ -34,6 +34,8 @@ case "${1:-}" in
 
         temporary_directory="$(mktemp -d)"
         trap 'rm -rf -- "$temporary_directory"' EXIT
+        # apt reads Signed-By keyrings as the _apt user.
+        chmod 0755 "$temporary_directory"
         apt_options=()
         apt_sources="${AI_HARNESS_APT_SOURCE_LIST:-}"
         extra_sources="${AI_HARNESS_APT_EXTRA_SOURCES:-}"
@@ -360,9 +362,13 @@ case "${1:-}" in
                 # file cannot change the update.
                 if [[ "$existing_source" != selected ]]; then
                     reused_keyring="$(trusted_keyrings "$existing_source" "$existing_pattern" "$existing_fingerprint" | head -n 1)"
+                    # Copy the keyring with mode 0644, so that the _apt user can
+                    # read it also when the file or its directory is private.
+                    "${privilege[@]}" cat -- "$reused_keyring" > "$temporary_directory/php-repository-reused.gpg"
+                    chmod 0644 "$temporary_directory/php-repository-reused.gpg"
                     reused_source="$temporary_directory/php-repository-reused.sources"
                     printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nSigned-By: %s\n' \
-                        "$existing_uri" "$distribution_codename" "$reused_keyring" > "$reused_source"
+                        "$existing_uri" "$distribution_codename" "$temporary_directory/php-repository-reused.gpg" > "$reused_source"
                     source_paths+=("$reused_source")
                 fi
             elif [[ -n "$php_key_kind" ]]; then
