@@ -372,12 +372,13 @@ case "${1:-}" in
         apt_options=(-o 'Acquire::Retries=5' "${apt_options[@]}")
 
         # apt-get update succeeds when an index cannot be downloaded, and apt then
-        # uses old package lists. Stop on such an error.
+        # uses old package lists. Stop when the PHP repository index fails; other
+        # mirrors do not block provisioning.
         update_log="$temporary_directory/apt-update.log"
         "${privilege[@]}" env LC_ALL=C apt-get "${apt_options[@]}" update 2>&1 | tee "$update_log"
 
-        if grep -Eq '^(W|E): (Failed to fetch|Some index files failed to download)' "$update_log"; then
-            printf 'apt-get update could not download every package index; check the network policy and the sources.\n' >&2
+        if grep -Eiq '^(W|E): Failed to fetch https?://(packages[.]sury[.]org/php|ppa[.]launchpadcontent[.]net/ondrej/php)' "$update_log"; then
+            printf 'apt-get update could not download the PHP package index; check the network policy.\n' >&2
             exit 1
         fi
         php_version="${AI_HARNESS_PHP_VERSION:-}"

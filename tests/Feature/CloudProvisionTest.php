@@ -555,20 +555,30 @@ test('cloud provision stops when no PHP repository has packages for the native a
 });
 
 foreach ([
-    'failed download' => 'W: Failed to fetch https://packages.sury.org/php/dists/noble/InRelease  503  Service Unavailable',
-    'failed index files' => 'E: Some index files failed to download. They have been ignored, or old ones used instead.',
+    'failed sury download' => 'W: Failed to fetch https://packages.sury.org/php/dists/noble/InRelease  503  Service Unavailable',
+    'failed Launchpad download' => 'W: Failed to fetch https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/noble/InRelease  503  Service Unavailable',
 ] as $scenario => $output) {
-    test('cloud provision stops when apt-get update cannot download an index: '.$scenario, function () use ($output): void {
+    test('cloud provision stops when apt-get update cannot download the PHP index: '.$scenario, function () use ($output): void {
         [$root, $environment] = cloud_php_repository_fixture();
         $environment['APT_UPDATE_OUTPUT'] = $output;
         $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
         $process->run();
 
         expect($process->isSuccessful())->toBeFalse()
-            ->and($process->getErrorOutput())->toContain('apt-get update could not download every package index')
+            ->and($process->getErrorOutput())->toContain('apt-get update could not download the PHP package index')
             ->and(file_get_contents($root.'/commands'))->not->toContain('install -y');
     });
 }
+
+test('cloud provision continues when an unrelated mirror cannot download an index', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['APT_UPDATE_OUTPUT'] = "W: Failed to fetch https://mirror.invalid/ubuntu/dists/noble/InRelease  503  Service Unavailable\nE: Some index files failed to download. They have been ignored, or old ones used instead.";
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($process->getErrorOutput())->not->toContain('could not download the PHP package index')
+        ->and(file_get_contents($root.'/commands'))->toContain('install -y');
+});
 
 test('cloud provision rejects a Launchpad key with a different fingerprint', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();

@@ -175,7 +175,7 @@ Provisioning stops with an error when a package is missing or a version is not c
 
 When `ubuntu.sources` or `debian.sources` exists, provisioning uses only that file. This prevents errors from unrelated image repositories that the cloud proxy can block. Package signature verification stays enabled.
 
-All apt commands retry a failed download five times (`Acquire::Retries=5`). When `apt-get update` still cannot download a package index, provisioning stops, because apt would otherwise continue with old package lists.
+All apt commands retry a failed download five times (`Acquire::Retries=5`). When `apt-get update` still cannot download the index of the PHP repository, provisioning stops, because apt would otherwise continue with old PHP package lists. A failed download from another source does not stop provisioning.
 
 ### PHP repository
 
