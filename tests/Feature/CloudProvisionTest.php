@@ -648,6 +648,8 @@ test('cloud provision reuses an enabled deb822 sury stanza next to a disabled on
 foreach ([
     'list entry' => ['php.list', "deb [arch=ai-harness-other trusted=yes signed-by={root}/keyrings-image/sury.gpg] https://packages.sury.org/php/ noble universe\n"],
     'deb822 stanza' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble jammy\nComponents: universe\nArchitectures-Remove: amd64\nTrusted: yes\nSigned-By: {root}/keyrings-image/sury.gpg\n"],
+    'list entry with an upper-case scheme and host' => ['php.list', "deb [signed-by={root}/keyrings-image/sury.gpg] HTTPS://PACKAGES.SURY.ORG/php noble main\n"],
+    'deb822 stanza with an encoded slash' => ['php.sources', "Types: deb\nURIs: https://packages.sury.org/php%2F\nSuites: noble\nComponents: main\nSigned-By: {root}/keyrings-image/sury.gpg\n"],
 ] as $scenario => [$file, $contents]) {
     test('cloud provision reuses only the verified keyring of a found sury source: '.$scenario, function () use ($file, $contents): void {
         [$root, $environment] = cloud_php_repository_fixture();
@@ -666,6 +668,18 @@ foreach ([
             ->and($sources)->not->toContain('Architectures');
     });
 }
+
+test('cloud provision uses a selected sury source with more than one Signed-By value as it is', function (): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    file_put_contents($root.'/sury.sources', "Types: deb\nURIs: https://packages.sury.org/php/\nSuites: noble\nComponents: main\nSigned-By:\n -----BEGIN PGP PUBLIC KEY BLOCK-----\n .\n -----END PGP PUBLIC KEY BLOCK-----\n");
+    $environment['AI_HARNESS_APT_EXTRA_SOURCES'] = $root.'/sury.sources';
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect($root.'/commands.curl')->not->toBeFile()
+        ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
+        ->and($root.'/keyrings')->not->toBeDirectory();
+});
 
 test('cloud provision probes without --retry-all-errors when curl does not support it', function (): void {
     [$root, $environment] = cloud_php_repository_fixture();

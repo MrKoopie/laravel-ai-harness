@@ -160,7 +160,15 @@ case "${1:-}" in
                     format=deb822
                 fi
 
-                [[ -f "$2" && -r "$2" ]] && awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" '
+                # Apt reads root-only source files too, so read them with privileges.
+                [[ -f "$2" ]] && "${privilege[@]}" cat -- "$2" 2>/dev/null | awk -v mode="$1" -v format="$format" -v pattern="$3" -v codename="${4:-}" -v trusted="${5:-}" '
+                    # Apt treats the scheme and host without case and decodes
+                    # %2F, so compare the URI in that form.
+                    function same(uri) {
+                        uri = tolower(uri)
+                        gsub(/%2f/, "/", uri)
+                        return uri ~ pattern
+                    }
                     function usable(path) {
                         if (codename == "" || mode == "any") return 1
                         if (path !~ /^\/[^,[:space:]]*$/) return 0
@@ -168,7 +176,7 @@ case "${1:-}" in
                     }
                     function reset() { matched = 0; enabled = 1; binary = 0; suite = (codename == ""); keyring = ""; keyrings = 0; field = "" }
                     function flush() {
-                        if (matched && enabled && binary && suite && (keyrings <= 1 || mode == "any") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
+                        if (matched && enabled && binary && suite && (keyrings <= 1 || mode == "any" || codename == "") && usable(keyring)) print (mode == "keyrings" ? keyring : "entry")
                         reset()
                     }
                     BEGIN { reset() }
@@ -183,7 +191,7 @@ case "${1:-}" in
                                 sub(/^[[:space:]]+/, "", entry)
                             }
                             split(entry, words, /[[:space:]]+/)
-                            if (words[1] !~ pattern || (codename != "" && words[2] != codename)) next
+                            if (!same(words[1]) || (codename != "" && words[2] != codename)) next
                             path = ""
                             if (match(options, /[[:space:]]signed-by=[^[:space:]]+/)) path = substr(options, RSTART + 11, RLENGTH - 11)
                             if (usable(path)) print (mode == "keyrings" ? path : "entry")
@@ -198,13 +206,13 @@ case "${1:-}" in
                         if (value ~ /^[^[:space:]]/) sub(/^[^:]*:/, "", value)
                         count = split(value, tokens, /[[:space:]]+/)
                     }
-                    field == "uris" { for (i = 1; i <= count; i++) if (tokens[i] != "" && tokens[i] ~ pattern) matched = 1 }
+                    field == "uris" { for (i = 1; i <= count; i++) if (tokens[i] != "" && same(tokens[i])) matched = 1 }
                     field == "suites" && (" " value " ") ~ ("[[:space:]]" codename "[[:space:]]") { suite = 1 }
                     field == "types" && (" " tolower(value) " ") ~ /[[:space:]]deb[[:space:]]/ { binary = 1 }
                     field == "enabled" && tolower(value) ~ /^[[:space:]]*no[[:space:]]*$/ { enabled = 0 }
                     field == "signed-by" { for (i = 1; i <= count; i++) if (tokens[i] != "") { keyring = tokens[i]; keyrings++ } }
                     END { flush() }
-                ' "$2"
+                '
             }
 
             has_enabled_source() {
