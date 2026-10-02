@@ -232,7 +232,8 @@ case "${1:-}" in
             }
 
             # Succeed when the keyring file holds exactly one key, with this
-            # fingerprint. Signed-By trusts every key in the file.
+            # fingerprint, and the key is not expired (e) or revoked (r).
+            # Signed-By trusts every key in the file.
             key_has_fingerprint() {
                 if ! command -v gpg >/dev/null 2>&1; then
                     printf 'Checking the PHP repository key requires gpg.\n' >&2
@@ -240,7 +241,7 @@ case "${1:-}" in
                 fi
 
                 gpg --batch --with-colons --show-keys "$1" 2>/dev/null | awk -F: -v fingerprint="$2" '
-                    $1 == "pub" { keys++; primary = 1; next }
+                    $1 == "pub" { keys++; primary = 1; if ($2 ~ /[er]/) other = 1; next }
                     $1 == "fpr" { if (primary && $10 != fingerprint) other = 1; primary = 0; next }
                     { primary = 0 }
                     END { exit !(keys == 1 && !other) }
@@ -327,7 +328,7 @@ case "${1:-}" in
                             php_key_kind=sury
                             sury_usable=true
                         else
-                            printf 'The sury signing key does not have fingerprint %s.\n' "$sury_fingerprint" >&2
+                            printf 'The sury signing key is not one valid key with fingerprint %s.\n' "$sury_fingerprint" >&2
                         fi
                     else
                         printf 'PHP repository %s does not answer for %s.\n' "$sury_uri" "$distribution_codename" >&2
@@ -371,7 +372,7 @@ case "${1:-}" in
                         | gpg --batch --yes --dearmor -o "$key_file"
 
                     if ! key_has_fingerprint "$key_file" "$launchpad_fingerprint"; then
-                        printf 'The Launchpad signing key does not have fingerprint %s.\n' "$launchpad_fingerprint" >&2
+                        printf 'The Launchpad signing key is not one valid key with fingerprint %s.\n' "$launchpad_fingerprint" >&2
                         exit 1
                     fi
                 fi

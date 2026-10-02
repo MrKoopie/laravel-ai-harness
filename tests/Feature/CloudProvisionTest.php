@@ -445,7 +445,9 @@ case "$*" in
         else
             fingerprint="${GPG_FINGERPRINT:-14AA40EC0831756756D7F66C4F4EA0AAE5267A6C}"
         fi
-        printf 'pub:-:3072:1:%s:::::::::\nfpr:::::::::%s:\n' "${fingerprint: -16}" "$fingerprint"
+        validity=-
+        grep -q packages.sury.org "${*: -1}" && validity="${GPG_SURY_VALIDITY:--}"
+        printf 'pub:%s:3072:1:%s:::::::::\nfpr:::::::::%s:\n' "$validity" "${fingerprint: -16}" "$fingerprint"
         [[ -z "${GPG_EXTRA_KEY:-}" ]] || printf 'pub:-:3072:1:CCCCCCCCCCCCCCCC:::::::::\nfpr:::::::::%s:\n' "$(printf 'C%.0s' {1..40})"
         ;;
 esac
@@ -528,8 +530,21 @@ test('cloud provision falls back to Launchpad when the sury key has a different 
 
     expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
         ->and(file_get_contents($root.'/keyrings/ai-harness-php.gpg'))->toContain('keyserver.ubuntu.com')
-        ->and($process->getErrorOutput())->toContain('The sury signing key does not have fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
+        ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
 });
+
+test('cloud provision falls back to Launchpad when the sury key is not valid', function (string $validity): void {
+    [$root, $environment] = cloud_php_repository_fixture();
+    $environment['GPG_SURY_VALIDITY'] = $validity;
+    $process = new Process(['bash', $root.'/.ai-harness-cloud', 'provision'], $root, $environment);
+    $process->mustRun();
+
+    expect(file_get_contents($root.'/apt-sources/ai-harness-php.sources'))->toContain('URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu')
+        ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint 15058500A0235D97F5D10063B188E2B695BD4743');
+})->with([
+    'expired' => ['e'],
+    'revoked' => ['r'],
+]);
 
 test('cloud provision stops on Debian when the sury key has a different fingerprint', function (): void {
     [$root, $environment] = cloud_php_repository_fixture('debian');
@@ -539,7 +554,7 @@ test('cloud provision stops on Debian when the sury key has a different fingerpr
     $process->run();
 
     expect($process->getExitCode())->toBe(1)
-        ->and($process->getErrorOutput())->toContain('The sury signing key does not have fingerprint')
+        ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint')
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile()
         ->and($root.'/commands')->not->toBeFile();
 });
@@ -835,7 +850,7 @@ test('cloud provision falls back to Launchpad when the sury keyring holds anothe
 
     // The Launchpad key gets the extra key too, so provisioning stops before it writes a source.
     expect($process->getExitCode())->toBe(1)
-        ->and($process->getErrorOutput())->toContain('The sury signing key does not have fingerprint', 'The Launchpad signing key does not have fingerprint')
+        ->and($process->getErrorOutput())->toContain('The sury signing key is not one valid key with fingerprint', 'The Launchpad signing key is not one valid key with fingerprint')
         ->and($root.'/apt-sources/ai-harness-php.sources')->not->toBeFile();
 });
 
