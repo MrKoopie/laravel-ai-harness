@@ -177,6 +177,7 @@ fi
             'AI_HARNESS_ENV' => 'codex-cloud',
             'AI_HARNESS_APT_SOURCE_LIST' => $root.'/ubuntu.sources',
             'AI_HARNESS_PHP_VERSION' => $override,
+            'AI_HARNESS_PHP_REPOSITORY' => 'none',
             'AI_HARNESS_COMPOSER_JSON' => '',
             'BASH_ENV' => $root.'/bash-env',
             'CLOUD_BIN' => $root.'/bin',
@@ -188,7 +189,7 @@ fi
         if ($expectedVersion === '') {
             expect($process->getExitCode())->toBe(1)
                 ->and($process->getErrorOutput())->toContain('AI_HARNESS_PHP_VERSION')
-                ->and(file_get_contents($root.'/commands'))->not->toContain('install', '--set php');
+                ->and(is_file($root.'/commands') ? (string) file_get_contents($root.'/commands') : '')->not->toContain('install', '--set php');
 
             return;
         }

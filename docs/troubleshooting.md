@@ -101,6 +101,10 @@ Commit `composer.lock` to the repository.
 
 The image probably puts phpenv shims first in `PATH`. Add `export PATH="/usr/bin:$PATH"` to the setup and maintenance scripts. Refer to [phpenv shims](cloud.md#phpenv-shims).
 
+### Cloud provisioning fails with `503 Service Unavailable` from Launchpad
+
+The ondrej/php PPA on Launchpad often answers `503`. Set `AI_HARNESS_PHP_VERSION`, and add `packages.sury.org` to the network allowlist. Provisioning then uses the sury repository and leaves the PPA entries of the selected sources out. Refer to [PHP repository](cloud.md#php-repository).
+
 ### Cloud archive downloads are blocked
 
 Set `AI_HARNESS_COMPOSER_PREFER=source` to install packages from Git. Refer to [Environment variables](cloud.md#environment-variables).
