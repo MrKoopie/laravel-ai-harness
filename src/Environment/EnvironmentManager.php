@@ -30,12 +30,17 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
-        if (! is_file($root.'/vendor/autoload.php')) {
-            $output->writeln('<info>Installing Composer dependencies</info>');
-            $status = $this->processes->run($this->commands->bootstrapComposer(), $root, $output);
+        if ($config->localEnvironment !== []) {
+            if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
+                throw new EnvironmentException('Local environment overrides require .env or .env.example in the project root.');
+            }
+        }
 
-            if ($status !== 0) {
-                return $status;
+        if ($config->localEnvironment !== [] || $config->managesMySql()) {
+            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail);
+
+            if ($conflicts !== []) {
+                throw new EnvironmentException('Local environment settings conflict with '.implode(', ', $conflicts).'; unset conflicting process variables or explicitly clear inherited URL/socket entries using local_env.<NAME>=.');
             }
         }
 
@@ -43,11 +48,27 @@ final readonly class EnvironmentManager
             $output->writeln('<info>Created .env from .env.example</info>');
         }
 
+        if ($config->localEnvironment !== []) {
+            // Clear stale configuration before Artisan can read the changed endpoint.
+            $this->environmentFile->clearCloudConfigCache($root);
+            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment);
+            $output->writeln('<info>Applied local environment overrides</info>');
+        }
+
         $usesMySql = $this->usesMySql($config);
 
         if ($usesMySql) {
             $this->environmentFile->configureMySql($root, $config->runtime === Runtime::Sail);
             $output->writeln('<info>Configured MySQL environment values</info>');
+        }
+
+        if (! is_file($root.'/vendor/autoload.php')) {
+            $output->writeln('<info>Installing Composer dependencies</info>');
+            $status = $this->processes->run($this->commands->bootstrapComposer(), $root, $output);
+
+            if ($status !== 0) {
+                return $status;
+            }
         }
 
         if ($this->requiresSail($config)) {
@@ -338,7 +359,7 @@ final readonly class EnvironmentManager
     /** Determine whether the configured Sail services include MySQL. */
     private function usesMySql(Config $config): bool
     {
-        return $config->services === Services::Sail && in_array('mysql', $config->sailServices, true);
+        return $config->managesMySql();
     }
 
     /** Resolve the cloud coordinator for lifecycle commands. */
