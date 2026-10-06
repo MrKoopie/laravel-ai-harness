@@ -151,7 +151,7 @@ services=sail
 sail_services=mysql,redis
 ```
 
-`setup` creates a development database and a testing database for each worktree. `cleanup` drops them. When another MySQL server already uses port 3306, set `FORWARD_DB_PORT=3307` in `.env`.
+`setup` creates a development database and a testing database for each worktree. `cleanup` drops them. When another MySQL server already uses port 3306, put `local_env.FORWARD_DB_PORT=3307` in `.ai-harness.config.local` and run `setup`.
 
 Refer to [MySQL with Sail](local-environments.md#mysql-with-sail).
 
@@ -177,6 +177,8 @@ valet_php=8.4
 `herd_php` does not apply to Valet. Set `valet_php` yourself when you need a specific PHP version.
 
 Then run `./.ai-harness setup` again.
+
+The same file can override application environment settings, such as `local_env.DB_PORT=3307` for an existing host database or `local_env.FORWARD_DB_PORT=3307` for Sail-managed MySQL. Linked local worktrees inherit your primary checkout's local file, and can override individual values in their own local file. See [Local application environment overrides](configuration.md#local-application-environment-overrides).
 
 ## Coding agents
 

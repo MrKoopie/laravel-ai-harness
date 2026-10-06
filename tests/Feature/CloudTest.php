@@ -46,6 +46,17 @@ test('cloud setup and maintenance reconcile dependencies in native runtime', fun
         ->and(substr_count((string) file_get_contents($root.'/commands.log'), 'install --no-interaction'))->toBe(2);
 });
 
+test('cloud setup ignores personal local environment overrides', function (): void {
+    [$root, $environment] = cloud_fixture();
+    file_put_contents($root.'/.ai-harness.config.local', "local_env.DB_PORT=3307\nlocal_env.DB_HOST=personal.invalid\nlocal_env.MAIL_MAILER=smtp\nlocal_env.CUSTOM_LOCAL_ONLY=private\n");
+
+    harness_process(['setup'], $root, $environment)->mustRun();
+
+    expect(file_get_contents($root.'/.env'))->toContain('DB_HOST=127.0.0.1', 'DB_PORT=3306', 'MAIL_MAILER=log');
+
+    expect(file_get_contents($root.'/.env'))->not->toContain('personal.invalid', 'CUSTOM_LOCAL_ONLY', 'DB_PORT=3307');
+});
+
 test('cloud SQLite starts as a valid database and retains development rows on maintenance', function (): void {
     [$root, $environment] = cloud_fixture();
     harness_process(['cloud', 'setup'], $root, $environment)->mustRun();

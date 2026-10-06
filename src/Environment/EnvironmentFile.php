@@ -19,6 +19,10 @@ final readonly class EnvironmentFile
         'CACHE_STORE' => 'array',
         'DB_CONNECTION' => 'sqlite',
         'DB_DATABASE' => ':memory:',
+        'DB_URL' => '',
+        'DATABASE_URL' => '',
+        'DB_SOCKET' => '',
+        'MYSQL_ATTR_SSL_CA' => '',
         'MAIL_MAILER' => 'array',
         'QUEUE_CONNECTION' => 'sync',
         'SESSION_DRIVER' => 'array',
@@ -76,6 +80,35 @@ final readonly class EnvironmentFile
         $this->replaceValues($root, '.env', ['APP_URL' => $url]);
     }
 
+    /**
+     * Apply explicitly configured local values as dotenv data, never shell code.
+     *
+     * @param  array<string, string>  $values
+     */
+    public function applyLocalOverrides(string $root, array $values): void
+    {
+        if (! is_file($root.'/.env')) {
+            throw new FileException('Local environment overrides require .env or .env.example in the project root.');
+        }
+
+        $encoded = [];
+
+        foreach ($values as $name => $value) {
+            if (str_contains($value, '`')) {
+                // Sail sources .env as Bash; single quotes also keep backticks literal there.
+                $encoded[$name] = "'".$value."'";
+
+                continue;
+            }
+
+            $encoded[$name] = preg_match('/^[A-Za-z0-9_.:\/\-]*$/', $value) === 1
+                ? $value
+                : '"'.str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $value).'"';
+        }
+
+        $this->replaceValues($root, '.env', $encoded);
+    }
+
     /** Create an isolated testing environment file when it is missing. */
     public function ensureTesting(string $root): bool
     {
@@ -113,6 +146,10 @@ final readonly class EnvironmentFile
             'DB_DATABASE' => $database,
             'DB_USERNAME' => 'sail',
             'DB_PASSWORD' => 'password',
+            'DB_URL' => '',
+            'DATABASE_URL' => '',
+            'DB_SOCKET' => '',
+            'MYSQL_ATTR_SSL_CA' => '',
         ];
 
         $this->replaceValues($root, '.env', $values);
@@ -186,7 +223,7 @@ final readonly class EnvironmentFile
         }
     }
 
-    /** Discard cached connections before any Laravel Composer script can use them. */
+    /** Discard cached connections before any Laravel command can use changed environment values. */
     public function clearCloudConfigCache(string $root): void
     {
         $relative = 'bootstrap/cache/config.php';
@@ -200,6 +237,61 @@ final readonly class EnvironmentFile
         if (is_file($path) && ! unlink($path)) {
             throw new FileException('Unable to clear cached Laravel configuration.');
         }
+    }
+
+    /**
+     * Find connection aliases that can take precedence over explicit local endpoint overrides.
+     *
+     * @param  array<string, string>  $overrides
+     * @return list<string>
+     */
+    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false): array
+    {
+        $conflicts = [];
+        $path = is_file($root.'/.env') ? $root.'/.env' : $root.'/.env.example';
+        $contents = is_file($path) ? $this->read($path) : '';
+        $databaseEndpoint = $managedMySql || array_intersect(['DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_PASSWORD', 'DB_DATABASE'], array_keys($overrides)) !== [];
+        $redisEndpoint = array_intersect(['REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD'], array_keys($overrides)) !== [];
+        $aliases = [...($databaseEndpoint ? ['DB_URL', 'DATABASE_URL', 'DB_SOCKET'] : []), ...($redisEndpoint ? ['REDIS_URL'] : []), 'APP_CONFIG_CACHE'];
+
+        foreach ($aliases as $name) {
+            if ($managedMySql && in_array($name, ['DB_URL', 'DATABASE_URL', 'DB_SOCKET'], true)) {
+                // configureMySql clears inherited database aliases before service startup.
+                continue;
+            }
+
+            $value = $overrides[$name] ?? null;
+
+            if ($value === null && preg_match('/^[ \t]*(?:export[ \t]+)?'.preg_quote($name, '/').'[ \t]*=[ \t]*(.*)$/m', $contents, $matches) === 1) {
+                $value = trim(trim($matches[1]), "\"'");
+            }
+
+            if ($name === 'APP_CONFIG_CACHE' && $value === 'bootstrap/cache/config.php') {
+                continue;
+            }
+
+            if ($value !== null && ! in_array(strtolower($value), ['', 'null', '(null)'], true)) {
+                $conflicts[] = $name;
+            }
+        }
+
+        // Process-level values override dotenv data as well, including container forwarding ports.
+        foreach (array_unique([...array_keys($overrides), ...$aliases]) as $name) {
+            $value = getenv($name);
+
+            if ($name === 'APP_CONFIG_CACHE' && $value === 'bootstrap/cache/config.php') {
+                continue;
+            }
+
+            $configuredConflict = array_key_exists($name, $overrides) && $value !== $overrides[$name];
+            $aliasConflict = ! array_key_exists($name, $overrides) && $value !== false && ! in_array(strtolower($value), ['', 'null', '(null)'], true);
+
+            if ($value !== false && ($configuredConflict || $aliasConflict)) {
+                $conflicts[] = 'process '.$name;
+            }
+        }
+
+        return $conflicts;
     }
 
     /** Reconcile inline PHPUnit overrides with the isolated cloud testing environment. */
@@ -330,7 +422,7 @@ final readonly class EnvironmentFile
         foreach ($values as $key => $value) {
             $replacement = $key.'='.$value;
             $found = false;
-            $pattern = '/^(?:#\s*)?'.preg_quote($key, '/').'=/';
+            $pattern = '/^\s*(?:#\s*)?(?:export\s+)?'.preg_quote($key, '/').'\s*=/';
 
             foreach ($lines as $index => $line) {
                 if (preg_match($pattern, $line) !== 1) {

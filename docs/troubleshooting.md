@@ -48,11 +48,24 @@ The harness stops when the configuration is not valid. Examples:
 
 ### MySQL port 3306 is already in use
 
-Another MySQL server uses the port. Set a different port in `.env`, then run `./.ai-harness setup` again:
+Another MySQL server uses the port. For Sail-managed MySQL, set a different forwarded port in `.ai-harness.config.local`, then run `./.ai-harness setup` again:
 
-```dotenv
-FORWARD_DB_PORT=3307
+```ini
+local_env.FORWARD_DB_PORT=3307
 ```
+
+For an existing database outside Sail management, use `local_env.DB_PORT=3307`. Primary-checkout overrides are inherited by local worktrees. Different simultaneously running Sail stacks need different forwarded ports.
+
+### A local override has no effect or setup reports a conflict
+
+1. Run `./.ai-harness setup` after editing `.ai-harness.config.local`; `update` and runtime commands do not apply the values to `.env`.
+2. Run `./.ai-harness doctor` to see each effective override's source file. Every value is redacted.
+3. Clear inherited database URL/socket aliases with `local_env.DB_URL=`, `local_env.DATABASE_URL=`, and `local_env.DB_SOCKET=` when setting a host endpoint. For Redis endpoints, clear a conflicting `REDIS_URL` with `local_env.REDIS_URL=`.
+4. Remove conflicting system-level variables from your shell or service environment. They take precedence over `.env` even when an alias is explicitly cleared there.
+5. Use the default `bootstrap/cache/config.php` cache path. Setup clears that cache when applying overrides and refuses non-default `APP_CONFIG_CACHE` paths.
+6. If tests use another endpoint, check `.env.testing` and forced PHPUnit XML values. Development overrides do not replace testing defaults.
+
+See [Local application environment overrides](configuration.md#local-application-environment-overrides) for the full rules. Overrides that conflict with generated database names, managed Sail connections, or Herd/Valet URLs are configuration errors.
 
 ### The harness does not create MySQL databases
 

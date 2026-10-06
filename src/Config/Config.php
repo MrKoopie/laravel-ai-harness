@@ -16,6 +16,8 @@ final readonly class Config
      * @param  list<non-empty-string>  $sailServices
      * @param  list<non-empty-string>  $sourceFiles
      * @param  list<string>  $cloudServices
+     * @param  array<string, string>  $localEnvironment
+     * @param  array<string, string>  $localEnvironmentSources
      */
     public function __construct(
         public Runtime $runtime,
@@ -34,11 +36,19 @@ final readonly class Config
         public bool $cloudBrowser = false,
         public bool $valetSecure = true,
         public ?string $valetPhp = null,
+        public array $localEnvironment = [],
+        public array $localEnvironmentSources = [],
     ) {}
 
     /** Determine whether the named coding agent is enabled. */
     public function supportsAgent(string $agent): bool
     {
         return in_array($agent, $this->agents, true);
+    }
+
+    /** Determine whether Sail owns the checkout's MySQL connection and databases. */
+    public function managesMySql(): bool
+    {
+        return $this->services === Services::Sail && in_array('mysql', $this->sailServices, true);
     }
 }

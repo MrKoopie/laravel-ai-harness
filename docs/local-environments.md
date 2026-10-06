@@ -2,21 +2,23 @@
 
 This page tells you what the environment commands do on a local machine. For cloud containers, refer to [Cloud environments](cloud.md).
 
-Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.testing`. The names come from the checkout path. Thus, parallel worktrees do not share data. The harness does not read Git or agent metadata to do this.
+Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.testing`. The names come from the checkout path. Thus, parallel worktrees do not share data. Resource names do not depend on Git or agent metadata; Git metadata is used only to find inherited personal configuration.
 
 ## `setup`
 
 `setup` prepares the current checkout. It does these steps in sequence:
 
-1. Run `composer install` when `vendor/autoload.php` does not exist.
+1. Load configuration and check local override conflicts before making changes.
 2. Copy `.env.example` to `.env` when `.env` does not exist.
-3. Set the MySQL values in `.env` when Sail manages MySQL. The host is `127.0.0.1` for the native and Herd runtimes, and `mysql` for the Sail runtime. The harness activates commented default values. It does not add duplicates.
-4. Start the configured Sail services. Create the development and testing databases for this checkout.
-5. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
-6. Secure the site when `herd_secure=true` or `valet_secure=true`. Isolate its PHP version when `herd_php` or `valet_php` has a value.
-7. Generate `APP_KEY` when the key is empty.
-8. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. Without it, it uses isolated SQLite defaults.
-9. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
+3. Apply `local_env.*` overrides to `.env` and clear cached Laravel configuration when overrides are configured.
+4. Set the MySQL values in `.env` when Sail manages MySQL. Host PHP uses `127.0.0.1`; PHP inside Sail uses `mysql`. The harness activates commented default values and removes duplicates.
+5. Run `composer install` when `vendor/autoload.php` does not exist.
+6. Start the configured Sail services. Create the development and testing databases for this checkout.
+7. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
+8. Secure the site when `herd_secure=true` or `valet_secure=true`. Isolate its PHP version when `herd_php` or `valet_php` has a value.
+9. Generate `APP_KEY` when the key is empty.
+10. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. Without it, it uses isolated SQLite defaults.
+11. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
 
 `setup` does not:
 
@@ -30,6 +32,8 @@ You can run `setup` again at any time. It does not replace an existing `.env` or
 - With Herd or Valet: `APP_URL` in `.env`.
 
 If you change these values by hand, the next `setup` replaces them.
+
+Personal `local_env.*` settings in `.ai-harness.config.local` are also reapplied to `.env` on each setup, before Composer, Sail, or Artisan runs. Linked local worktrees inherit the primary checkout's local file, with their own local file taking precedence. See [Local application environment overrides](configuration.md#local-application-environment-overrides) for syntax, protected values, testing behavior, and conflict checks.
 
 ## `cleanup`
 
@@ -143,11 +147,13 @@ The names leave space for the parallel worker suffix of Laravel. They stay withi
 
 ### Port
 
-With Herd or native PHP, `DB_PORT` uses the `FORWARD_DB_PORT` value from `.env`. The default is `3306`. When another MySQL server already uses port 3306, set a different port:
+With host PHP (Herd, Valet, or native), `DB_PORT` uses the `FORWARD_DB_PORT` value from `.env`. The default is `3306`. To keep a personal port choice across fresh worktrees, put this in the primary checkout's `.ai-harness.config.local`, then run `./.ai-harness setup`:
 
-```dotenv
-FORWARD_DB_PORT=3307
+```ini
+local_env.FORWARD_DB_PORT=3307
 ```
+
+PHP inside Sail still connects to `mysql:3306`. You can also set `FORWARD_DB_PORT` directly in `.env`, but that choice is not inherited by new worktrees. For an existing database outside Sail management, use `local_env.DB_PORT=3307` instead. Refer to [Local application environment overrides](configuration.md#local-application-environment-overrides).
 
 ### Cleanup of parallel test databases
 

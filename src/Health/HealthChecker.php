@@ -6,10 +6,12 @@ namespace MrKoopie\LaravelAiHarness\Health;
 
 use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Environment\ComposerAuth;
+use MrKoopie\LaravelAiHarness\Environment\EnvironmentFile;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
+use MrKoopie\LaravelAiHarness\Files\SafeWriter;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 final readonly class HealthChecker
@@ -39,6 +41,26 @@ final readonly class HealthChecker
         ];
 
         $cloud = ExecutionEnvironment::current()->isCloud();
+
+        if (! $cloud && $config->localEnvironment !== []) {
+            foreach ($config->localEnvironmentSources as $name => $source) {
+                // All values are withheld, including application-specific secret names.
+                $checks[] = new CheckResult(true, "Local override {$name} from {$source} (value redacted)");
+            }
+
+            $environmentFile = new EnvironmentFile(new SafeWriter);
+
+            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql()) as $name) {
+                $checks[] = new CheckResult(false, "Local environment override conflicts with {$name}; remove it or explicitly clear the URL/socket override");
+            }
+
+            $checks[] = $this->file(
+                ! file_exists($root.'/bootstrap/cache/config.php'),
+                'No cached Laravel configuration overrides local environment settings',
+                'Laravel configuration is cached; setup clears it when applying local overrides',
+            );
+        }
+
         $checks[] = match ($cloud ? Runtime::Native : $config->runtime) {
             Runtime::Native => $this->file($this->executables->php() !== null, 'Native PHP is available', 'Native PHP is unavailable'),
             Runtime::Herd => $this->file($this->executables->herd() !== null, 'Laravel Herd is available', 'Laravel Herd is unavailable'),
