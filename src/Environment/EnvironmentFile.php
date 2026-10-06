@@ -136,21 +136,7 @@ final readonly class EnvironmentFile
     /** Configure project environment files for checkout-specific MySQL. */
     public function configureMySql(string $root, bool $insideSail): void
     {
-        $host = $insideSail ? 'mysql' : '127.0.0.1';
-        $port = $insideSail ? '3306' : $this->forwardedMySqlPort($root);
-        $database = DatabaseName::forPath($root);
-        $values = [
-            'DB_CONNECTION' => 'mysql',
-            'DB_HOST' => $host,
-            'DB_PORT' => $port,
-            'DB_DATABASE' => $database,
-            'DB_USERNAME' => 'sail',
-            'DB_PASSWORD' => 'password',
-            'DB_URL' => '',
-            'DATABASE_URL' => '',
-            'DB_SOCKET' => '',
-            'MYSQL_ATTR_SSL_CA' => '',
-        ];
+        $values = $this->mySqlValues($root, $insideSail, $this->forwardedMySqlPort($root));
 
         $this->replaceValues($root, '.env', $values);
 
@@ -159,6 +145,23 @@ final readonly class EnvironmentFile
         if (is_file($testing)) {
             $this->replaceValues($root, '.env.testing', [...self::TESTING_VALUES, ...$values, 'DB_DATABASE' => DatabaseName::testingForPath($root)]);
         }
+    }
+
+    /** @return array<string, string> Shared development/testing connection values, except the database name. */
+    private function mySqlValues(string $root, bool $insideSail, string $forwardedPort): array
+    {
+        return [
+            'DB_CONNECTION' => 'mysql',
+            'DB_HOST' => $insideSail ? 'mysql' : '127.0.0.1',
+            'DB_PORT' => $insideSail ? '3306' : $forwardedPort,
+            'DB_DATABASE' => DatabaseName::forPath($root),
+            'DB_USERNAME' => 'sail',
+            'DB_PASSWORD' => 'password',
+            'DB_URL' => '',
+            'DATABASE_URL' => '',
+            'DB_SOCKET' => '',
+            'MYSQL_ATTR_SSL_CA' => '',
+        ];
     }
 
     /** Ensure the testing environment exists and uses MySQL. */
@@ -245,12 +248,12 @@ final readonly class EnvironmentFile
      * @param  array<string, string>  $overrides
      * @return list<string>
      */
-    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false): array
+    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false, bool $insideSail = false): array
     {
         $conflicts = [];
         $path = is_file($root.'/.env') ? $root.'/.env' : $root.'/.env.example';
         $contents = is_file($path) ? $this->read($path) : '';
-        $databaseEndpoint = $managedMySql || array_intersect(['DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_PASSWORD', 'DB_DATABASE'], array_keys($overrides)) !== [];
+        $databaseEndpoint = $managedMySql || array_intersect(['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_PASSWORD', 'DB_DATABASE'], array_keys($overrides)) !== [];
         $redisEndpoint = array_intersect(['REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD'], array_keys($overrides)) !== [];
         $aliases = [...($databaseEndpoint ? ['DB_URL', 'DATABASE_URL', 'DB_SOCKET'] : []), ...($redisEndpoint ? ['REDIS_URL'] : []), 'APP_CONFIG_CACHE'];
 
@@ -260,31 +263,51 @@ final readonly class EnvironmentFile
                 continue;
             }
 
-            $value = $overrides[$name] ?? null;
+            $values = [];
 
-            if ($value === null && preg_match('/^[ \t]*(?:export[ \t]+)?'.preg_quote($name, '/').'[ \t]*=[ \t]*(.*)$/m', $contents, $matches) === 1) {
-                $value = trim(trim($matches[1]), "\"'");
+            if (array_key_exists($name, $overrides)) {
+                // Applying an explicit value removes every duplicate entry for that name.
+                $values[] = $overrides[$name];
+            } else {
+                preg_match_all('/^[ \t]*(?:export[ \t]+)?'.preg_quote($name, '/').'[ \t]*=[ \t]*(.*)$/m', $contents, $matches);
+                $values = array_map(static fn (string $value): string => trim(trim($value), "\"'"), $matches[1]);
             }
 
-            if ($name === 'APP_CONFIG_CACHE' && $value === 'bootstrap/cache/config.php') {
-                continue;
-            }
+            foreach ($values as $value) {
+                if ($name === 'APP_CONFIG_CACHE' && $value === 'bootstrap/cache/config.php') {
+                    continue;
+                }
 
-            if ($value !== null && ! in_array(strtolower($value), ['', 'null', '(null)'], true)) {
-                $conflicts[] = $name;
+                if (! in_array(strtolower($value), ['', 'null', '(null)'], true)) {
+                    $conflicts[] = $name;
+
+                    break;
+                }
             }
         }
 
+        $expected = $overrides;
+
+        if ($managedMySql) {
+            $forwardedPort = $overrides['FORWARD_DB_PORT'] ?? $this->forwardedMySqlPort($root);
+            $expected = [...$expected, ...$this->mySqlValues($root, $insideSail, $forwardedPort), 'FORWARD_DB_PORT' => $forwardedPort];
+        }
+
         // Process-level values override dotenv data as well, including container forwarding ports.
-        foreach (array_unique([...array_keys($overrides), ...$aliases]) as $name) {
+        foreach (array_unique([...array_keys($expected), ...$aliases]) as $name) {
             $value = getenv($name);
 
             if ($name === 'APP_CONFIG_CACHE' && $value === 'bootstrap/cache/config.php') {
                 continue;
             }
 
-            $configuredConflict = array_key_exists($name, $overrides) && $value !== $overrides[$name];
-            $aliasConflict = ! array_key_exists($name, $overrides) && $value !== false && ! in_array(strtolower($value), ['', 'null', '(null)'], true);
+            $configuredConflict = array_key_exists($name, $expected) && $value !== $expected[$name];
+            $aliasConflict = ! array_key_exists($name, $expected) && $value !== false && ! in_array(strtolower($value), ['', 'null', '(null)'], true);
+
+            if ($managedMySql && $name === 'DB_DATABASE') {
+                // Even the correct development name would override the separate testing database.
+                $configuredConflict = true;
+            }
 
             if ($value !== false && ($configuredConflict || $aliasConflict)) {
                 $conflicts[] = 'process '.$name;
@@ -450,7 +473,7 @@ final readonly class EnvironmentFile
     /** Read and validate the host-side forwarded MySQL port. */
     private function forwardedMySqlPort(string $root): string
     {
-        $path = $root.'/.env';
+        $path = is_file($root.'/.env') ? $root.'/.env' : $root.'/.env.example';
 
         if (! is_file($path)) {
             return '3306';

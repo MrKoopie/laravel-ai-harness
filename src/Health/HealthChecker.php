@@ -42,7 +42,7 @@ final readonly class HealthChecker
 
         $cloud = ExecutionEnvironment::current()->isCloud();
 
-        if (! $cloud && $config->localEnvironment !== []) {
+        if (! $cloud && ($config->localEnvironment !== [] || $config->managesMySql())) {
             foreach ($config->localEnvironmentSources as $name => $source) {
                 // All values are withheld, including application-specific secret names.
                 $checks[] = new CheckResult(true, "Local override {$name} from {$source} (value redacted)");
@@ -50,15 +50,17 @@ final readonly class HealthChecker
 
             $environmentFile = new EnvironmentFile(new SafeWriter);
 
-            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql()) as $name) {
+            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail) as $name) {
                 $checks[] = new CheckResult(false, "Local environment override conflicts with {$name}; remove it or explicitly clear the URL/socket override");
             }
 
-            $checks[] = $this->file(
-                ! file_exists($root.'/bootstrap/cache/config.php'),
-                'No cached Laravel configuration overrides local environment settings',
-                'Laravel configuration is cached; setup clears it when applying local overrides',
-            );
+            if ($config->localEnvironment !== []) {
+                $checks[] = $this->file(
+                    ! file_exists($root.'/bootstrap/cache/config.php'),
+                    'No cached Laravel configuration overrides local environment settings',
+                    'Laravel configuration is cached; setup clears it when applying local overrides',
+                );
+            }
         }
 
         $checks[] = match ($cloud ? Runtime::Native : $config->runtime) {

@@ -102,6 +102,10 @@ The namespace is accepted in all configuration layers, so teams can also put non
 
 `doctor` lists the source file of each effective override and redacts every value, including custom variables. It flags cached Laravel configuration, connection URLs or sockets that would take precedence over endpoint settings, conflicting process environment variables, and non-default `APP_CONFIG_CACHE` paths.
 
+Changing `DB_CONNECTION` also checks inherited database URLs and sockets. Every duplicate alias entry is inspected: any nonempty entry is a conflict unless an explicit override replaces all entries for that name. This prevents different dotenv and shell readers from choosing different connections.
+
+For managed Sail MySQL, setup and `doctor` also check all generated connection values against the process environment, even when no `local_env` settings are configured. Matching host, port, connection, and credential values are accepted. Any process-level `DB_DATABASE` must be unset: even the correct development name would replace the separate testing database. The expected host and port reflect whether PHP runs on the host or inside Sail, and the forwarded port is checked separately.
+
 `setup` clears `bootstrap/cache/config.php` when overrides are applied. It refuses connection and process conflicts before changing files or starting commands. Remove a conflicting variable from your shell, or explicitly clear an inherited `.env` alias:
 
 ```ini

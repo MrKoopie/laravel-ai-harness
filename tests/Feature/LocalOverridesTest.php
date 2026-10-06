@@ -170,3 +170,148 @@ INI);
         ->and($root.'/dollar-executed')->not->toBeFile()
         ->and(substr_count((string) file_get_contents($root.'/.env'), 'DB_PORT='))->toBe(1);
 });
+
+foreach (['DB_URL', 'DATABASE_URL', 'DB_SOCKET', 'REDIS_URL', 'APP_CONFIG_CACHE'] as $alias) {
+    test('every duplicate alias is checked before applying overrides: '.$alias, function () use ($alias): void {
+        $root = temp_directory('harness-duplicate-alias');
+        mkdir($root.'/vendor');
+        file_put_contents($root.'/vendor/autoload.php', '<?php');
+        $endpoint = $alias === 'REDIS_URL' ? 'REDIS_PORT' : 'DB_PORT';
+        $contents = "APP_KEY=present\n{$alias}=\nexport {$alias}=private-value\n";
+        file_put_contents($root.'/.env', $contents);
+        file_put_contents($root.'/.ai-harness.config.local', "agents=\nlocal_env.{$endpoint}=3307\n");
+        $process = harness_process(['setup'], $root);
+        $process->run();
+
+        expect($process->getExitCode())->toBe(1)
+            ->and($process->getOutput().$process->getErrorOutput())->toContain($alias)
+            ->and(file_get_contents($root.'/.env'))->toBe($contents);
+
+        expect($process->getOutput().$process->getErrorOutput())->not->toContain('private-value');
+
+        file_put_contents($root.'/.ai-harness.config.local', "agents=\nlocal_env.{$endpoint}=3307\nlocal_env.{$alias}=\n");
+
+        if ($alias === 'APP_CONFIG_CACHE') {
+            // APP_CONFIG_CACHE is managed; clear it directly rather than configuring an override.
+            file_put_contents($root.'/.env', "APP_KEY=present\nAPP_CONFIG_CACHE=\n");
+            file_put_contents($root.'/.ai-harness.config.local', "agents=\nlocal_env.{$endpoint}=3307\n");
+        }
+
+        harness_process(['setup'], $root)->mustRun();
+
+        expect(file_get_contents($root.'/.env'))->toContain("{$alias}=\n")
+            ->and(substr_count((string) file_get_contents($root.'/.env'), $alias.'='))->toBe(1);
+    });
+}
+
+foreach (['DB_URL', 'DATABASE_URL', 'DB_SOCKET'] as $alias) {
+    test('switching DB_CONNECTION checks inherited aliases: '.$alias, function () use ($alias): void {
+        $root = temp_directory('harness-connection-switch');
+        mkdir($root.'/vendor');
+        file_put_contents($root.'/vendor/autoload.php', '<?php');
+        $contents = "APP_KEY=present\nDB_CONNECTION=mysql\n{$alias}=private-value\n";
+        file_put_contents($root.'/.env', $contents);
+        file_put_contents($root.'/.ai-harness.config.local', "agents=\nlocal_env.DB_CONNECTION=sqlite\n");
+        $process = harness_process(['setup'], $root);
+        $process->run();
+
+        expect($process->getExitCode())->toBe(1)
+            ->and($process->getOutput().$process->getErrorOutput())->toContain($alias)
+            ->and(file_get_contents($root.'/.env'))->toBe($contents);
+
+        file_put_contents($root.'/.ai-harness.config.local', "agents=\nlocal_env.DB_CONNECTION=sqlite\nlocal_env.{$alias}=\n");
+        harness_process(['setup'], $root)->mustRun();
+
+        expect(file_get_contents($root.'/.env'))->toContain('DB_CONNECTION=sqlite', "{$alias}=\n");
+    });
+}
+
+foreach ([
+    'DB_CONNECTION' => 'pgsql',
+    'DB_HOST' => 'private-value',
+    'DB_PORT' => '3310',
+    'DB_DATABASE' => 'private-value',
+    'DB_USERNAME' => 'private-value',
+    'DB_PASSWORD' => 'private-value',
+    'DB_URL' => 'private-value',
+    'DATABASE_URL' => 'private-value',
+    'DB_SOCKET' => 'private-value',
+    'MYSQL_ATTR_SSL_CA' => 'private-value',
+] as $name => $value) {
+    test('managed MySQL rejects conflicting process settings before changes: '.$name, function () use ($name, $value): void {
+        $root = temp_directory('harness-managed-process');
+        mkdir($root.'/vendor/bin', 0755, true);
+        file_put_contents($root.'/vendor/autoload.php', '<?php');
+        file_put_contents($root.'/.env', "APP_KEY=present\nFORWARD_DB_PORT=3306\n");
+        file_put_contents($root.'/.ai-harness.config', "services=sail\nsail_services=mysql\nagents=\n");
+        file_put_contents($root.'/.ai-harness.config.local', 'local_env.FORWARD_DB_PORT=3307');
+        write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\ntouch command-ran\n");
+        $environment = array_fill_keys(['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_URL', 'DATABASE_URL', 'DB_SOCKET', 'MYSQL_ATTR_SSL_CA'], false);
+        $environment[$name] = $value;
+        $process = harness_process(['setup'], $root, $environment);
+        $process->run();
+
+        expect($process->getExitCode())->toBe(1)
+            ->and($process->getOutput().$process->getErrorOutput())->toContain('process '.$name)
+            ->and(file_get_contents($root.'/.env'))->toBe("APP_KEY=present\nFORWARD_DB_PORT=3306\n")
+            ->and($root.'/command-ran')->not->toBeFile();
+
+        expect($process->getOutput().$process->getErrorOutput())->not->toContain('private-value');
+    });
+}
+
+foreach (['native', 'sail'] as $runtime) {
+    foreach (['local override' => '3307', 'template default' => '3311', 'existing environment' => '3312'] as $source => $port) {
+        test('matching managed process endpoints are accepted for '.$runtime.' with '.$source, function () use ($runtime, $source, $port): void {
+            $root = temp_directory('harness-matching-managed-process');
+            mkdir($root.'/vendor/bin', 0755, true);
+            file_put_contents($root.'/vendor/autoload.php', '<?php');
+            file_put_contents($root.'/artisan', '<?php');
+            $filename = $source === 'existing environment' ? '.env' : '.env.example';
+            file_put_contents($root.'/'.$filename, "APP_KEY=present\nFORWARD_DB_PORT={$port}\n");
+            file_put_contents($root.'/.ai-harness.config', "runtime={$runtime}\nservices=sail\nsail_services=mysql\nagents=\n");
+
+            if ($source === 'local override') {
+                file_put_contents($root.'/.ai-harness.config.local', 'local_env.FORWARD_DB_PORT=3307');
+            }
+
+            write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
+            $environment = [
+                'DB_CONNECTION' => 'mysql',
+                'DB_HOST' => $runtime === 'sail' ? 'mysql' : '127.0.0.1',
+                'DB_PORT' => $runtime === 'sail' ? '3306' : $port,
+                'DB_DATABASE' => false,
+                'DB_USERNAME' => 'sail',
+                'DB_PASSWORD' => 'password',
+                'DB_URL' => false,
+                'DATABASE_URL' => false,
+                'DB_SOCKET' => false,
+                'MYSQL_ATTR_SSL_CA' => false,
+                'FORWARD_DB_PORT' => $port,
+            ];
+            harness_process(['setup'], $root, $environment)->mustRun();
+
+            expect(file_get_contents($root.'/.env'))->toContain('DB_PORT='.$environment['DB_PORT'], 'DB_HOST='.$environment['DB_HOST'], 'DB_DATABASE='.DatabaseName::forPath($root))
+                ->and(file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE='.DatabaseName::testingForPath($root));
+        });
+    }
+}
+
+test('even a matching development database in the process would override the isolated testing database', function (): void {
+    $root = temp_directory('harness-process-testing-isolation');
+    mkdir($root.'/vendor/bin', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', '<?php');
+    file_put_contents($root.'/.env', "APP_KEY=present\n");
+    file_put_contents($root.'/.ai-harness.config', "services=sail\nsail_services=mysql\nagents=\n");
+    write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\ntouch command-ran\n");
+    $environment = ['DB_DATABASE' => DatabaseName::forPath($root)];
+    $setup = harness_process(['setup'], $root, $environment);
+    $setup->run();
+    $doctor = harness_process(['doctor'], $root, $environment);
+    $doctor->run();
+
+    expect($setup->getExitCode())->toBe(1)
+        ->and($setup->getOutput().$setup->getErrorOutput())->toContain('process DB_DATABASE')
+        ->and($doctor->getOutput().$doctor->getErrorOutput())->toContain('process DB_DATABASE')
+        ->and($root.'/command-ran')->not->toBeFile();
+});

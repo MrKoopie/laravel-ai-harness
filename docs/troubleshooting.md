@@ -65,6 +65,8 @@ For an existing database outside Sail management, use `local_env.DB_PORT=3307`. 
 5. Use the default `bootstrap/cache/config.php` cache path. Setup clears that cache when applying overrides and refuses non-default `APP_CONFIG_CACHE` paths.
 6. If tests use another endpoint, check `.env.testing` and forced PHPUnit XML values. Development overrides do not replace testing defaults.
 
+Connection changes through `local_env.DB_CONNECTION` also check URL and socket aliases. Duplicate alias entries are all checked; explicitly clearing an alias removes its duplicates. For managed Sail MySQL, remove conflicting generated `DB_*` values from the process environment as well. Always unset a process-level `DB_DATABASE`, including the development database name, so tests can use their separate database. These managed checks run even without `local_env` settings.
+
 See [Local application environment overrides](configuration.md#local-application-environment-overrides) for the full rules. Overrides that conflict with generated database names, managed Sail connections, or Herd/Valet URLs are configuration errors.
 
 ### The harness does not create MySQL databases

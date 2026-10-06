@@ -34,11 +34,13 @@ final readonly class EnvironmentManager
             if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
                 throw new EnvironmentException('Local environment overrides require .env or .env.example in the project root.');
             }
+        }
 
-            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql());
+        if ($config->localEnvironment !== [] || $config->managesMySql()) {
+            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail);
 
             if ($conflicts !== []) {
-                throw new EnvironmentException('Local environment overrides conflict with '.implode(', ', $conflicts).'; remove the conflict or explicitly clear the URL/socket using local_env.<NAME>=.');
+                throw new EnvironmentException('Local environment settings conflict with '.implode(', ', $conflicts).'; unset conflicting process variables or explicitly clear inherited URL/socket entries using local_env.<NAME>=.');
             }
         }
 
