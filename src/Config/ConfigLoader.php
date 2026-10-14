@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Config;
 
+use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
+use MrKoopie\LaravelAiHarness\Support\PrimaryCheckout;
 
 final class ConfigLoader
 {
@@ -44,15 +46,29 @@ final class ConfigLoader
     {
         $values = self::DEFAULTS;
         $sourceFiles = [];
+        $localEnvironment = [];
+        $localEnvironmentSources = [];
+        $cloud = ExecutionEnvironment::current()->isCloud();
 
-        foreach (self::FILES as $filename) {
-            $path = $root.DIRECTORY_SEPARATOR.$filename;
-
+        foreach ($this->files($root, $cloud) as $filename => $path) {
             if (! is_file($path)) {
                 continue;
             }
 
-            $values = array_replace($values, $this->parseFile($path));
+            foreach ($this->parseFile($path) as $key => $value) {
+                if (str_starts_with($key, 'local_env.')) {
+                    if (! $cloud) {
+                        $name = substr($key, 10);
+                        $localEnvironment[$name] = $value;
+                        $localEnvironmentSources[$name] = $filename;
+                    }
+
+                    continue;
+                }
+
+                $values[$key] = $value;
+            }
+
             $sourceFiles[] = $filename;
         }
 
@@ -112,7 +128,7 @@ final class ConfigLoader
         }
 
         /** @var list<'claude'|'codex'> $agents */
-        return new Config(
+        $config = new Config(
             runtime: $runtime,
             services: $services,
             agents: $agents,
@@ -129,7 +145,57 @@ final class ConfigLoader
             cloudBrowser: $this->boolean($values['cloud_browser'], 'cloud_browser'),
             valetSecure: $this->boolean($values['valet_secure'], 'valet_secure'),
             valetPhp: $valetPhp === '' ? null : $valetPhp,
+            localEnvironment: $localEnvironment,
+            localEnvironmentSources: $localEnvironmentSources,
         );
+
+        $this->validateLocalEnvironment($config);
+
+        return $config;
+    }
+
+    /** @return array<non-empty-string, non-empty-string> Ordered display names and file paths. */
+    private function files(string $root, bool $cloud): array
+    {
+        $files = [];
+
+        foreach (self::FILES as $filename) {
+            if ($filename === '.ai-harness.config.local' && ! $cloud) {
+                $primary = PrimaryCheckout::forWorktree($root);
+
+                if ($primary !== null && realpath($primary) !== realpath($root)) {
+                    $path = $primary.'/.ai-harness.config.local';
+                    $files[$path] = $path;
+                }
+            }
+
+            $files[$filename] = $root.DIRECTORY_SEPARATOR.$filename;
+        }
+
+        return $files;
+    }
+
+    /** Validate effective local values without disclosing credentials in errors. */
+    private function validateLocalEnvironment(Config $config): void
+    {
+        foreach ($config->localEnvironment as $name => $value) {
+            if (str_contains($value, '`') && str_contains($value, "'")) {
+                throw new ConfigException("local_env.{$name} cannot combine backticks with apostrophes; that literal cannot be represented safely for both Laravel and Sail.");
+            }
+
+            $managed = in_array($name, ['APP_KEY', 'APP_ENV', 'APP_CONFIG_CACHE'], true)
+                || ($name === 'APP_URL' && in_array($config->runtime, [Runtime::Herd, Runtime::Valet], true))
+                || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)));
+
+            if ($managed) {
+                throw new ConfigException("local_env.{$name} is managed by the harness for this runtime; use local_env.FORWARD_DB_PORT for a Sail host port.");
+            }
+
+            if (in_array($name, ['DB_PORT', 'FORWARD_DB_PORT', 'REDIS_PORT', 'FORWARD_REDIS_PORT', 'MAIL_PORT', 'FORWARD_MAILPIT_PORT', 'FORWARD_MAILPIT_DASHBOARD_PORT', 'APP_PORT', 'VITE_PORT'], true)
+                && (! ctype_digit($value) || (int) $value < 1 || (int) $value > 65535)) {
+                throw new ConfigException("local_env.{$name} must be a TCP port between 1 and 65535.");
+            }
+        }
     }
 
     /**
@@ -166,7 +232,7 @@ final class ConfigLoader
 
             [$key, $rawValue] = array_map('trim', explode('=', $trimmed, 2));
 
-            if (! array_key_exists($key, self::DEFAULTS)) {
+            if (! array_key_exists($key, self::DEFAULTS) && preg_match('/^local_env\.[A-Z_][A-Z0-9_]*$/', $key) !== 1) {
                 throw new ConfigException(sprintf('Unknown configuration key [%s] at %s:%d.', $key, $path, $index + 1));
             }
 
@@ -175,6 +241,10 @@ final class ConfigLoader
             }
 
             $value = $this->unquote($rawValue, $path, $index + 1);
+
+            if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+                throw new ConfigException(sprintf('Configuration value [%s] at %s:%d contains a control character.', $key, $path, $index + 1));
+            }
 
             if (strlen($value) > self::MAX_VALUE_LENGTH) {
                 throw new ConfigException(sprintf('Configuration value [%s] at %s:%d exceeds 4096 bytes.', $key, $path, $index + 1));

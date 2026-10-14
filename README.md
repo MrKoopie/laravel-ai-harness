@@ -13,6 +13,8 @@ Laravel AI Harness gives coding agents (Codex and Claude Code) and people one st
 
 The harness selects the correct runtime from one configuration file. Agents do not have to know if the project uses `php artisan`, `herd php artisan`, or `sail artisan`.
 
+Personal application settings go in `.ai-harness.config.local`, for example `local_env.DB_PORT=3307` for an existing host database or `local_env.FORWARD_DB_PORT=3307` for Sail-managed MySQL. Run `setup` to apply them. Linked local worktrees inherit these defaults from the primary checkout. See [Local application environment overrides](docs/configuration.md#local-application-environment-overrides).
+
 ## Why use it
 
 - **One command for all runtimes.** Agent instructions stay the same when you change from Herd to Sail.
