@@ -25,6 +25,8 @@ final class ConfigLoader
         'herd_php' => '',
         'valet_secure' => 'true',
         'valet_php' => '',
+        'yerd_secure' => 'true',
+        'yerd_php' => '',
         'worktrees' => 'true',
         'cloud' => 'true',
         'cloud_services' => 'mysql',
@@ -75,7 +77,7 @@ final class ConfigLoader
         $runtime = Runtime::tryFrom($values['runtime']);
 
         if ($runtime === null) {
-            throw new ConfigException('runtime must be one of: native, herd, valet, sail.');
+            throw new ConfigException('runtime must be one of: native, herd, valet, yerd, sail.');
         }
 
         $services = Services::tryFrom($values['services']);
@@ -106,6 +108,10 @@ final class ConfigLoader
 
         $herdPhp = trim($values['herd_php']);
         $valetPhp = trim($values['valet_php']);
+        $yerdPhp = trim($values['yerd_php']);
+        if ($yerdPhp !== '' && preg_match('/^[5-9]\.\d{1,2}$/D', $yerdPhp) !== 1) {
+            throw new ConfigException('yerd_php must be empty or a major.minor version such as 8.4.');
+        }
 
         $cloudServices = $this->list($values['cloud_services'], 'cloud_services');
 
@@ -147,6 +153,8 @@ final class ConfigLoader
             valetPhp: $valetPhp === '' ? null : $valetPhp,
             localEnvironment: $localEnvironment,
             localEnvironmentSources: $localEnvironmentSources,
+            yerdSecure: $this->boolean($values['yerd_secure'], 'yerd_secure'),
+            yerdPhp: $yerdPhp === '' ? null : $yerdPhp,
         );
 
         $this->validateLocalEnvironment($config);
@@ -184,7 +192,7 @@ final class ConfigLoader
             }
 
             $managed = in_array($name, ['APP_KEY', 'APP_ENV', 'APP_CONFIG_CACHE'], true)
-                || ($name === 'APP_URL' && in_array($config->runtime, [Runtime::Herd, Runtime::Valet], true))
+                || ($name === 'APP_URL' && in_array($config->runtime, [Runtime::Herd, Runtime::Valet, Runtime::Yerd], true))
                 || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)));
 
             if ($managed) {

@@ -22,6 +22,7 @@ final class HerdSites
         return match ($tool) {
             SiteTool::Herd => $home.'/Library/Application Support/Herd/config/valet/Sites',
             SiteTool::Valet => $home.'/.config/valet/Sites',
+            SiteTool::Yerd => throw new EnvironmentException('Yerd sites must be inspected through its JSON CLI.'),
         };
     }
 

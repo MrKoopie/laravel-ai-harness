@@ -51,7 +51,7 @@ After you change `agents`, `worktrees`, or `cloud`, run `./.ai-harness update`. 
 
 Use `local_env.<VARIABLE>=<value>` for settings that differ on your computer. Put personal values in `.ai-harness.config.local` in your primary checkout so new worktrees inherit them. Variable names must use uppercase letters, digits, or underscores, and cannot start with a digit.
 
-For an existing database on your computer, with PHP running through native, Herd, or Valet and without harness-managed Sail MySQL:
+For an existing database on your computer, with PHP running through native, Herd, Valet, or Yerd and without harness-managed Sail MySQL:
 
 ```ini
 local_env.DB_HOST=127.0.0.1
@@ -93,7 +93,7 @@ The namespace is accepted in all configuration layers, so teams can also put non
 ### Managed values and testing
 
 1. `APP_KEY`, `APP_ENV`, and `APP_CONFIG_CACHE` cannot be overridden through `local_env`.
-2. Herd and Valet own `APP_URL`. With those runtimes, a conflicting override is an error.
+2. Herd, Valet, and Yerd own `APP_URL`. With those runtimes, a conflicting override is an error.
 3. When `services=sail` and `sail_services` explicitly includes `mysql`, the harness owns `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA`. Use `FORWARD_DB_PORT` for the host port. Host PHP uses `127.0.0.1:<forwarded-port>`; PHP inside Sail uses `mysql:3306`. The development and testing databases keep separate generated names. Setup clears inherited database URLs, sockets, and SSL CA settings in both files so they cannot redirect the managed connection.
 4. Overrides target `.env`. A newly created `.env.testing` starts from `.env`, then receives the harness's testing defaults: isolated SQLite, array mail/cache/session drivers, and a synchronous queue. Database URL and socket aliases are cleared. Existing testing files are preserved, except for managed Sail MySQL values. Changing a development override does not rewrite unrelated settings in an existing `.env.testing`.
 5. `local_env.*` values are ignored in cloud execution, including custom application variables. The existing cloud configuration remains independent.
@@ -123,12 +123,14 @@ Explicit clears cannot override conflicting system-level environment variables; 
 
 | Key | Default | Values | Description |
 | --- | --- | --- | --- |
-| `runtime` | `native` | `native`, `herd`, `valet`, `sail` | Where PHP, Artisan, Composer, and npm run. |
+| `runtime` | `native` | `native`, `herd`, `valet`, `yerd`, `sail` | Where PHP, Artisan, Composer, and npm run. |
 | `services` | `none` | `none`, `sail` | Use Sail to manage supporting containers. |
 | `sail_services` | (empty) | List of Sail service names | Sail services to start. Empty means the full stack. Only valid with `services=sail`. |
 | `herd_secure` | `true` | Boolean | Serve the Herd site with HTTPS. |
 | `herd_php` | (empty) | Empty or `major.minor`, for example `8.4` | Isolate the Herd site to this PHP version. Empty uses the Herd default. |
 | `valet_secure` | `true` | Boolean | Serve the Valet site with HTTPS. |
+| `yerd_secure` | `true` | Boolean | Serve the Yerd checkout site with HTTPS. |
+| `yerd_php` | (empty) | Empty or `major.minor`, for example `8.4` | Pin this Yerd site and CLI to an installed version. Empty reads the linked site version, or the Yerd default before linking. |
 | `valet_php` | (empty) | Empty or `major.minor`, for example `8.4` | Isolate the Valet site to this PHP version (`php@8.4`). Empty uses the global Valet version. |
 
 ### Agents
@@ -159,6 +161,7 @@ The `cloud_*` keys apply only in a detected cloud environment. They never change
 | --- | --- | --- | --- | --- | --- |
 | `native` | `php artisan` | `php artisan test` | `composer` | `php` | `npm` |
 | `herd` | `herd php artisan` | `herd php artisan test` | `herd composer` | `herd php` | `npm` |
+| `yerd` | `php<version> artisan` | `php<version> artisan test` | `php<version> composer.phar` | `php<version>` | `npm` |
 | `valet` | `valet php --site=<site> artisan` | `valet php --site=<site> artisan test` | `valet composer --site=<site>` | `valet php --site=<site>` | `npm` |
 | `sail` | `sail artisan` | `sail artisan test` | `sail composer` | `sail php` | `sail npm` |
 
@@ -175,7 +178,7 @@ In a cloud environment, the harness always uses `native`. The `runtime` value is
 `services=sail` lets Sail manage the supporting containers. This is independent of the PHP runtime. You can use it for:
 
 - A full Sail project (`runtime=sail`).
-- Herd, Valet, or native PHP with MySQL, Redis, or Mailpit from Sail.
+- Herd, Valet, Yerd, or native PHP with MySQL, Redis, or Mailpit from Sail.
 
 With an empty `sail_services`, `up` starts the full stack and `down` runs `sail down`. With a list, `up` starts only those services and `down` runs `sail stop` for them.
 

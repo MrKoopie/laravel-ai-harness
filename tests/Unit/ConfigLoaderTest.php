@@ -85,7 +85,7 @@ test('unknown and duplicate configuration keys fail clearly', function (): void 
         ["services=none\nsail_services=mysql", 'sail_services may only be set when services=sail'],
         ['sail_services=mysql,,redis', 'sail_services contains an empty list item'],
         ['runtime="herd', 'Unterminated quoted value'],
-        ['runtime=docker', 'runtime must be one of: native, herd, valet, sail'],
+        ['runtime=docker', 'runtime must be one of: native, herd, valet, yerd, sail'],
         ['services=podman', 'services must be one of: none, sail'],
         ["services=sail\nsail_services=my db", 'Invalid Sail service name [my db]'],
     ] as [$contents, $message]) {

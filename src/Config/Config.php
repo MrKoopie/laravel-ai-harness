@@ -38,6 +38,8 @@ final readonly class Config
         public ?string $valetPhp = null,
         public array $localEnvironment = [],
         public array $localEnvironmentSources = [],
+        public bool $yerdSecure = true,
+        public ?string $yerdPhp = null,
     ) {}
 
     /** Determine whether the named coding agent is enabled. */

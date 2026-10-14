@@ -88,6 +88,32 @@ final readonly class ExecutableLocator
         return is_executable($candidate) ? $candidate : null;
     }
 
+    /** Locate Yerd on PATH or in its platform data directory. */
+    public function yerd(): ?string
+    {
+        if (array_key_exists('yerd', $this->overrides)) {
+            return $this->overrides['yerd'];
+        }
+
+        $path = $this->find('yerd');
+        if ($path !== null) {
+            return $path;
+        }
+
+        $home = getenv('HOME');
+        if (! is_string($home) || $home === '') {
+            return null;
+        }
+
+        $data = getenv('XDG_DATA_HOME');
+        $directory = PHP_OS_FAMILY === 'Darwin'
+            ? $home.'/Library/Application Support/io.yerd.Yerd'
+            : (is_string($data) && str_starts_with($data, '/') ? $data : $home.'/.local/share').'/yerd';
+        $candidate = $directory.'/bin/yerd';
+
+        return is_executable($candidate) ? $candidate : null;
+    }
+
     /** Locate the Laravel Valet executable, including the Composer global bin directories. */
     public function valet(): ?string
     {

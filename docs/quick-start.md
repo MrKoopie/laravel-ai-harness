@@ -6,6 +6,7 @@ This page tells you how to start with the harness for your type of setup. Do the
 | --- | --- |
 | PHP that you installed yourself, with SQLite | [Native PHP](#native-php) |
 | Laravel Herd | [Laravel Herd](#laravel-herd) |
+| Yerd 2.x | [Yerd](#yerd) |
 | Laravel Valet | [Laravel Valet](#laravel-valet) |
 | Laravel Sail for everything | [Laravel Sail](#laravel-sail) |
 | Herd, Valet, or native PHP, with MySQL from Sail | [MySQL from Sail](#mysql-from-sail) |
@@ -187,3 +188,18 @@ The same file can override application environment settings, such as `local_env.
 ## When something fails
 
 Run `./.ai-harness doctor`. For each `FAIL` line, refer to [Troubleshooting](troubleshooting.md).
+
+## Yerd
+
+Install [Yerd 2.x](https://yerd.app/guide/getting-started), start its daemon, and install the PHP version you need and Composer. Put Yerd's bin directory on PATH with `yerd path install`.
+
+```ini
+runtime=yerd
+services=none
+yerd_secure=true
+yerd_php=8.4
+```
+
+Run `./.ai-harness setup`, then `./.ai-harness doctor`. The harness creates a checkout-specific linked site, configures Laravel's `public` web root and front controller, and pins only this site's PHP. PHP, Artisan, tests, and Composer use the versioned Yerd PHP shim. Existing sites and global PHP are preserved.
+
+Use `./.ai-harness cleanup` before deleting the worktree, or inspect stale generated links with `./.ai-harness prune-yerd --dry-run`. See [Yerd](local-environments.md#yerd) for ownership and Composer details.
