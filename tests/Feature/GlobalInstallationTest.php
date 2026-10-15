@@ -54,7 +54,7 @@ test('linked worktrees inherit global settings and retain global mode on update'
     (new Process(['git', 'init', '--initial-branch=main', $primary]))->mustRun();
     (new Process(['git', '-c', 'user.name=Harness Test', '-c', 'user.email=harness@example.invalid', 'commit', '--allow-empty', '--no-gpg-sign', '-m', 'Fixture'], $primary))->mustRun();
     (new Process(['git', 'worktree', 'add', '--detach', $worktree], $primary))->mustRun();
-    file_put_contents($primary.'/.ai-harness.config.global', "runtime=valet\nvalet_php=8.3\nlocal_env.DB_PORT=3307\n");
+    file_put_contents($primary.'/.ai-harness.config.global', "runtime=valet\nphp_version=8.3\nlocal_env.DB_PORT=3307\n");
     file_put_contents($worktree.'/composer.json', '{}');
 
     try {
@@ -90,15 +90,15 @@ test('global settings receive the same validation as project settings', function
 test('global configuration supports all settings and local overrides win', function (): void {
     $root = temp_directory('harness-global-config');
     (new Process(['git', 'init', $root]))->mustRun();
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nherd_php=8.4\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nphp_version=8.4\n");
     harness_process(['init', '--global'], $root)->mustRun();
     expect((new ConfigLoader)->load($root)->runtime)->toBe(Runtime::Herd);
 
-    file_put_contents($root.'/.ai-harness.config.global', "runtime=valet\nvalet_php=8.3\nagents=codex\nlocal_env.DB_PORT=3307\n");
+    file_put_contents($root.'/.ai-harness.config.global', "runtime=valet\nphp_version=8.3\nagents=codex\nlocal_env.DB_PORT=3307\n");
     file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nlocal_env.DB_PORT=3308\n");
     $config = (new ConfigLoader)->load($root);
     expect($config->runtime)->toBe(Runtime::Native)
-        ->and($config->valetPhp)->toBe('8.3')
+        ->and($config->phpVersion)->toBe('8.3')
         ->and($config->agents)->toBe(['codex'])
         ->and($config->localEnvironment['DB_PORT'])->toBe('3308');
 });
@@ -302,7 +302,7 @@ test('nested projects inherit their primary global configuration when initializi
     (new Process(['git', 'add', '.'], $primary))->mustRun();
     (new Process(['git', '-c', 'user.name=Harness Test', '-c', 'user.email=harness@example.invalid', 'commit', '--no-gpg-sign', '-m', 'Fixture'], $primary))->mustRun();
     harness_process(['init', '--global'], $primary.'/'.$application)->mustRun();
-    file_put_contents($primary.'/'.$application.'/.ai-harness.config.global', "runtime=herd\nherd_php=8.4\nlocal_env.DB_PORT=3307\n");
+    file_put_contents($primary.'/'.$application.'/.ai-harness.config.global', "runtime=herd\nphp_version=8.4\nlocal_env.DB_PORT=3307\n");
     file_put_contents($primary.'/'.$application.'/.ai-harness.config.local', "local_env.MAIL_PORT=1026\n");
     (new Process(['git', 'worktree', 'add', '--detach', $worktree], $primary))->mustRun();
     $root = $worktree.'/'.$application;
@@ -311,7 +311,7 @@ test('nested projects inherit their primary global configuration when initializi
         $loader = new ConfigLoader;
         $inherited = $loader->load($root);
         expect($inherited->runtime)->toBe(Runtime::Herd)
-            ->and($inherited->herdPhp)->toBe('8.4')
+            ->and($inherited->phpVersion)->toBe('8.4')
             ->and($inherited->localEnvironment)->toBe(['DB_PORT' => '3307', 'MAIL_PORT' => '1026']);
 
         harness_process(['init', '--global'], $root)->mustRun();
