@@ -120,7 +120,8 @@ final class ConfigLoader
             }
         }
 
-        if ($services !== Services::Sail && $sailServices !== []) {
+        // Cloud execution uses cloud_services rather than the local Sail relationship.
+        if (! $cloud && $services !== Services::Sail && $sailServices !== []) {
             throw new ConfigException('sail_services may only be set when service_manager=sail.');
         }
 

@@ -38,7 +38,7 @@ Precedence is built-in defaults → the configuration files above → exported p
 | `AI_HARNESS_SITE_SECURE` | `site_secure` |
 | `AI_HARNESS_SERVICE_MANAGER` | `service_manager` |
 
-All commands that resolve configuration use these overrides, including `init`, `setup`, `doctor`, `php`, `artisan`, `composer`, `test`, `up`, `down`, and `cleanup`. Unset variables preserve file/default behavior. Values use the same validation as their configuration keys: an explicitly empty PHP version clears a file pin for command resolution (it does not remove an existing site pin); empty runtime, service manager, and HTTPS values are errors. PHP accepts any `major.minor` version allowed by the existing validator. Cross-setting rules still apply, such as `sail_services` requiring `service_manager=sail`.
+All commands that resolve configuration use these overrides, including `init`, `setup`, `doctor`, `php`, `artisan`, `composer`, `test`, `up`, `down`, and `cleanup`. Unset variables preserve file/default behavior. Values use the same validation as their configuration keys: an explicitly empty PHP version clears a file pin for command resolution (it does not remove an existing site pin); empty runtime, service manager, and HTTPS values are errors. PHP accepts any `major.minor` version allowed by the existing validator. Cross-setting rules still apply locally, such as `sail_services` requiring `service_manager=sail`; cloud execution uses `cloud_services` instead.
 
 No configuration file is required when process variables supply settings. `doctor` accepts this configuration and reports the effective runtime, PHP version, HTTPS, and service manager with their source variable, file, or built-in default. Other doctor checks still require the selected tools and agent integrations to be installed.
 
@@ -62,7 +62,7 @@ Make all four exports available in the environment used by **every later harness
 
 `init --global` still creates its normal personal configuration/mode marker, containing defaults rather than a snapshot of the exports. Overrides are never saved to harness configuration files or Laravel's `.env`. Setup still writes generated application values such as `APP_URL` and managed database connections normally. Hostnames and isolated database names remain automatic for each checkout; do not supply your own. Cleanup checks recorded ownership even if the current runtime overrides have changed.
 
-`AI_HARNESS_ENV` retains its existing behavior: `local` selects local execution, while detected Claude/Codex cloud execution uses native PHP and cloud services regardless of these local runtime settings. These variables do not install PHP versions or change cloud provisioning.
+`AI_HARNESS_ENV` retains its existing behavior: `local` selects local execution, while detected Claude/Codex cloud execution uses native PHP and cloud services regardless of these local runtime settings. These configuration overrides do not install local PHP versions. `AI_HARNESS_PHP_VERSION` also retains its existing [cloud provisioning role](cloud.md#ai_harness_php_version): `cloud provision` uses it to select and install PHP packages. The other three variables do not change cloud provisioning.
 
 ## File format
 

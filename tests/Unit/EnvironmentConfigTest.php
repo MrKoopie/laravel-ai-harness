@@ -7,22 +7,6 @@ use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
 
-$savedEnvironment = [];
-
-beforeEach(function () use (&$savedEnvironment): void {
-    $savedEnvironment = [];
-    foreach (['AI_HARNESS_RUNTIME', 'AI_HARNESS_PHP_VERSION', 'AI_HARNESS_SITE_SECURE', 'AI_HARNESS_SERVICE_MANAGER', 'AI_HARNESS_ENV'] as $name) {
-        $savedEnvironment[$name] = getenv($name);
-        putenv($name);
-    }
-});
-
-afterEach(function () use (&$savedEnvironment): void {
-    foreach ($savedEnvironment as $name => $value) {
-        putenv($value === false ? $name : $name.'='.$value);
-    }
-});
-
 test('process overrides win over every file layer without changing files', function (): void {
     $root = temp_directory('harness-process-config');
     $contents = "runtime=herd\nphp_version=8.3\nsite_secure=true\nservice_manager=sail\n";
@@ -88,5 +72,20 @@ test('effective runtime overrides also govern cross setting validation', functio
     expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'local_env.APP_URL is managed');
     file_put_contents($root.'/.ai-harness.config', "service_manager=sail\nsail_services=mysql\n");
     putenv('AI_HARNESS_SERVICE_MANAGER=none');
+    expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'sail_services may only be set');
+});
+
+test('local Sail relationships do not block cloud configuration with process overrides', function (): void {
+    $root = temp_directory('harness-cloud-process-config');
+    file_put_contents($root.'/.ai-harness.config', "runtime=sail\nservice_manager=sail\nsail_services=mysql\n");
+    putenv('AI_HARNESS_SERVICE_MANAGER=none');
+    foreach (['codex-cloud', 'claude-cloud'] as $mode) {
+        putenv('AI_HARNESS_ENV='.$mode);
+        $config = (new ConfigLoader)->load($root);
+        expect($config->serviceManager)->toBe(Services::None)
+            ->and($config->sources['service_manager'])->toBe('AI_HARNESS_SERVICE_MANAGER')
+            ->and($config->cloudServices)->toBe(['mysql']);
+    }
+    putenv('AI_HARNESS_ENV=local');
     expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'sail_services may only be set');
 });

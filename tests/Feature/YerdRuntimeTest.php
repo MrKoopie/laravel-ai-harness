@@ -408,11 +408,12 @@ foreach (['init', 'setup', 'doctor', 'php', 'artisan', 'composer', 'test', 'up',
 
 test('cloud detection still uses native PHP when local process settings select Yerd', function (): void {
     [$root, $env] = yerd_fixture();
+    file_put_contents($root.'/.ai-harness.config', "runtime=sail\nservice_manager=sail\nsail_services=mysql\nagents=\n");
     $env += [
         'AI_HARNESS_RUNTIME' => 'yerd',
         'AI_HARNESS_PHP_VERSION' => '8.4',
         'AI_HARNESS_SITE_SECURE' => 'true',
-        'AI_HARNESS_SERVICE_MANAGER' => 'sail',
+        'AI_HARNESS_SERVICE_MANAGER' => 'none',
         'AI_HARNESS_ENV' => 'codex-cloud',
     ];
     // A version query uses native PHP without provisioning any runtime or services.
