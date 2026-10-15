@@ -328,3 +328,96 @@ foreach ([null, 0, -1, 65536, '8443'] as $port) {
             ->and(file_get_contents($root.'/.env'))->toContain('APP_URL=http://shared.test');
     });
 }
+
+test('all process settings work without configuration files and remain effective after global init', function (): void {
+    [$root, $env] = yerd_fixture();
+    unlink($root.'/.ai-harness.config');
+    symlink($root.'/bin/yerd', $root.'/bin/php8.4');
+    write_executable($root.'/bin/composer', "#!/usr/bin/env php\n<?php echo 'composer';");
+    $env = array_replace($env, [
+        'PATH' => $root.'/bin'.PATH_SEPARATOR.package_root().'/bin'.PATH_SEPARATOR.getenv('PATH'),
+        'AI_HARNESS_ENV' => 'local',
+        'AI_HARNESS_RUNTIME' => 'yerd',
+        'AI_HARNESS_PHP_VERSION' => '8.4',
+        'AI_HARNESS_SITE_SECURE' => 'false',
+        'AI_HARNESS_SERVICE_MANAGER' => 'none',
+    ]);
+    yerd_harness(['setup'], $root, $env)->mustRun();
+    expect($root.'/.ai-harness.config')->not->toBeFile()
+        ->and(file_get_contents($root.'/.env'))->toContain('APP_URL=http://'.SiteName::forPath($root).'.test')
+        ->and(file_get_contents($root.'/.env'))->not->toContain('AI_HARNESS_', 'php_version=', 'runtime=')
+        ->and(file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE=:memory:')
+        ->and(yerd_mutations($root))->toContain(['use', SiteName::forPath($root), '8.4']);
+    $doctor = yerd_harness(['doctor'], $root, $env);
+    $doctor->run();
+    expect($doctor->getOutput())->not->toContain('No project configuration file exists')
+        ->and($doctor->getOutput())->toContain('runtime=yerd from AI_HARNESS_RUNTIME', 'php_version=8.4 from AI_HARNESS_PHP_VERSION', 'site_secure=false from AI_HARNESS_SITE_SECURE', 'service_manager=none from AI_HARNESS_SERVICE_MANAGER');
+
+    (new Process(['git', 'init', $root]))->mustRun();
+    yerd_harness(['init', '--global'], $root, $env)->mustRun();
+    $configContents = file_get_contents($root.'/.ai-harness.config.global');
+    expect($configContents)->toContain('runtime=native', 'php_version=', 'site_secure=true')
+        ->and($configContents)->not->toContain('runtime=yerd', 'php_version=8.4', 'AI_HARNESS_RUNTIME=')
+        ->and(file_get_contents($root.'/AGENTS.override.md'))->toContain('AI_HARNESS_RUNTIME', 'AI_HARNESS_PHP_VERSION', 'AI_HARNESS_SITE_SECURE', 'AI_HARNESS_SERVICE_MANAGER');
+    yerd_harness(['doctor'], $root, $env)->mustRun();
+    foreach (['php', 'artisan', 'composer', 'test'] as $tool) {
+        $process = yerd_harness([$tool, 'argument'], $root, $env)->mustRun();
+        expect($process->getOutput())->toContain('php8.4');
+    }
+    foreach (['up', 'down'] as $action) {
+        expect(yerd_harness([$action], $root, $env)->mustRun()->getOutput())->toContain('No Sail containers are configured');
+    }
+    expect(file_get_contents($root.'/.ai-harness.config.global'))->toBe($configContents);
+
+    // Cleanup follows recorded ownership even when all four settings change.
+    $changed = array_replace($env, ['AI_HARNESS_RUNTIME' => 'native', 'AI_HARNESS_PHP_VERSION' => '', 'AI_HARNESS_SITE_SECURE' => 'true', 'AI_HARNESS_SERVICE_MANAGER' => 'sail']);
+    file_put_contents($root.'/sites.json', json_encode([['name' => SiteName::forPath($root), 'document_root' => '/another/app', 'kind' => 'linked']], JSON_THROW_ON_ERROR));
+    $cleanup = yerd_harness(['cleanup'], $root, $changed);
+    $cleanup->run();
+    expect($cleanup->getExitCode())->toBe(1)
+        ->and(yerd_mutations($root))->not->toContain(['unlink', SiteName::forPath($root)])
+        ->and($root.'/.ai-harness.state.json')->toBeFile();
+    file_put_contents($root.'/sites.json', json_encode([['name' => SiteName::forPath($root), 'document_root' => $root, 'kind' => 'linked']], JSON_THROW_ON_ERROR));
+    yerd_harness(['cleanup'], $root, $changed)->mustRun();
+    expect(yerd_mutations($root))->toContain(['unlink', SiteName::forPath($root)])
+        ->and($root.'/.ai-harness.state.json')->not->toBeFile();
+});
+
+test('service manager process override controls both lifecycle commands', function (): void {
+    [$root, $env] = yerd_fixture();
+    write_executable($root.'/vendor/bin/sail', "#!/bin/sh\nprintf '%s\\n' \"\$@\" >> sail-log\n");
+    $env += ['AI_HARNESS_RUNTIME' => 'native', 'AI_HARNESS_SERVICE_MANAGER' => 'sail', 'AI_HARNESS_ENV' => 'local'];
+    foreach (['up', 'down'] as $action) {
+        yerd_harness([$action], $root, $env)->mustRun();
+    }
+    expect(file_get_contents($root.'/sail-log'))->toBe("up\n-d\ndown\n");
+});
+
+foreach (['init', 'setup', 'doctor', 'php', 'artisan', 'composer', 'test', 'up', 'down', 'cleanup'] as $action) {
+    test("{$action} validates every process override", function () use ($action): void {
+        [$root, $env] = yerd_fixture();
+        foreach (['AI_HARNESS_RUNTIME' => 'runtime', 'AI_HARNESS_PHP_VERSION' => 'php_version', 'AI_HARNESS_SITE_SECURE' => 'site_secure', 'AI_HARNESS_SERVICE_MANAGER' => 'service_manager'] as $name => $key) {
+            $process = yerd_harness([$action], $root, $env + [$name => 'invalid', 'AI_HARNESS_ENV' => 'local']);
+            $process->run();
+            expect($process->getExitCode())->toBe(1)
+                ->and($process->getErrorOutput())->toContain($key.' must be');
+        }
+        expect(yerd_mutations($root))->toBe([]);
+    });
+}
+
+test('cloud detection still uses native PHP when local process settings select Yerd', function (): void {
+    [$root, $env] = yerd_fixture();
+    file_put_contents($root.'/.ai-harness.config', "runtime=sail\nservice_manager=sail\nsail_services=mysql\nagents=\n");
+    $env += [
+        'AI_HARNESS_RUNTIME' => 'yerd',
+        'AI_HARNESS_PHP_VERSION' => '8.4',
+        'AI_HARNESS_SITE_SECURE' => 'true',
+        'AI_HARNESS_SERVICE_MANAGER' => 'none',
+        'AI_HARNESS_ENV' => 'codex-cloud',
+    ];
+    // A version query uses native PHP without provisioning any runtime or services.
+    $process = yerd_harness(['php', '-v'], $root, $env)->mustRun();
+    expect($process->getOutput())->toContain('PHP '.PHP_VERSION)
+        ->and(yerd_mutations($root))->toBe([]);
+});

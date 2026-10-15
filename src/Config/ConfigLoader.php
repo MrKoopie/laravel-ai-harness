@@ -33,6 +33,14 @@ final class ConfigLoader
         'cloud_browser' => 'false',
     ];
 
+    /** @var array<string, string> */
+    private const ENVIRONMENT = [
+        'AI_HARNESS_RUNTIME' => 'runtime',
+        'AI_HARNESS_PHP_VERSION' => 'php_version',
+        'AI_HARNESS_SITE_SECURE' => 'site_secure',
+        'AI_HARNESS_SERVICE_MANAGER' => 'service_manager',
+    ];
+
     /** @var list<string> */
     private const FILES = [
         '.ai-harness.config.dist',
@@ -46,6 +54,7 @@ final class ConfigLoader
     {
         $values = self::DEFAULTS;
         $sourceFiles = [];
+        $sources = array_fill_keys(array_keys(self::DEFAULTS), 'built-in default');
         $localEnvironment = [];
         $localEnvironmentSources = [];
         $cloud = ExecutionEnvironment::current()->isCloud();
@@ -67,9 +76,20 @@ final class ConfigLoader
                 }
 
                 $values[$key] = $value;
+                $sources[$key] = $filename;
             }
 
             $sourceFiles[] = $filename;
+        }
+
+        foreach (self::ENVIRONMENT as $variable => $key) {
+            $value = getenv($variable);
+
+            if ($value !== false) {
+                $this->validateValue($value, $key, $variable);
+                $values[$key] = trim($value);
+                $sources[$key] = $variable;
+            }
         }
 
         $runtime = Runtime::tryFrom($values['runtime']);
@@ -100,7 +120,8 @@ final class ConfigLoader
             }
         }
 
-        if ($services !== Services::Sail && $sailServices !== []) {
+        // Cloud execution uses cloud_services rather than the local Sail relationship.
+        if (! $cloud && $services !== Services::Sail && $sailServices !== []) {
             throw new ConfigException('sail_services may only be set when service_manager=sail.');
         }
 
@@ -139,6 +160,7 @@ final class ConfigLoader
             localEnvironmentSources: $localEnvironmentSources,
             siteSecure: $this->boolean($values['site_secure'], 'site_secure'),
             phpVersion: $phpVersion === '' ? null : $phpVersion,
+            sources: $sources,
         );
 
         $this->validateLocalEnvironment($config);
@@ -234,18 +256,24 @@ final class ConfigLoader
 
             $value = $this->unquote($rawValue, $path, $index + 1);
 
-            if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
-                throw new ConfigException(sprintf('Configuration value [%s] at %s:%d contains a control character.', $key, $path, $index + 1));
-            }
-
-            if (strlen($value) > self::MAX_VALUE_LENGTH) {
-                throw new ConfigException(sprintf('Configuration value [%s] at %s:%d exceeds 4096 bytes.', $key, $path, $index + 1));
-            }
+            $this->validateValue($value, $key, $path.':'.($index + 1));
 
             $values[$key] = $value;
         }
 
         return $values;
+    }
+
+    /** Apply the same literal value limits to files and process overrides. */
+    private function validateValue(string $value, string $key, string $source): void
+    {
+        if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            throw new ConfigException("Configuration value [{$key}] at {$source} contains a control character.");
+        }
+
+        if (strlen($value) > self::MAX_VALUE_LENGTH) {
+            throw new ConfigException("Configuration value [{$key}] at {$source} exceeds 4096 bytes.");
+        }
     }
 
     /** Remove balanced quotes from a configuration value. */
