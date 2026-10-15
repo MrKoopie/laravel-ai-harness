@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Console;
 
+use Closure;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\SiteName;
@@ -12,13 +13,19 @@ use MrKoopie\LaravelAiHarness\Process\ProcessRunner;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Input\StreamableInputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 final class PruneYerdCommand extends ProjectCommand
 {
-    public function __construct(private readonly CommandFactory $commands, private readonly ProcessRunner $processes)
+    /** @var Closure(resource): bool */
+    private readonly Closure $isTerminal;
+
+    /** @param (Closure(resource): bool)|null $isTerminal */
+    public function __construct(private readonly CommandFactory $commands, private readonly ProcessRunner $processes, ?Closure $isTerminal = null)
     {
+        $this->isTerminal = $isTerminal ?? stream_isatty(...);
         parent::__construct('prune-yerd');
     }
 
@@ -39,7 +46,9 @@ final class PruneYerdCommand extends ProjectCommand
         $root = $this->projectPath($input);
         $binary = $this->commands->yerd('sites')[0];
         $yerd = new Yerd;
-        $reportOnly = ! $input->isInteractive() || $input->getOption('dry-run');
+        $stream = $input instanceof StreamableInputInterface ? $input->getStream() : null;
+        $reportOnly = ! $input->isInteractive() || $input->getOption('dry-run')
+            || ! ($this->isTerminal)($stream ?? STDIN);
         $failed = false;
         $found = false;
         foreach ($yerd->sites($binary, $root) as $site) {

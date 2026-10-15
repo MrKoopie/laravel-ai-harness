@@ -23,6 +23,7 @@ function yerd_fixture(): array
     file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=http://shared.test\n");
     file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservices=none\nagents=\nyerd_php=8.2\n");
     file_put_contents($root.'/sites.json', '[]');
+    file_put_contents($root.'/status.json', json_encode(['tld' => 'test', 'default_php' => '8.5', 'http' => ['bound' => 80], 'https' => ['bound' => 443]], JSON_THROW_ON_ERROR));
     file_put_contents($root.'/log', '');
     $script = <<<'PHP_SCRIPT'
 <?php
@@ -38,7 +39,7 @@ if ($args[0] === '--json') {
     if (getenv('YERD_QUERY_FAIL')) { exit(7); }
     echo json_encode($args[1] === 'sites'
         ? ['type' => 'sites', 'sites' => json_decode(file_get_contents($root.'/sites.json'), true)]
-        : ['type' => 'status', 'report' => ['tld' => 'test', 'default_php' => '8.5']]);
+        : ['type' => 'status', 'report' => json_decode(file_get_contents($root.'/status.json'), true)]);
     exit(0);
 }
 if ($args[0] === getenv('YERD_FAIL')) { exit(19); }
@@ -240,7 +241,11 @@ test('Yerd pruning reports only generated linked names with missing targets', fu
     $old = getenv('YERD_FIXTURE');
     putenv('YERD_FIXTURE='.$root);
     try {
-        $command = new PruneYerdCommand(new CommandFactory(new ExecutableLocator(overrides: ['yerd' => $root.'/bin/yerd'])), new ProcessRunner);
+        $command = new PruneYerdCommand(new CommandFactory(new ExecutableLocator(overrides: ['yerd' => $root.'/bin/yerd'])), new ProcessRunner, static function ($stream): bool {
+            expect(stream_get_meta_data($stream)['stream_type'])->toBe('MEMORY');
+
+            return true;
+        });
         $tester = new CommandTester($command);
         $tester->setInputs(['yes']);
         expect($tester->execute(['--path' => $root], ['interactive' => true]))->toBe(0)
@@ -284,3 +289,42 @@ test('Yerd cleanup rechecks ownership after removing HTTPS', function (): void {
         ->and(yerd_mutations($root))->not->toContain(['unlink', SiteName::forPath($root)])
         ->and($root.'/.ai-harness.state.json')->toBeFile();
 });
+
+test('Yerd piped confirmations stay report only', function (): void {
+    [$root, $env] = yerd_fixture();
+    $missing = $root.'/removed-worktree';
+    $name = SiteName::forPath($missing);
+    file_put_contents($root.'/sites.json', json_encode([['name' => $name, 'document_root' => $missing, 'kind' => 'linked']], JSON_THROW_ON_ERROR));
+    $process = yerd_harness(['prune-yerd'], $root, $env);
+    $process->setInput("yes\nyes\n");
+    $process->mustRun();
+    expect($process->getOutput())->toContain($name, 'No changes were made (report only).')
+        ->and(yerd_mutations($root))->toBe([]);
+});
+
+foreach ([[false, 8080, ':8080'], [true, 8443, ':8443'], [false, 80, ''], [true, 443, '']] as [$secure, $port, $suffix]) {
+    test('Yerd APP_URL uses '.($secure ? 'HTTPS' : 'HTTP').' port '.$port, function () use ($secure, $port, $suffix): void {
+        [$root, $env] = yerd_fixture();
+        file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservices=none\nagents=\nyerd_secure=".($secure ? 'true' : 'false')."\n");
+        $report = json_decode((string) file_get_contents($root.'/status.json'), true, flags: JSON_THROW_ON_ERROR);
+        $report[$secure ? 'https' : 'http'] = ['requested' => $secure ? 443 : 80, 'bound' => $port];
+        file_put_contents($root.'/status.json', json_encode($report, JSON_THROW_ON_ERROR));
+        yerd_harness(['setup'], $root, $env)->mustRun();
+        $url = ($secure ? 'https' : 'http').'://'.SiteName::forPath($root).'.test'.$suffix;
+        expect(file_get_contents($root.'/.env'))->toContain('APP_URL='.$url."\n");
+    });
+}
+
+foreach ([null, 0, -1, 65536, '8443'] as $port) {
+    test('Yerd rejects listener port '.var_export($port, true).' instead of writing unreachable APP_URL', function () use ($port): void {
+        [$root, $env] = yerd_fixture();
+        $report = json_decode((string) file_get_contents($root.'/status.json'), true, flags: JSON_THROW_ON_ERROR);
+        $report['https'] = ['bound' => $port];
+        file_put_contents($root.'/status.json', json_encode($report, JSON_THROW_ON_ERROR));
+        $process = yerd_harness(['setup'], $root, $env);
+        $process->run();
+        expect($process->getExitCode())->toBe(1)
+            ->and($process->getOutput().$process->getErrorOutput())->toContain('Invalid Yerd HTTPS listener port')
+            ->and(file_get_contents($root.'/.env'))->toContain('APP_URL=http://shared.test');
+    });
+}

@@ -103,7 +103,7 @@ final readonly class EnvironmentManager
             $url = match ($tool) {
                 SiteTool::Herd => 'https://'.SiteName::forPath($root).'.test',
                 SiteTool::Valet => ($config->valetSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.ValetTld::current(),
-                SiteTool::Yerd => ($config->yerdSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.(new Yerd)->tld($this->commands->yerd('status')[0], $root),
+                SiteTool::Yerd => (new Yerd)->url($this->commands->yerd('status')[0], $root, $config->yerdSecure),
             };
             $this->environmentFile->setAppUrl($root, $url);
             $output->writeln("<info>Configured APP_URL for the {$tool->label()} site</info>");

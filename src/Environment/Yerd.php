@@ -68,8 +68,39 @@ final class Yerd
 
     public function tld(string $binary, string $root): string
     {
+        return $this->statusTld($this->status($binary, $root));
+    }
+
+    /** Build the URL from the daemon's actual listener, including fallback ports. */
+    public function url(string $binary, string $root, bool $secure): string
+    {
+        $report = $this->status($binary, $root);
+        $scheme = $secure ? 'https' : 'http';
+        $binding = $report[$scheme] ?? null;
+        $port = is_array($binding) ? ($binding['bound'] ?? null) : null;
+        if (! is_int($port) || $port < 1 || $port > 65535) {
+            throw new EnvironmentException('Invalid Yerd '.strtoupper($scheme).' listener port in status response.');
+        }
+        $suffix = $port === ($secure ? 443 : 80) ? '' : ':'.$port;
+
+        return $scheme.'://'.SiteName::forPath($root).'.'.$this->statusTld($report).$suffix;
+    }
+
+    /** @return array<string, mixed> */
+    private function status(string $binary, string $root): array
+    {
         $report = $this->query($binary, $root, 'status')['report'] ?? null;
-        $tld = is_array($report) ? ($report['tld'] ?? null) : null;
+        if (! is_array($report)) {
+            throw new EnvironmentException('Invalid Yerd status report.');
+        }
+
+        return $report;
+    }
+
+    /** @param array<string, mixed> $report */
+    private function statusTld(array $report): string
+    {
+        $tld = $report['tld'] ?? null;
         if (! is_string($tld) || preg_match('/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/D', $tld) !== 1) {
             throw new EnvironmentException('Invalid Yerd TLD in status response.');
         }

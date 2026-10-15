@@ -146,7 +146,7 @@ final readonly class HealthChecker
                 throw new EnvironmentException('Yerd executable is unavailable.');
             }
             $yerd = new Yerd;
-            $yerd->tld($binary, $root);
+            $yerd->url($binary, $root, $config->yerdSecure);
             $php = $yerd->php($binary, $root, $config->yerdPhp);
             $probe = new Process([$php, '--version'], $root);
             $probe->setTimeout(10);
