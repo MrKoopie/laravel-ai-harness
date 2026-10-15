@@ -18,7 +18,7 @@ Personal application settings go in `.ai-harness.config.local`, for example `loc
 ## Why use it
 
 - **One command for all runtimes.** Agent instructions stay the same when you change from Herd to Sail.
-- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With Sail MySQL (`mysql` in `sail_services`), it also gets its own databases. With `runtime=herd` or `runtime=valet`, it also gets its own Herd or Valet site. Thus, parallel agents do not share data.
+- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With Sail MySQL (`mysql` in `sail_services`), it also gets its own databases. With `runtime=herd`, `runtime=valet`, or `runtime=yerd`, it also gets its own site. Thus, parallel agents do not share data.
 - **Safe cleanup.** The harness removes only the resources that it created and recorded.
 - **Agent integration.** It writes a shared `AGENTS.md` block, a Codex local environment, and Claude Code hooks.
 - **Cloud support.** It provisions and prepares Claude and Codex cloud containers with native PHP, MySQL, and Redis.
@@ -30,7 +30,7 @@ Personal application settings go in `.ai-harness.config.local`, for example `loc
 - Composer 2.2 or newer.
 - Bash on macOS, Linux, or WSL.
 - A Laravel application.
-- Optional: [Laravel Herd](https://herd.laravel.com) or [Laravel Valet](https://laravel.com/docs/valet).
+- Optional: [Laravel Herd](https://herd.laravel.com), [Laravel Valet](https://laravel.com/docs/valet), or [Yerd 2.x](https://yerd.app).
 - Optional: [Laravel Sail](https://laravel.com/docs/sail) and Docker.
 
 ## Quick start
@@ -80,6 +80,7 @@ From now on, people and agents use `./.ai-harness` for all Laravel, Composer, PH
 | `./.ai-harness up` | Start the configured Sail services. |
 | `./.ai-harness down` | Stop the configured Sail services. Volumes stay. |
 | `./.ai-harness prune-herd` | Remove Herd sites of deleted worktrees, after you confirm. |
+| `./.ai-harness prune-yerd` | Remove Yerd sites of deleted worktrees, after you confirm. |
 | `./.ai-harness prune-valet` | Remove Valet sites of deleted worktrees, after you confirm. |
 | `./.ai-harness init` | Create the managed project files. |
 | `./.ai-harness update` | Refresh the managed project files. |

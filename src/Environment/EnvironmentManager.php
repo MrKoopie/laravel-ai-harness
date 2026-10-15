@@ -64,7 +64,7 @@ final readonly class EnvironmentManager
 
         if (! is_file($root.'/vendor/autoload.php')) {
             $output->writeln('<info>Installing Composer dependencies</info>');
-            $status = $this->processes->run($this->commands->bootstrapComposer(), $root, $output);
+            $status = $this->processes->run($this->commands->bootstrapComposer($config, $root), $root, $output);
 
             if ($status !== 0) {
                 return $status;
@@ -100,9 +100,11 @@ final readonly class EnvironmentManager
                 return $status;
             }
 
-            $url = $tool === SiteTool::Herd
-                ? 'https://'.SiteName::forPath($root).'.test'
-                : ($config->valetSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.ValetTld::current();
+            $url = match ($tool) {
+                SiteTool::Herd => 'https://'.SiteName::forPath($root).'.test',
+                SiteTool::Valet => ($config->valetSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.ValetTld::current(),
+                SiteTool::Yerd => (new Yerd)->url($this->commands->yerd('status')[0], $root, $config->yerdSecure),
+            };
             $this->environmentFile->setAppUrl($root, $url);
             $output->writeln("<info>Configured APP_URL for the {$tool->label()} site</info>");
         }
@@ -196,7 +198,9 @@ final readonly class EnvironmentManager
         }
 
         if ($sites === []) {
-            $output->writeln('<info>No harness-owned Herd or Valet site needs cleanup.</info>');
+            $output->writeln($config->runtime === Runtime::Yerd
+                ? '<info>No harness-owned Yerd site needs cleanup.</info>'
+                : '<info>No harness-owned Herd, Valet, or Yerd site needs cleanup.</info>');
 
             return 0;
         }
@@ -250,7 +254,7 @@ final readonly class EnvironmentManager
         return $this->processes->run($this->commands->servicesDown($config, $root), $root, $output);
     }
 
-    /** Link, secure, and optionally isolate the project's Herd or Valet site. */
+    /** Link, secure, and optionally isolate the project's Herd, Valet, or Yerd site. */
     private function setupSite(Config $config, SiteTool $tool, string $root, OutputInterface $output): int
     {
         $site = SiteName::forPath($root);
@@ -260,9 +264,24 @@ final readonly class EnvironmentManager
             throw new EnvironmentException("Harness state owns unexpected {$tool->label()} site [{$ownedSite}].");
         }
 
+        if ($tool === SiteTool::Yerd) {
+            $existing = (new Yerd)->site($this->commands->yerd('sites')[0], $root, $site);
+            if ($existing !== null && ($ownedSite === null || ! Yerd::belongsTo($existing, $root))) {
+                throw new EnvironmentException("Refusing to modify an unowned or reassigned Yerd site [{$site}].");
+            }
+            if ($existing === null) {
+                $ownedSite = null;
+                $this->state->clearSiteSecured($root, $tool);
+            }
+        }
+
         if ($ownedSite === null) {
             $output->writeln("<info>Linking {$tool->label()} site {$site}</info>");
-            $arguments = $tool === SiteTool::Herd ? [$site, '--no-interaction'] : [$site];
+            $arguments = match ($tool) {
+                SiteTool::Herd => [$site, '--no-interaction'],
+                SiteTool::Valet => [$site],
+                SiteTool::Yerd => [$site, $root],
+            };
             $status = $this->processes->run($this->siteCommand($tool, 'link', ...$arguments), $root, $output);
 
             if ($status !== 0) {
@@ -270,6 +289,15 @@ final readonly class EnvironmentManager
             }
 
             $this->state->recordSite($root, $tool, $site);
+        }
+
+        if ($tool === SiteTool::Yerd && is_file($root.'/artisan')) {
+            foreach ([['root', $site, 'public'], ['front-controller', $site, 'on']] as $arguments) {
+                $status = $this->processes->run($this->commands->yerd(...$arguments), $root, $output);
+                if ($status !== 0) {
+                    return $status;
+                }
+            }
         }
 
         if ($this->secure($config, $tool)) {
@@ -293,16 +321,22 @@ final readonly class EnvironmentManager
             $this->state->clearSiteSecured($root, $tool);
         }
 
-        $php = $tool === SiteTool::Herd ? $config->herdPhp : $config->valetPhp;
+        $php = match ($tool) {
+            SiteTool::Herd => $config->herdPhp,
+            SiteTool::Valet => $config->valetPhp,
+            SiteTool::Yerd => $config->yerdPhp,
+        };
 
         if ($php === null) {
             return 0;
         }
 
         // Valet isolates the directory name by default, which differs from the checkout-specific site name.
-        $command = $tool === SiteTool::Herd
-            ? $this->siteCommand($tool, 'isolate', $php)
-            : $this->siteCommand($tool, 'isolate', 'php@'.$php, '--site='.$site);
+        $command = match ($tool) {
+            SiteTool::Herd => $this->siteCommand($tool, 'isolate', $php),
+            SiteTool::Valet => $this->siteCommand($tool, 'isolate', 'php@'.$php, '--site='.$site),
+            SiteTool::Yerd => $this->siteCommand($tool, 'use', $site, $php),
+        };
 
         return $this->processes->run($command, $root, $output);
     }
@@ -310,6 +344,18 @@ final readonly class EnvironmentManager
     /** Remove HTTPS from and unlink one harness-owned site. */
     private function cleanupSite(SiteTool $tool, string $site, string $root, OutputInterface $output): int
     {
+        if ($tool === SiteTool::Yerd) {
+            $existing = (new Yerd)->site($this->commands->yerd('sites')[0], $root, $site);
+            if ($existing === null) {
+                $this->state->clearSite($root, $tool);
+
+                return 0;
+            }
+            if (! Yerd::belongsTo($existing, $root)) {
+                throw new EnvironmentException("Refusing to unlink reassigned Yerd site [{$site}].");
+            }
+        }
+
         if ($this->state->siteSecured($root, $tool)) {
             $output->writeln("<info>Removing HTTPS from {$tool->label()} site {$site}</info>");
             $status = $this->processes->run($this->siteCommand($tool, 'unsecure', $site), $root, $output);
@@ -319,6 +365,19 @@ final readonly class EnvironmentManager
             }
 
             $this->state->clearSiteSecured($root, $tool);
+        }
+
+        if ($tool === SiteTool::Yerd) {
+            // TLS removal is a separate daemon call; do not trust the earlier target check.
+            $current = (new Yerd)->site($this->commands->yerd('sites')[0], $root, $site);
+            if ($current === null) {
+                $this->state->clearSite($root, $tool);
+
+                return 0;
+            }
+            if (! Yerd::belongsTo($current, $root)) {
+                throw new EnvironmentException("Refusing to unlink reassigned Yerd site [{$site}].");
+            }
         }
 
         $output->writeln("<info>Unlinking {$tool->label()} site {$site}</info>");
@@ -332,7 +391,7 @@ final readonly class EnvironmentManager
     }
 
     /**
-     * Build a Herd or Valet command.
+     * Build a Herd, Valet, or Yerd command.
      *
      * @return non-empty-list<string>
      */
@@ -341,13 +400,18 @@ final readonly class EnvironmentManager
         return match ($tool) {
             SiteTool::Herd => $this->commands->herd($action, ...$arguments),
             SiteTool::Valet => $this->commands->valet($action, ...$arguments),
+            SiteTool::Yerd => $this->commands->yerd($action, ...$arguments),
         };
     }
 
     /** Determine whether the configured site must use HTTPS. */
     private function secure(Config $config, SiteTool $tool): bool
     {
-        return $tool === SiteTool::Herd ? $config->herdSecure : $config->valetSecure;
+        return match ($tool) {
+            SiteTool::Herd => $config->herdSecure,
+            SiteTool::Valet => $config->valetSecure,
+            SiteTool::Yerd => $config->yerdSecure,
+        };
     }
 
     /** Determine whether the configuration needs Sail containers. */

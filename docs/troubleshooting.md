@@ -18,6 +18,10 @@ Each `FAIL` line tells you what is wrong. This page gives the fix for each messa
 | `Automatic Composer refresh hooks are missing; run ./.ai-harness update` | Run `./.ai-harness update`. |
 | `Native PHP is unavailable` | Install PHP 8.2 or newer and add it to `PATH`, or change `runtime`. |
 | `Laravel Herd is unavailable` | Install Herd and make sure that `herd` is on `PATH`, or change `runtime`. |
+| Yerd daemon or JSON unavailable | Start Yerd 2.x and check `yerd --json status`. In Codex, run Yerd commands outside the sandbox. |
+| Yerd PHP shim is missing | Install the selected version using `yerd install php <version>`; do not change global PHP. |
+| Yerd Composer script missing | Install managed Composer with `yerd install tool composer`, or put a PHP Composer script on PATH. |
+| Yerd site unowned or reassigned | Preserve the existing site. Check its JSON target and harness state; use a distinct checkout path. |
 | `Laravel Valet is unavailable` | Install Valet and make sure that `valet` is on `PATH`, or change `runtime`. |
 | `Laravel Sail is missing or not executable` | Install Sail with the host Composer: `composer require laravel/sail --dev`. Do not use `./.ai-harness composer`, because with `runtime=sail` it needs Sail. Or change `runtime`. |
 | `services=sail requires vendor/bin/sail` | Install Laravel Sail with `./.ai-harness composer require laravel/sail --dev`, or set `services=none`. |

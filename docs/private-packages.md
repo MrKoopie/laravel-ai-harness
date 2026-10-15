@@ -70,6 +70,7 @@ When a key does not look like a type name or a host name, `doctor` does not show
 | --- | --- |
 | Native PHP | Composer runs on the host and gets the variable automatically. |
 | Laravel Herd | `herd composer` or the Herd PHP runs on the host and gets the variable automatically. |
+| Yerd | The versioned PHP shim runs Composer on the host and inherits `COMPOSER_AUTH`. |
 | Laravel Valet | `valet composer` runs on the host and gets the variable automatically. |
 | Laravel Sail | Composer runs in the `laravel.test` container. You must forward the variable in the compose file. |
 | Claude and Codex cloud | Set the variable in the cloud environment. Refer to [Cloud](#cloud). |

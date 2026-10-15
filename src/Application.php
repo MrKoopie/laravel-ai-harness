@@ -12,6 +12,7 @@ use MrKoopie\LaravelAiHarness\Console\EnvironmentActionCommand;
 use MrKoopie\LaravelAiHarness\Console\HookCommand;
 use MrKoopie\LaravelAiHarness\Console\InitCommand;
 use MrKoopie\LaravelAiHarness\Console\PruneHerdCommand;
+use MrKoopie\LaravelAiHarness\Console\PruneYerdCommand;
 use MrKoopie\LaravelAiHarness\Console\RuntimeCommand;
 use MrKoopie\LaravelAiHarness\Console\UpdateCommand;
 use MrKoopie\LaravelAiHarness\Environment\CloudManager;
@@ -60,6 +61,7 @@ final class Application extends SymfonyApplication
         $this->addCommands([
             new CloudCommand($cloud),
             new PruneHerdCommand($commands, $processes),
+            new PruneYerdCommand($commands, $processes),
             new PruneHerdCommand($commands, $processes, SiteTool::Valet),
             new InitCommand($synchronizer),
             new UpdateCommand($synchronizer),

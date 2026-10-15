@@ -1,7 +1,7 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
     "name": "mrkoopie/laravel-ai-harness",
-    "description": "A small Composer tool that gives Codex and Claude a consistent Laravel runtime through Herd, Sail, or native PHP.",
+    "description": "A small Composer tool that gives Codex and Claude a consistent Laravel runtime through Herd, Valet, Yerd, Sail, or native PHP.",
     "keywords": [
         "ai",
         "agents",

@@ -17,7 +17,7 @@ final readonly class StateStore
     /** Create a state store backed by safe writes. */
     public function __construct(private SafeWriter $writer) {}
 
-    /** Return the Herd or Valet site recorded as owned by the harness. */
+    /** Return the Herd, Valet, or Yerd site recorded as owned by the harness. */
     public function site(string $root, SiteTool $tool): ?string
     {
         $state = $this->read($root);
@@ -26,7 +26,7 @@ final readonly class StateStore
         return is_string($site) && $site !== '' ? $site : null;
     }
 
-    /** Record the Herd or Valet site created for a project. */
+    /** Record the Herd, Valet, or Yerd site created for a project. */
     public function recordSite(string $root, SiteTool $tool, string $site): void
     {
         if (preg_match('/^[a-z0-9][a-z0-9-]{0,62}$/', $site) !== 1) {

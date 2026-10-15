@@ -6,13 +6,17 @@ namespace MrKoopie\LaravelAiHarness\Health;
 
 use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Environment\ComposerAuth;
+use MrKoopie\LaravelAiHarness\Environment\EnvironmentException;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentFile;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
+use MrKoopie\LaravelAiHarness\Environment\Yerd;
 use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
+use Symfony\Component\Process\Exception\ExceptionInterface;
+use Symfony\Component\Process\Process;
 
 final readonly class HealthChecker
 {
@@ -66,6 +70,7 @@ final readonly class HealthChecker
         $checks[] = match ($cloud ? Runtime::Native : $config->runtime) {
             Runtime::Native => $this->file($this->executables->php() !== null, 'Native PHP is available', 'Native PHP is unavailable'),
             Runtime::Herd => $this->file($this->executables->herd() !== null, 'Laravel Herd is available', 'Laravel Herd is unavailable'),
+            Runtime::Yerd => $this->yerd($config, $root),
             Runtime::Valet => $this->file($this->executables->valet() !== null, 'Laravel Valet is available', 'Laravel Valet is unavailable'),
             Runtime::Sail => $this->file(is_executable($root.'/vendor/bin/sail'), 'Laravel Sail is available', 'Laravel Sail is missing or not executable'),
         };
@@ -130,6 +135,31 @@ final readonly class HealthChecker
         }
 
         return $checks;
+    }
+
+    /** Check the daemon and the selected PHP and Composer shims. */
+    private function yerd(Config $config, string $root): CheckResult
+    {
+        try {
+            $binary = $this->executables->yerd();
+            if ($binary === null) {
+                throw new EnvironmentException('Yerd executable is unavailable.');
+            }
+            $yerd = new Yerd;
+            $yerd->url($binary, $root, $config->yerdSecure);
+            $php = $yerd->php($binary, $root, $config->yerdPhp);
+            $probe = new Process([$php, '--version'], $root);
+            $probe->setTimeout(10);
+            $probe->run();
+            if (! $probe->isSuccessful()) {
+                throw new EnvironmentException('Yerd PHP shim could not execute; check that the selected PHP version is installed.');
+            }
+            $yerd->composer($binary, $this->executables->composer());
+
+            return new CheckResult(true, 'Yerd daemon, PHP shim, and Composer are available');
+        } catch (EnvironmentException|ExceptionInterface $exception) {
+            return new CheckResult(false, $exception->getMessage());
+        }
     }
 
     /** Check whether a project file contains a harness-managed block. */

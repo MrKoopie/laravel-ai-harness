@@ -26,6 +26,7 @@ final readonly class CommandFactory
             Runtime::Native => $this->nativePrefix($tool, $root),
             Runtime::Herd => $this->herdPrefix($tool, $root, $explicitSite),
             Runtime::Valet => $this->valetPrefix($tool, $root, $explicitSite),
+            Runtime::Yerd => $this->yerdPrefix($config, $tool, $root),
             Runtime::Sail => $this->sailPrefix($tool, $root),
         };
 
@@ -37,8 +38,12 @@ final readonly class CommandFactory
      *
      * @return non-empty-list<string>
      */
-    public function bootstrapComposer(): array
+    public function bootstrapComposer(?Config $config = null, ?string $root = null): array
     {
+        if ($config?->runtime === Runtime::Yerd && $root !== null && ! ExecutionEnvironment::current()->isCloud()) {
+            return [...$this->yerdPrefix($config, 'composer', $root), 'install', '--no-interaction', '--prefer-dist'];
+        }
+
         $composer = $this->executables->composer();
 
         if ($composer !== null) {
@@ -157,6 +162,35 @@ final readonly class CommandFactory
         }
 
         return [$valet, $action, ...array_values($arguments)];
+    }
+
+    /** Build a Yerd site management command.
+     * @return non-empty-list<string>
+     */
+    public function yerd(string $action, string ...$arguments): array
+    {
+        return [$this->required($this->executables->yerd(), 'Yerd'), $action, ...array_values($arguments)];
+    }
+
+    /** Resolve Yerd's site-aware PHP through a versioned shim, never the global shim.
+     * @return non-empty-list<string>
+     */
+    private function yerdPrefix(Config $config, string $tool, string $root): array
+    {
+        if ($tool === 'npm') {
+            return [$this->required($this->executables->find('npm'), 'npm')];
+        }
+
+        $yerd = $this->required($this->executables->yerd(), 'Yerd');
+        $php = (new Yerd)->php($yerd, $root, $config->yerdPhp);
+
+        return match ($tool) {
+            'php' => [$php],
+            'artisan' => [$php, $root.'/artisan'],
+            'test' => [$php, $root.'/artisan', 'test'],
+            'composer' => [$php, (new Yerd)->composer($yerd, $this->executables->composer())],
+            default => throw new EnvironmentException("Unknown runtime tool [{$tool}]."),
+        };
     }
 
     /**
