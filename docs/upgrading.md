@@ -2,7 +2,9 @@
 
 ## Normal upgrades
 
-Update the package with Composer:
+For the shared runtime configuration change, follow [Shared runtime configuration (beta)](#shared-runtime-configuration-beta) before updating: the automatic refresh hook rejects removed keys.
+
+For other upgrades, update the package with Composer:
 
 ```bash
 composer update mrkoopie/laravel-ai-harness
@@ -54,4 +56,32 @@ Use `./.ai-harness update` from then on. The Artisan compatibility command is te
 
 ## Shared runtime configuration (beta)
 
-Replace `herd_php`, `valet_php`, or `yerd_php` with `php_version`, and `herd_secure`, `valet_secure`, or `yerd_secure` with `site_secure`. Replace `services=none|sail` with `service_manager=none|sail`. The old configuration keys are rejected; no compatibility aliases are provided. Update every configuration layer, including `.dist`, `.config`, and personal `.local` files inherited by worktrees. Then run `./.ai-harness setup`. Sail service names, cloud settings, and ownership state keep their existing meaning.
+Before running `composer update mrkoopie/laravel-ai-harness`, update every configuration layer, including `.ai-harness.config.dist`, `.ai-harness.config`, and personal `.ai-harness.config.local` files inherited by worktrees:
+
+- Replace `herd_php`, `valet_php`, or `yerd_php` with `php_version`.
+- Replace `herd_secure`, `valet_secure`, or `yerd_secure` with `site_secure`.
+- Replace `services=none|sail` with `service_manager=none|sail`.
+
+The old keys are rejected; no compatibility aliases are provided. If several runtime-specific keys exist in one file, keep one shared setting for the selected runtime and remove the others.
+
+Use host Composer for this transition, rather than `./.ai-harness composer`: the currently installed harness may still require the old schema. After changing the keys, run:
+
+```bash
+composer update mrkoopie/laravel-ai-harness
+./.ai-harness setup
+```
+
+The Composer hook refreshes managed project files using the new configuration. If old keys remain during the package update, that hook fails. To recover, first install the package with scripts disabled:
+
+```bash
+composer update mrkoopie/laravel-ai-harness --no-scripts
+```
+
+Then replace the keys in every configuration layer as described above, and refresh and prepare the project:
+
+```bash
+./.ai-harness update
+./.ai-harness setup
+```
+
+`--no-scripts` also skips unrelated Composer scripts; run any other project-required scripts separately after reviewing them. Sail service names, cloud settings, and ownership state keep their existing meaning.
