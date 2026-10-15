@@ -84,8 +84,8 @@ final readonly class HealthChecker
             Runtime::Sail => $this->file(is_executable($root.'/vendor/bin/sail'), 'Laravel Sail is available', 'Laravel Sail is missing or not executable'),
         };
 
-        if (! $cloud && $config->services === Services::Sail) {
-            $checks[] = $this->file(is_executable($root.'/vendor/bin/sail'), 'Sail service manager is available', 'services=sail requires vendor/bin/sail');
+        if (! $cloud && $config->serviceManager === Services::Sail) {
+            $checks[] = $this->file(is_executable($root.'/vendor/bin/sail'), 'Sail service manager is available', 'service_manager=sail requires vendor/bin/sail');
         }
 
         $composerAuth = ComposerAuth::fromEnvironment();
@@ -162,8 +162,8 @@ final readonly class HealthChecker
                 throw new EnvironmentException('Yerd executable is unavailable.');
             }
             $yerd = new Yerd;
-            $yerd->url($binary, $root, $config->yerdSecure);
-            $php = $yerd->php($binary, $root, $config->yerdPhp);
+            $yerd->url($binary, $root, $config->siteSecure);
+            $php = $yerd->php($binary, $root, $config->phpVersion);
             $probe = new Process([$php, '--version'], $root);
             $probe->setTimeout(10);
             $probe->run();

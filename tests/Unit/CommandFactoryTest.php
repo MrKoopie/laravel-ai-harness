@@ -16,11 +16,11 @@ function harness_config(Runtime $runtime, Services $services = Services::None, a
 {
     return new Config(
         runtime: $runtime,
-        services: $services,
+        serviceManager: $services,
         agents: ['codex', 'claude'],
         sailServices: $sailServices,
-        herdSecure: true,
-        herdPhp: null,
+        siteSecure: true,
+        phpVersion: null,
         worktrees: true,
         sourceFiles: ['.ai-harness.config'],
     );

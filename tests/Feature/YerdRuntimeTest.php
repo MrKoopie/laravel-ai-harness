@@ -21,7 +21,7 @@ function yerd_fixture(): array
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/artisan', '<?php');
     file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=http://shared.test\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservices=none\nagents=\nyerd_php=8.2\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\nphp_version=8.2\n");
     file_put_contents($root.'/sites.json', '[]');
     file_put_contents($root.'/status.json', json_encode(['tld' => 'test', 'default_php' => '8.5', 'http' => ['bound' => 80], 'https' => ['bound' => 443]], JSON_THROW_ON_ERROR));
     file_put_contents($root.'/log', '');
@@ -146,7 +146,7 @@ test('Yerd uses versioned PHP for all PHP tools and forwards arguments and exit 
 
 test('Yerd runtime reads the linked site version or default when no PHP version is configured', function (): void {
     [$root, $env] = yerd_fixture();
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\n");
     $process = yerd_harness(['php', '-v'], $root, $env)->mustRun();
     expect($process->getOutput())->toContain('php8.5');
     file_put_contents($root.'/sites.json', json_encode([['name' => SiteName::forPath($root), 'document_root' => $root, 'kind' => 'linked', 'php' => '8.2']], JSON_THROW_ON_ERROR));
@@ -179,7 +179,7 @@ test('Yerd cleanup clears stale ownership for an already removed site', function
 test('Yerd unsecured setup and HTTPS downgrade use the requested URL scheme', function (): void {
     [$root, $env] = yerd_fixture();
     yerd_harness(['setup'], $root, $env)->mustRun();
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservices=none\nagents=\nyerd_secure=false\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\nsite_secure=false\n");
     yerd_harness(['setup'], $root, $env)->mustRun();
     expect(file_get_contents($root.'/.env'))->toContain('APP_URL=http://'.SiteName::forPath($root).'.test')
         ->and(yerd_mutations($root))->toContain(['unsecure', SiteName::forPath($root)]);
@@ -208,7 +208,7 @@ test('Yerd doctor reports missing Composer and unavailable PHP shims', function 
 test('Yerd config validates PHP versions and cloud runtime stays native', function (): void {
     [$root] = yerd_fixture();
     $config = (new ConfigLoader)->load($root);
-    expect($config->yerdPhp)->toBe('8.2')->and($config->yerdSecure)->toBeTrue();
+    expect($config->phpVersion)->toBe('8.2')->and($config->siteSecure)->toBeTrue();
     putenv('AI_HARNESS_ENV=codex-cloud');
     try {
         $factory = new CommandFactory(new ExecutableLocator(overrides: ['php' => PHP_BINARY, 'yerd' => null]));
@@ -216,7 +216,7 @@ test('Yerd config validates PHP versions and cloud runtime stays native', functi
     } finally {
         putenv('AI_HARNESS_ENV');
     }
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nyerd_php=8.2.3\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nphp_version=8.2.3\n");
     expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class);
 });
 
@@ -305,7 +305,7 @@ test('Yerd piped confirmations stay report only', function (): void {
 foreach ([[false, 8080, ':8080'], [true, 8443, ':8443'], [false, 80, ''], [true, 443, '']] as [$secure, $port, $suffix]) {
     test('Yerd APP_URL uses '.($secure ? 'HTTPS' : 'HTTP').' port '.$port, function () use ($secure, $port, $suffix): void {
         [$root, $env] = yerd_fixture();
-        file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservices=none\nagents=\nyerd_secure=".($secure ? 'true' : 'false')."\n");
+        file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\nsite_secure=".($secure ? 'true' : 'false')."\n");
         $report = json_decode((string) file_get_contents($root.'/status.json'), true, flags: JSON_THROW_ON_ERROR);
         $report[$secure ? 'https' : 'http'] = ['requested' => $secure ? 443 : 80, 'bound' => $port];
         file_put_contents($root.'/status.json', json_encode($report, JSON_THROW_ON_ERROR));

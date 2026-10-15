@@ -15,7 +15,7 @@ Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.
 5. Run `composer install` when `vendor/autoload.php` does not exist.
 6. Start the configured Sail services. Create the development and testing databases for this checkout.
 7. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
-8. Secure the site when `herd_secure=true` or `valet_secure=true`. Isolate its PHP version when `herd_php` or `valet_php` has a value.
+8. Secure the site when `site_secure=true`. Isolate its PHP version when `php_version` has a value.
 9. Generate `APP_KEY` when the key is empty.
 10. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. Without it, it uses isolated SQLite defaults.
 11. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
@@ -65,9 +65,9 @@ The harness never deletes Docker volumes.
 With `runtime=herd`, `setup` links the checkout as a Herd site.
 
 - The site name comes from the directory name plus a short hash of the full path, for example `my-app-1a2b3c4d5e`.
-- `APP_URL` becomes `https://<site-name>.test`.
-- `herd_secure=true` runs `herd secure`. When you change it to `false`, the next `setup` runs `herd unsecure`.
-- `herd_php=8.4` runs `herd isolate 8.4`.
+- `APP_URL` becomes `https://<site-name>.test`, or `http://<site-name>.test` when `site_secure=false`.
+- `site_secure=true` runs `herd secure`. When you change it to `false`, the next `setup` runs `herd unsecure`.
+- `php_version=8.4` runs `herd isolate 8.4`.
 
 ### PHP version of the Herd site
 
@@ -104,9 +104,9 @@ Codex runs commands in a sandbox. Herd commands must run outside the sandbox. Th
 With `runtime=valet`, `setup` links the checkout as a Valet site. Valet runs only on macOS.
 
 - The site name is the same as for Herd, for example `my-app-1a2b3c4d5e`.
-- `APP_URL` becomes `https://<site-name>.<tld>`. The harness reads the TLD from `~/.config/valet/config.json`. The default is `test`. With `valet_secure=false`, the URL uses `http`.
-- `valet_secure=true` runs `valet secure <site>`. When you change it to `false`, the next `setup` runs `valet unsecure <site>`.
-- `valet_php=8.4` runs `valet isolate php@8.4 --site=<site>`. When this PHP version is not installed, Valet installs it with Homebrew.
+- `APP_URL` becomes `https://<site-name>.<tld>`. The harness reads the TLD from `~/.config/valet/config.json`. The default is `test`. With `site_secure=false`, the URL uses `http`.
+- `site_secure=true` runs `valet secure <site>`. When you change it to `false`, the next `setup` runs `valet unsecure <site>`.
+- `php_version=8.4` runs `valet isolate php@8.4 --site=<site>`. When this PHP version is not installed, Valet installs it with Homebrew.
 - `artisan`, `test`, `php`, and `composer` run through `valet php --site=<site>` and `valet composer --site=<site>`. Thus, they use the PHP version of the site. When the first argument of `php` or `composer` is `--site=...`, the harness does not add its own site.
 
 The harness always gives the site name to Valet. Without it, Valet uses the directory name, and that is not the name of the site.
@@ -132,7 +132,7 @@ Valet commands must also run outside the Codex sandbox. The managed `AGENTS.md` 
 
 ## MySQL with Sail
 
-The harness manages databases only when `services=sail` and `mysql` is in the `sail_services` list. With an empty list (the full stack), the harness does not create databases or change `.env` for MySQL.
+The harness manages databases only when `service_manager=sail` and `mysql` is in the `sail_services` list. With an empty list (the full stack), the harness does not create databases or change `.env` for MySQL.
 
 ### Database names
 
@@ -174,12 +174,12 @@ The harness records owned resources in `.ai-harness.state.json`. Git ignores thi
 
 `runtime=yerd` supports Yerd 2.x on Linux and macOS. The daemon must be running. Install PHP and Composer beforehand; setup does not install components or change global defaults. The harness discovers `yerd` on PATH or in Yerd's platform data directory (including Linux `XDG_DATA_HOME`).
 
-Each checkout receives the same path-derived name used by Herd and Valet. Setup runs `yerd link <site> <checkout>`, sets Laravel's web root to `public` and front controller to `on`, applies `yerd_secure`, and runs `yerd use <site> <version>` when `yerd_php` is set. `APP_URL` uses the TLD, actual listener port, and configured HTTPS setting from `yerd --json status`; nonstandard ports such as 8080 or 8443 are included. Personal `local_env.APP_URL` overrides are rejected for this runtime.
+Each checkout receives the same path-derived name used by Herd and Valet. Setup runs `yerd link <site> <checkout>`, sets Laravel's web root to `public` and front controller to `on`, applies `site_secure`, and runs `yerd use <site> <version>` when `php_version` is set. `APP_URL` uses the TLD, actual listener port, and configured HTTPS setting from `yerd --json status`; nonstandard ports such as 8080 or 8443 are included. Personal `local_env.APP_URL` overrides are rejected for this runtime.
 
-The plain Yerd `php` and `composer` shims use global PHP. To keep CLI and site versions consistent, the harness reads `yerd --json sites` and invokes the versioned `php<major>.<minor>` shim. An explicit `yerd_php` takes precedence; before a site exists, an empty value uses the daemon's default. Composer runs as a PHP script under that same shim: either Yerd's `{data}/tools/composer/composer.phar` or a readable PHP Composer executable on PATH. Shell Composer launchers are not supported by this runtime; install Yerd's managed Composer instead. `doctor` reports missing components or inaccessible daemon JSON. See Yerd's [PHP documentation](https://yerd.app/guide/php-versions) and [tooling documentation](https://yerd.app/guide/tooling).
+The plain Yerd `php` and `composer` shims use global PHP. To keep CLI and site versions consistent, the harness reads `yerd --json sites` and invokes the versioned `php<major>.<minor>` shim. An explicit `php_version` takes precedence; before a site exists, an empty value uses the daemon's default. Composer runs as a PHP script under that same shim: either Yerd's `{data}/tools/composer/composer.phar` or a readable PHP Composer executable on PATH. Shell Composer launchers are not supported by this runtime; install Yerd's managed Composer instead. `doctor` reports missing components or inaccessible daemon JSON. See Yerd's [PHP documentation](https://yerd.app/guide/php-versions) and [tooling documentation](https://yerd.app/guide/tooling).
 
 Setup refuses an existing name unless the harness state owns it and Yerd reports the same linked directory. It recreates a missing owned link. Cleanup checks both the path-derived ownership marker and the live JSON target before changing the site; reassigned or parked sites are preserved. Failed commands retain state for retries. Keep `.ai-harness.state.json` until cleanup completes.
 
 `prune-yerd` reads JSON rather than a filesystem links directory. It selects only linked sites whose absolute target is missing and whose name exactly matches the harness path-derived name. Parked sites, live directories, symlinks, and unrelated names are excluded. Each removal requires confirmation and fresh inspection; `--dry-run`, noninteractive runs, and piped or redirected input only report. Yerd unlink removes the site's configuration, including HTTPS and its PHP pin. Pruning never removes databases.
 
-Yerd-managed SQL services are not provisioned by the harness. Use `services=none` for an existing local service or `services=sail` to retain the harness's isolated Sail database workflow. Tests receive isolated defaults just as other host runtimes do.
+Yerd-managed SQL services are not provisioned by the harness. Use `service_manager=none` for an existing local service or `service_manager=sail` to retain the harness's isolated Sail database workflow. Tests receive isolated defaults just as other host runtimes do.

@@ -21,11 +21,11 @@ final readonly class Config
      */
     public function __construct(
         public Runtime $runtime,
-        public Services $services,
+        public Services $serviceManager,
         public array $agents,
         public array $sailServices,
-        public bool $herdSecure,
-        public ?string $herdPhp,
+        public bool $siteSecure,
+        public ?string $phpVersion,
         public bool $worktrees,
         public array $sourceFiles,
         public bool $cloud = true,
@@ -34,12 +34,8 @@ final readonly class Config
         public bool $cloudSeed = false,
         public bool $cloudBuild = false,
         public bool $cloudBrowser = false,
-        public bool $valetSecure = true,
-        public ?string $valetPhp = null,
         public array $localEnvironment = [],
         public array $localEnvironmentSources = [],
-        public bool $yerdSecure = true,
-        public ?string $yerdPhp = null,
     ) {}
 
     /** Determine whether the named coding agent is enabled. */
@@ -51,6 +47,6 @@ final readonly class Config
     /** Determine whether Sail owns the checkout's MySQL connection and databases. */
     public function managesMySql(): bool
     {
-        return $this->services === Services::Sail && in_array('mysql', $this->sailServices, true);
+        return $this->serviceManager === Services::Sail && in_array('mysql', $this->sailServices, true);
     }
 }

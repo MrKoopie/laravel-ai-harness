@@ -29,10 +29,10 @@ test('legacy configuration is conservatively translated when no new config exist
 
     expect($result->created)->toBeTrue()
         ->and($config->runtime)->toBe(Runtime::Herd)
-        ->and($config->services)->toBe(Services::Sail)
+        ->and($config->serviceManager)->toBe(Services::Sail)
         ->and($config->sailServices)->toBe(['mysql'])
         ->and($config->agents)->toBe(['codex'])
-        ->and($config->herdPhp)->toBe('8.4')
+        ->and($config->phpVersion)->toBe('8.4')
         ->and(implode("\n", $result->warnings))->toContain('skills')
         ->toContain('polyscope');
 });
@@ -49,7 +49,7 @@ test('legacy command flags are translated but never overwrite a new config', fun
         ->and($second->created)->toBeFalse()
         ->and(file_get_contents($root.'/.ai-harness.config'))->toBe($contents)
         ->and($contents)->toContain('runtime=herd')
-        ->and($contents)->toContain('services=sail');
+        ->and($contents)->toContain('service_manager=sail');
 });
 
 test('legacy migration reports obsolete package artifacts without deleting them', function (): void {
