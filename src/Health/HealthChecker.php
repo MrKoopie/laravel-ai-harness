@@ -35,9 +35,11 @@ final readonly class HealthChecker
     public function check(Config $config, string $root): array
     {
         $global = GlobalInstallation::active($root);
+        $environmentSources = array_filter($config->sources, static fn (string $source): bool => str_starts_with($source, 'AI_HARNESS_'));
+        $configurationSources = array_unique([...$config->sourceFiles, ...array_values($environmentSources)]);
         $checks = [
             $this->file(is_file($root.'/artisan'), 'Laravel artisan entrypoint exists', 'Laravel artisan entrypoint is missing'),
-            $this->file($config->sourceFiles !== [], 'Configuration loaded from '.implode(', ', $config->sourceFiles), 'No project configuration file exists; run init'),
+            $this->file($configurationSources !== [], 'Configuration loaded from '.implode(', ', $configurationSources), 'No project configuration file exists; run init'),
             $global ? $this->file(
                 $this->executables->find('ai-harness') !== null,
                 'Global AI Harness is available on PATH; refresh with ai-harness update',
@@ -48,6 +50,10 @@ final readonly class HealthChecker
                 'Automatic Composer refresh hooks are missing; run ./.ai-harness update',
             ),
         ];
+
+        foreach (['runtime' => $config->runtime->value, 'php_version' => $config->phpVersion ?? '(empty)', 'site_secure' => $config->siteSecure ? 'true' : 'false', 'service_manager' => $config->serviceManager->value] as $key => $value) {
+            $checks[] = new CheckResult(true, "{$key}={$value} from ".($config->sources[$key] ?? 'built-in default'));
+        }
 
         if (! $global) {
             array_unshift($checks, $this->file(is_executable($root.'/.ai-harness'), '.ai-harness bootstrap is executable', '.ai-harness bootstrap is missing or not executable'));

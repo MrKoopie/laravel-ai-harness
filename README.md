@@ -84,6 +84,8 @@ ai-harness init --global
 
 This configures Codex local environments and Claude hooks automatically, using the same options as a project installation. Edit `.ai-harness.config.global` to select your runtime, services, agents, and environment overrides. The harness excludes all generated integrations through Git’s local `.git/info/exclude`; shared `.gitignore`, `composer.json`, and agent configuration stay unchanged. Global initialization requires a Git working tree.
 
+A Codex environment can also select runtime, PHP version, HTTPS, and services with exported `AI_HARNESS_*` variables. See the [PHP 8.4 Codex example](docs/configuration.md#codex-environment-example). Keep the exports available to every later harness command; setup does not persist them.
+
 Use `ai-harness doctor`, `ai-harness setup`, or the generated `./.ai-harness` launcher. Linked local worktrees inherit the primary checkout's global configuration. After updating the package with `composer global update mrkoopie/laravel-ai-harness`, run `ai-harness update` in each configured project. See [Global installation details](docs/installation.md#global-installation).
 
 ## Commands

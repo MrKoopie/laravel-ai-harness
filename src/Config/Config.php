@@ -18,6 +18,7 @@ final readonly class Config
      * @param  list<string>  $cloudServices
      * @param  array<string, string>  $localEnvironment
      * @param  array<string, string>  $localEnvironmentSources
+     * @param  array<string, string>  $sources
      */
     public function __construct(
         public Runtime $runtime,
@@ -36,6 +37,7 @@ final readonly class Config
         public bool $cloudBrowser = false,
         public array $localEnvironment = [],
         public array $localEnvironmentSources = [],
+        public array $sources = [],
     ) {}
 
     /** Determine whether the named coding agent is enabled. */
