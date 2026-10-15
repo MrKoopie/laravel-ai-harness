@@ -11,7 +11,7 @@ use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 test('Herd runtime tolerates noisy PHP resolution while preserving arguments and exit status', function (): void {
     $root = temp_directory('harness-noisy-herd');
     $bin = $root.'/bin';
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
     write_executable($bin.'/php84', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$@\"\nexit 23\n");
     write_executable($bin.'/herd', '#!/usr/bin/env bash'."\n".'if [[ "$1" == which-php ]]; then'."\n".'printf "Warning: simulated startup warning\\n%s\\n" '.escapeshellarg($bin.'/php84')."\nexit 0\nfi\n".'"$("$0" which-php)" "${@:2}"'."\n");
     write_executable($bin.'/php', '#!/usr/bin/env bash'."\n".'if [[ "$1" != -d ]]; then exec '.escapeshellarg(PHP_BINARY).' "$@"; fi'."\n".'printf "Warning: simulated startup warning\\n%s\\n" '.escapeshellarg($bin.'/php84')."\n");

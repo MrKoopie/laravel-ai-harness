@@ -28,7 +28,7 @@ test('forwarded port overrides reach Sail before startup and configure both isol
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/artisan', '<?php');
     file_put_contents($root.'/.env.example', "APP_KEY=present\nFORWARD_DB_PORT=3306\nDB_URL=mysql://stale.invalid/shared\nDB_SOCKET=/stale.sock\n");
-    file_put_contents($root.'/.ai-harness.config', "services=sail\nsail_services=mysql\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "service_manager=sail\nsail_services=mysql\nagents=\n");
     file_put_contents($root.'/.ai-harness.config.local', "local_env.FORWARD_DB_PORT=3307\n");
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
@@ -49,7 +49,7 @@ test('inside Sail the forwarded port does not change the container database port
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/.env.example', "APP_KEY=present\n");
-    file_put_contents($root.'/.ai-harness.config.local', "runtime=sail\nservices=sail\nsail_services=mysql\nlocal_env.FORWARD_DB_PORT=3307\n");
+    file_put_contents($root.'/.ai-harness.config.local', "runtime=sail\nservice_manager=sail\nsail_services=mysql\nlocal_env.FORWARD_DB_PORT=3307\n");
     write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
 
     harness_process(['setup'], $root)->mustRun();
@@ -243,7 +243,7 @@ foreach ([
         mkdir($root.'/vendor/bin', 0755, true);
         file_put_contents($root.'/vendor/autoload.php', '<?php');
         file_put_contents($root.'/.env', "APP_KEY=present\nFORWARD_DB_PORT=3306\n");
-        file_put_contents($root.'/.ai-harness.config', "services=sail\nsail_services=mysql\nagents=\n");
+        file_put_contents($root.'/.ai-harness.config', "service_manager=sail\nsail_services=mysql\nagents=\n");
         file_put_contents($root.'/.ai-harness.config.local', 'local_env.FORWARD_DB_PORT=3307');
         write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\ntouch command-ran\n");
         $environment = array_fill_keys(['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_URL', 'DATABASE_URL', 'DB_SOCKET', 'MYSQL_ATTR_SSL_CA'], false);
@@ -269,7 +269,7 @@ foreach (['native', 'sail'] as $runtime) {
             file_put_contents($root.'/artisan', '<?php');
             $filename = $source === 'existing environment' ? '.env' : '.env.example';
             file_put_contents($root.'/'.$filename, "APP_KEY=present\nFORWARD_DB_PORT={$port}\n");
-            file_put_contents($root.'/.ai-harness.config', "runtime={$runtime}\nservices=sail\nsail_services=mysql\nagents=\n");
+            file_put_contents($root.'/.ai-harness.config', "runtime={$runtime}\nservice_manager=sail\nsail_services=mysql\nagents=\n");
 
             if ($source === 'local override') {
                 file_put_contents($root.'/.ai-harness.config.local', 'local_env.FORWARD_DB_PORT=3307');
@@ -302,7 +302,7 @@ test('even a matching development database in the process would override the iso
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/.env', "APP_KEY=present\n");
-    file_put_contents($root.'/.ai-harness.config', "services=sail\nsail_services=mysql\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "service_manager=sail\nsail_services=mysql\nagents=\n");
     write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\ntouch command-ran\n");
     $environment = ['DB_DATABASE' => DatabaseName::forPath($root)];
     $setup = harness_process(['setup'], $root, $environment);

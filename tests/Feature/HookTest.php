@@ -8,7 +8,7 @@ test('Claude EnterWorktree payload prepares the provided worktree without projec
     $worktree = $container.'/.claude/worktrees/example';
     mkdir($worktree.'/vendor', 0755, true);
     file_put_contents($worktree.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($worktree.'/.ai-harness.config', "runtime=native\nservices=none\nagents=claude\nworktrees=true\n");
+    file_put_contents($worktree.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=claude\nworktrees=true\n");
     file_put_contents($worktree.'/.env.example', "APP_KEY=present\n");
 
     $process = harness_process(['hook', 'claude', 'enter-worktree'], package_root(), [
@@ -28,7 +28,7 @@ test('Claude EnterWorktree accepts the documented snake-case worktree response',
     $worktree = $container.'/.claude/worktrees/example';
     mkdir($worktree.'/vendor', 0755, true);
     file_put_contents($worktree.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($worktree.'/.ai-harness.config', "runtime=native\nservices=none\nagents=claude\nworktrees=true\n");
+    file_put_contents($worktree.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=claude\nworktrees=true\n");
     file_put_contents($worktree.'/.env.example', "APP_KEY=present\n");
 
     $process = harness_process(['hook', 'claude', 'enter-worktree'], package_root(), [
@@ -46,7 +46,7 @@ test('Claude SessionStart is a no-op outside Claude worktrees', function (): voi
     $root = temp_directory('harness-hook-main');
     mkdir($root.'/vendor', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=none\nagents=claude\nworktrees=true\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=claude\nworktrees=true\n");
     file_put_contents($root.'/.env.example', "APP_KEY=present\n");
 
     $process = harness_process(['hook', 'claude', 'session-start'], package_root());
@@ -61,7 +61,7 @@ test('Claude hooks respect worktree automation being disabled', function (): voi
     $container = temp_directory('harness-hook-disabled');
     $worktree = $container.'/.claude/worktrees/example';
     mkdir($worktree, 0755, true);
-    file_put_contents($worktree.'/.ai-harness.config', "runtime=native\nservices=none\nagents=claude\nworktrees=false\n");
+    file_put_contents($worktree.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=claude\nworktrees=false\n");
     file_put_contents($worktree.'/.env.example', "APP_KEY=present\n");
 
     $process = harness_process(['hook', 'claude', 'enter-worktree'], package_root(), [
@@ -82,7 +82,7 @@ test('Claude WorktreeRemove cleans the provided harness-owned worktree', functio
     $site = SiteName::forPath($worktree);
     mkdir($worktree, 0755, true);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($worktree.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=claude\nworktrees=true\n");
+    file_put_contents($worktree.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=claude\nworktrees=true\n");
     file_put_contents($worktree.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -114,7 +114,7 @@ test('Claude WorktreeRemove unlinks Herd when Sail is no longer available', func
     $site = SiteName::forPath($worktree);
     mkdir($worktree, 0755, true);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($worktree.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=claude\nsail_services=mysql\nworktrees=true\n");
+    file_put_contents($worktree.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=claude\nsail_services=mysql\nworktrees=true\n");
     file_put_contents($worktree.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -154,7 +154,7 @@ test('Claude hook input is bounded', function (): void {
 test('Claude hook targets cannot escape the project worktree directory', function (): void {
     $project = temp_directory('harness-hook-project');
     $outside = temp_directory('harness-hook-outside');
-    file_put_contents($outside.'/.ai-harness.config', "runtime=native\nservices=none\nagents=claude\nworktrees=true\n");
+    file_put_contents($outside.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=claude\nworktrees=true\n");
 
     $process = harness_process(['hook', 'claude', 'enter-worktree'], package_root(), [
         'CLAUDE_PROJECT_DIR' => $project,

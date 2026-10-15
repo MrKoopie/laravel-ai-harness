@@ -29,11 +29,11 @@ test('setup composes Herd with selected Sail services and cleanup only unlinks o
     file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=herd',
-        'services=sail',
+        'service_manager=sail',
         'agents=',
         'sail_services=mysql,redis',
-        'herd_secure=true',
-        'herd_php=8.4',
+        'site_secure=true',
+        'php_version=8.4',
         '',
     ]));
     write_executable($fakeBin.'/herd', <<<'BASH'
@@ -127,8 +127,8 @@ test('setup links a checkout-specific Valet site and cleanup removes only owned 
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=valet',
         'agents=',
-        'valet_secure=true',
-        'valet_php=8.3',
+        'site_secure=true',
+        'php_version=8.3',
         '',
     ]));
     write_executable($fakeBin.'/valet', <<<'BASH'
@@ -185,7 +185,7 @@ test('Valet setup serves HTTP on the default TLD and removes HTTPS it added befo
         'valet_site' => SiteName::forPath($root),
         'valet_secured' => true,
     ], JSON_THROW_ON_ERROR));
-    file_put_contents($root.'/.ai-harness.config', "runtime=valet\nagents=\nvalet_secure=false\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=valet\nagents=\nsite_secure=false\n");
     write_executable($fakeBin.'/valet', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VALET_LOG}"
@@ -214,8 +214,8 @@ test('each checkout gets its own Valet site name', function (): void {
 
 test('Sail runtime starts laravel.test with or without explicitly managed supporting services', function (): void {
     foreach ([
-        ['services=none', 'sail_services=', 'up -d laravel.test', 'stop laravel.test'],
-        ['services=sail', 'sail_services=mysql,redis', 'up -d laravel.test mysql redis', 'stop laravel.test mysql redis'],
+        ['service_manager=none', 'sail_services=', 'up -d laravel.test', 'stop laravel.test'],
+        ['service_manager=sail', 'sail_services=mysql,redis', 'up -d laravel.test mysql redis', 'stop laravel.test mysql redis'],
     ] as [$services, $sailServices, $expectedSetup, $expectedDown]) {
         $root = temp_directory('harness-sail-runtime');
         $sailLog = temp_file('sail-runtime-log');
@@ -265,7 +265,7 @@ test('setup normalizes existing Laravel test environment to checkout-specific Sa
     file_put_contents($root.'/.env', "APP_KEY=present\nFORWARD_DB_PORT=3310\nDB_CONNECTION=sqlite\n");
     file_put_contents($root.'/.env.testing', "APP_ENV=testing\nDB_CONNECTION=sqlite\nDB_DATABASE=:memory:\n");
     file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=\nsail_services=mysql\n");
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${SAIL_LOG}"
@@ -303,7 +303,7 @@ test('setup configures PHPUnit for a digit-leading checkout database name', func
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
     file_put_contents($root.'/.env', "APP_KEY=present\n");
     file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=sail\nagents=\nsail_services=mysql\n");
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${SAIL_LOG}"
@@ -322,7 +322,7 @@ test('cleanup preserves Herd ownership state when removing HTTPS fails', functio
     $herdLog = temp_file('herd-unsecure-log');
     $site = SiteName::forPath($root);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -352,7 +352,7 @@ test('cleanup removes harness-owned MySQL databases without a Herd site', functi
     $sailLog = temp_file('sail-mysql-cleanup-log');
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=sail\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
@@ -378,7 +378,7 @@ test('cleanup drops only this checkout’s numeric parallel testing databases', 
     $legacyTesting = $legacyDatabase.'_testing';
     mkdir($fakeBin, 0755, true);
     mkdir($root.'/vendor/bin', 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=sail\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
     file_put_contents($databaseList, implode("\n", [
         $database,
@@ -442,7 +442,7 @@ test('cleanup unlinks Herd and preserves MySQL ownership when Sail is unavailabl
     $herdLog = temp_file('herd-mysql-cleanup-no-sail-log');
     $site = SiteName::forPath($root);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -476,7 +476,7 @@ test('cleanup migrates legacy Herd state to MySQL database cleanup', function ()
     mkdir($fakeBin, 0755, true);
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode(['herd_site' => $site], JSON_THROW_ON_ERROR));
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
@@ -504,7 +504,7 @@ test('cleanup records successful HTTPS removal before a failed Herd unlink', fun
     $herdLog = temp_file('herd-unlink-log');
     $site = SiteName::forPath($root);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -549,7 +549,7 @@ test('repeated Herd setup does not reissue a harness-owned certificate', functio
     mkdir($fakeBin, 0755, true);
     mkdir($root.'/vendor', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
     write_executable($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${HERD_LOG}"
@@ -574,7 +574,7 @@ test('cleanup refuses a state file that names a Herd site not derived from this 
     $fakeBin = $root.'/fake-bin';
     $herdLog = temp_file('herd-guard-log');
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode(['herd_site' => 'someone-elses-site'], JSON_THROW_ON_ERROR));
     write_executable($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
@@ -595,6 +595,7 @@ BASH);
 
 test('an unsecured first-time Herd setup does not emit TLS commands or warnings', function (): void {
     $root = temp_directory('harness-unsecured-herd');
+    file_put_contents($root.'/.env.example', "APP_KEY=present\nAPP_URL=https://previous.test\n");
     $fakeBin = $root.'/fake-bin';
     $herdLog = temp_file('herd-unsecured-log');
     mkdir($fakeBin, 0755, true);
@@ -602,9 +603,9 @@ test('an unsecured first-time Herd setup does not emit TLS commands or warnings'
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=herd',
-        'services=none',
+        'service_manager=none',
         'agents=',
-        'herd_secure=false',
+        'site_secure=false',
         '',
     ]));
     write_executable($fakeBin.'/herd', <<<'BASH'
@@ -621,6 +622,7 @@ BASH);
     $site = SiteName::forPath($root);
 
     expect($process->getErrorOutput())->toBe('')
+        ->and(file_get_contents($root.'/.env'))->toContain('APP_URL=http://'.$site.'.test')
         ->and(file($herdLog, FILE_IGNORE_NEW_LINES))->toBe(['link '.$site.' --no-interaction'])
         ->and(json_decode((string) file_get_contents($root.'/.ai-harness.state.json'), true, flags: JSON_THROW_ON_ERROR))
         ->toBe(['herd_site' => $site]);
@@ -630,7 +632,7 @@ test('setup does not run migrations or alter PHPUnit configuration outside Sail 
     $root = temp_directory('harness-no-migrations');
     mkdir($root.'/vendor', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservices=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=\n");
     file_put_contents($root.'/phpunit.xml', '<phpunit/>');
 
     harness_process(['setup'], $root)->mustRun();
@@ -645,7 +647,7 @@ test('repeated setup restores overwritten worktree environment without migration
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/artisan', '<?php');
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nsail_services=mysql\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nsail_services=mysql\nagents=\n");
     file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=https://shared.test\nDB_DATABASE=shared\n");
     write_executable($root.'/fake-bin/herd', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> \"\${COMMAND_LOG}\"\n");
     write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> \"\${COMMAND_LOG}\"\n");
@@ -658,4 +660,35 @@ test('repeated setup restores overwritten worktree environment without migration
     expect(file_get_contents($root.'/.env'))->toContain('APP_URL=https://'.SiteName::forPath($root).'.test', 'DB_DATABASE='.DatabaseName::forPath($root))
         ->and(file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE='.DatabaseName::testingForPath($root))
         ->and(file_get_contents($log))->not->toContain('migrate', 'db:seed');
+});
+
+test('Herd setup keeps APP_URL in sync when HTTPS is disabled and enabled again', function (): void {
+    $root = temp_directory('harness-herd-https-toggle');
+    $log = temp_file('harness-herd-https-log');
+    mkdir($root.'/vendor', 0755, true);
+    file_put_contents($root.'/vendor/autoload.php', '<?php');
+    file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=https://previous.test\n");
+    write_executable($root.'/fake-bin/herd', <<<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERD_LOG"
+BASH);
+    $environment = ['PATH' => $root.'/fake-bin'.PATH_SEPARATOR.getenv('PATH'), 'HERD_LOG' => $log];
+    $site = SiteName::forPath($root);
+
+    foreach ([true, false, true] as $secure) {
+        file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\nsite_secure=".($secure ? 'true' : 'false')."\n");
+        harness_process(['setup'], $root, $environment)->mustRun();
+        expect(file_get_contents($root.'/.env'))
+            ->toContain('APP_URL='.($secure ? 'https' : 'http').'://'.$site.'.test');
+    }
+
+    harness_process(['cleanup'], $root, $environment)->mustRun();
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe([
+        'link '.$site.' --no-interaction',
+        'secure '.$site,
+        'unsecure '.$site,
+        'secure '.$site,
+        'unsecure '.$site,
+        'unlink '.$site,
+    ])->and($root.'/.ai-harness.state.json')->not->toBeFile();
 });

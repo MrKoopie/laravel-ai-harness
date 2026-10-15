@@ -18,15 +18,11 @@ final class ConfigLoader
     /** @var array<string, string> */
     private const DEFAULTS = [
         'runtime' => 'native',
-        'services' => 'none',
+        'service_manager' => 'none',
         'agents' => 'codex,claude',
         'sail_services' => '',
-        'herd_secure' => 'true',
-        'herd_php' => '',
-        'valet_secure' => 'true',
-        'valet_php' => '',
-        'yerd_secure' => 'true',
-        'yerd_php' => '',
+        'site_secure' => 'true',
+        'php_version' => '',
         'worktrees' => 'true',
         'cloud' => 'true',
         'cloud_services' => 'mysql',
@@ -80,10 +76,10 @@ final class ConfigLoader
             throw new ConfigException('runtime must be one of: native, herd, valet, yerd, sail.');
         }
 
-        $services = Services::tryFrom($values['services']);
+        $services = Services::tryFrom($values['service_manager']);
 
         if ($services === null) {
-            throw new ConfigException('services must be one of: none, sail.');
+            throw new ConfigException('service_manager must be one of: none, sail.');
         }
 
         $agents = $this->list($values['agents'], 'agents');
@@ -103,14 +99,12 @@ final class ConfigLoader
         }
 
         if ($services !== Services::Sail && $sailServices !== []) {
-            throw new ConfigException('sail_services may only be set when services=sail.');
+            throw new ConfigException('sail_services may only be set when service_manager=sail.');
         }
 
-        $herdPhp = trim($values['herd_php']);
-        $valetPhp = trim($values['valet_php']);
-        $yerdPhp = trim($values['yerd_php']);
-        if ($yerdPhp !== '' && preg_match('/^[5-9]\.\d{1,2}$/D', $yerdPhp) !== 1) {
-            throw new ConfigException('yerd_php must be empty or a major.minor version such as 8.4.');
+        $phpVersion = trim($values['php_version']);
+        if ($phpVersion !== '' && preg_match('/^\d+\.\d+$/D', $phpVersion) !== 1) {
+            throw new ConfigException('php_version must be empty or a major.minor version such as 8.4.');
         }
 
         $cloudServices = $this->list($values['cloud_services'], 'cloud_services');
@@ -125,22 +119,12 @@ final class ConfigLoader
             throw new ConfigException('cloud_seed requires cloud_migrate=true; seeders must be safe to rerun.');
         }
 
-        if ($herdPhp !== '' && preg_match('/^\d+\.\d+$/', $herdPhp) !== 1) {
-            throw new ConfigException('herd_php must be empty or a major.minor version such as 8.4.');
-        }
-
-        if ($valetPhp !== '' && preg_match('/^\d+\.\d+$/', $valetPhp) !== 1) {
-            throw new ConfigException('valet_php must be empty or a major.minor version such as 8.4.');
-        }
-
         /** @var list<'claude'|'codex'> $agents */
         $config = new Config(
             runtime: $runtime,
-            services: $services,
+            serviceManager: $services,
             agents: $agents,
             sailServices: $sailServices,
-            herdSecure: $this->boolean($values['herd_secure'], 'herd_secure'),
-            herdPhp: $herdPhp === '' ? null : $herdPhp,
             worktrees: $this->boolean($values['worktrees'], 'worktrees'),
             sourceFiles: $sourceFiles,
             cloud: $this->boolean($values['cloud'], 'cloud'),
@@ -149,12 +133,10 @@ final class ConfigLoader
             cloudSeed: $this->boolean($values['cloud_seed'], 'cloud_seed'),
             cloudBuild: $this->boolean($values['cloud_build'], 'cloud_build'),
             cloudBrowser: $this->boolean($values['cloud_browser'], 'cloud_browser'),
-            valetSecure: $this->boolean($values['valet_secure'], 'valet_secure'),
-            valetPhp: $valetPhp === '' ? null : $valetPhp,
             localEnvironment: $localEnvironment,
             localEnvironmentSources: $localEnvironmentSources,
-            yerdSecure: $this->boolean($values['yerd_secure'], 'yerd_secure'),
-            yerdPhp: $yerdPhp === '' ? null : $yerdPhp,
+            siteSecure: $this->boolean($values['site_secure'], 'site_secure'),
+            phpVersion: $phpVersion === '' ? null : $phpVersion,
         );
 
         $this->validateLocalEnvironment($config);

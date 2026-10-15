@@ -61,7 +61,7 @@ Use this when PHP 8.2 or newer and Composer are on your `PATH`.
 
 ```ini
 runtime=native
-services=none
+service_manager=none
 ```
 
 `setup` creates `.env`, `APP_KEY`, and a `.env.testing` file with SQLite.
@@ -73,8 +73,8 @@ services=none
 
    ```ini
    runtime=herd
-   herd_secure=true
-   herd_php=8.4
+   site_secure=true
+   php_version=8.4
    ```
 
 3. Run `./.ai-harness setup`. Each worktree gets its own site, for example `https://my-app-1a2b3c4d5e.test`.
@@ -105,13 +105,13 @@ Valet runs only on macOS.
 
    ```ini
    runtime=valet
-   valet_secure=true
-   valet_php=8.4
+   site_secure=true
+   php_version=8.4
    ```
 
 4. Run `./.ai-harness setup`. Each worktree gets its own site, for example `https://my-app-1a2b3c4d5e.test`. When you changed the Valet TLD, the harness uses your TLD.
 
-When `valet_php` has a value and that PHP version is not installed, Valet installs it with Homebrew. This can take some minutes.
+When `php_version` has a value and that PHP version is not installed, Valet installs it with Homebrew. This can take some minutes.
 
 To remove the sites of worktrees that you deleted without `cleanup`:
 
@@ -135,7 +135,7 @@ Refer to [Laravel Valet](local-environments.md#laravel-valet).
 
    ```ini
    runtime=sail
-   services=sail
+   service_manager=sail
    sail_services=
    ```
 
@@ -148,7 +148,7 @@ Use `./.ai-harness up` and `./.ai-harness down` to start and stop the containers
 You can run PHP with Herd, Valet, or native PHP, and get MySQL and Redis from Sail. Add these keys to the runtime keys of your section:
 
 ```ini
-services=sail
+service_manager=sail
 sail_services=mysql,redis
 ```
 
@@ -172,10 +172,10 @@ Example: the team uses Herd, but you use Valet. Put this in `.ai-harness.config.
 
 ```ini
 runtime=valet
-valet_php=8.4
+php_version=8.4
 ```
 
-`herd_php` does not apply to Valet. Set `valet_php` yourself when you need a specific PHP version.
+The shared `php_version` and `site_secure` settings also apply to Valet. Override them here only when your personal setup needs different values.
 
 Then run `./.ai-harness setup` again.
 
@@ -195,9 +195,9 @@ Install [Yerd 2.x](https://yerd.app/guide/getting-started), start its daemon, an
 
 ```ini
 runtime=yerd
-services=none
-yerd_secure=true
-yerd_php=8.4
+service_manager=none
+site_secure=true
+php_version=8.4
 ```
 
 Run `./.ai-harness setup`, then `./.ai-harness doctor`. The harness creates a checkout-specific linked site, configures Laravel's `public` web root and front controller, and pins only this site's PHP. PHP, Artisan, tests, and Composer use the versioned Yerd PHP shim. Existing sites and global PHP are preserved.

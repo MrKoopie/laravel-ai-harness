@@ -13,17 +13,17 @@ test('configuration layers from dist through shared and local files', function (
 
     file_put_contents($root.'/.ai-harness.config.dist', implode("\n", [
         'runtime=native',
-        'services=none',
+        'service_manager=none',
         'agents=codex',
         'worktrees=false',
     ]));
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=herd',
         'agents=codex,claude',
-        'herd_php="8.4"',
+        'php_version="8.4"',
     ]));
     file_put_contents($root.'/.ai-harness.config.local', implode("\n", [
-        'services=sail',
+        'service_manager=sail',
         'sail_services=mysql, redis',
         'worktrees=on',
     ]));
@@ -31,10 +31,10 @@ test('configuration layers from dist through shared and local files', function (
     $config = (new ConfigLoader)->load($root);
 
     expect($config->runtime)->toBe(Runtime::Herd)
-        ->and($config->services)->toBe(Services::Sail)
+        ->and($config->serviceManager)->toBe(Services::Sail)
         ->and($config->agents)->toBe(['codex', 'claude'])
         ->and($config->sailServices)->toBe(['mysql', 'redis'])
-        ->and($config->herdPhp)->toBe('8.4')
+        ->and($config->phpVersion)->toBe('8.4')
         ->and($config->worktrees)->toBeTrue()
         ->and($config->sourceFiles)->toBe([
             '.ai-harness.config.dist',
@@ -47,28 +47,26 @@ test('configuration reads the Valet runtime and its site options', function (): 
     $root = temp_directory('harness-config-valet');
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=valet',
-        'valet_secure=false',
-        'valet_php=8.3',
+        'site_secure=false',
+        'php_version=8.3',
     ]));
 
     $config = (new ConfigLoader)->load($root);
 
     expect($config->runtime)->toBe(Runtime::Valet)
-        ->and($config->valetSecure)->toBeFalse()
-        ->and($config->valetPhp)->toBe('8.3');
+        ->and($config->siteSecure)->toBeFalse()
+        ->and($config->phpVersion)->toBe('8.3');
 });
 
 test('configuration has conservative internal defaults', function (): void {
     $config = (new ConfigLoader)->load(temp_directory('harness-defaults'));
 
     expect($config->runtime)->toBe(Runtime::Native)
-        ->and($config->services)->toBe(Services::None)
+        ->and($config->serviceManager)->toBe(Services::None)
         ->and($config->agents)->toBe(['codex', 'claude'])
         ->and($config->sailServices)->toBe([])
-        ->and($config->herdSecure)->toBeTrue()
-        ->and($config->herdPhp)->toBeNull()
-        ->and($config->valetSecure)->toBeTrue()
-        ->and($config->valetPhp)->toBeNull()
+        ->and($config->siteSecure)->toBeTrue()
+        ->and($config->phpVersion)->toBeNull()
         ->and($config->worktrees)->toBeTrue()
         ->and($config->sourceFiles)->toBe([]);
 });
@@ -77,17 +75,16 @@ test('unknown and duplicate configuration keys fail clearly', function (): void 
     foreach ([
         ['runtim=herd', 'Unknown configuration key [runtim]'],
         ["runtime=herd\nruntime=sail", 'Duplicate configuration key [runtime]'],
-        ['herd_secure=perhaps', 'herd_secure must be true or false'],
-        ['herd_php=latest', 'herd_php must be empty or a major.minor version'],
-        ['valet_secure=perhaps', 'valet_secure must be true or false'],
-        ['valet_php=php@8.4', 'valet_php must be empty or a major.minor version'],
+        ['php_version=latest', 'php_version must be empty or a major.minor version'],
+        ['site_secure=perhaps', 'site_secure must be true or false'],
+        ['php_version=php@8.4', 'php_version must be empty or a major.minor version'],
         ['agents=codex,cursor', 'Unsupported agent [cursor]'],
-        ["services=none\nsail_services=mysql", 'sail_services may only be set when services=sail'],
+        ["service_manager=none\nsail_services=mysql", 'sail_services may only be set when service_manager=sail'],
         ['sail_services=mysql,,redis', 'sail_services contains an empty list item'],
         ['runtime="herd', 'Unterminated quoted value'],
         ['runtime=docker', 'runtime must be one of: native, herd, valet, yerd, sail'],
-        ['services=podman', 'services must be one of: none, sail'],
-        ["services=sail\nsail_services=my db", 'Invalid Sail service name [my db]'],
+        ['service_manager=podman', 'service_manager must be one of: none, sail'],
+        ["service_manager=sail\nsail_services=my db", 'Invalid Sail service name [my db]'],
     ] as [$contents, $message]) {
         $root = temp_directory('harness-invalid');
         file_put_contents($root.'/.ai-harness.config', $contents);
@@ -168,13 +165,42 @@ foreach ([
     ['local_env.APP_ENV=production', 'managed'],
     ['local_env.APP_CONFIG_CACHE=/outside.php', 'managed'],
     ["runtime=herd\nlocal_env.APP_URL=https://shared.test", 'managed'],
-    ["services=sail\nsail_services=mysql\nlocal_env.DB_DATABASE=shared", 'managed'],
-    ["services=sail\nsail_services=mysql\nlocal_env.DB_PORT=3307", 'FORWARD_DB_PORT'],
+    ["service_manager=sail\nsail_services=mysql\nlocal_env.DB_DATABASE=shared", 'managed'],
+    ["service_manager=sail\nsail_services=mysql\nlocal_env.DB_PORT=3307", 'FORWARD_DB_PORT'],
 ] as [$contents, $message]) {
     test('unsafe or conflicting local override fails: '.$contents, function () use ($contents, $message): void {
         $root = temp_directory('harness-env-invalid');
         file_put_contents($root.'/.ai-harness.config.local', $contents);
 
         expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, $message);
+    });
+}
+
+test('site preferences follow a personal runtime override and retain layer precedence', function (): void {
+    $root = temp_directory('harness-shared-site-config');
+    file_put_contents($root.'/.ai-harness.config.dist', "runtime=herd\nphp_version=8.2\nsite_secure=true\n");
+    file_put_contents($root.'/.ai-harness.config', "php_version=8.4\n");
+    file_put_contents($root.'/.ai-harness.config.local', "runtime=valet\nsite_secure=false\n");
+    $loader = new ConfigLoader;
+    $valet = $loader->load($root);
+
+    file_put_contents($root.'/.ai-harness.config.local', "runtime=yerd\nsite_secure=false\nphp_version=\n");
+    $yerd = $loader->load($root);
+
+    expect($valet->runtime)->toBe(Runtime::Valet)
+        ->and($valet->phpVersion)->toBe('8.4')
+        ->and($valet->siteSecure)->toBeFalse()
+        ->and($yerd->runtime)->toBe(Runtime::Yerd)
+        ->and($yerd->phpVersion)->toBeNull()
+        ->and($yerd->siteSecure)->toBeFalse();
+});
+
+foreach (['herd_php', 'valet_php', 'yerd_php', 'herd_secure', 'valet_secure', 'yerd_secure', 'services'] as $key) {
+    test("removed configuration key {$key} is rejected", function () use ($key): void {
+        $root = temp_directory('harness-removed-config');
+        file_put_contents($root.'/.ai-harness.config', $key.'=');
+
+        expect(fn () => (new ConfigLoader)->load($root))
+            ->toThrow(ConfigException::class, "Unknown configuration key [{$key}]");
     });
 }

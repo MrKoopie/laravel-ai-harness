@@ -49,7 +49,7 @@ test('legacy artisan update command migrates options and refreshes project files
     expect($status)->toBe(0)
         ->and($tester->getDisplay())->toContain('compatibility command')
         ->and((string) file_get_contents($root.'/.ai-harness.config'))->toContain('runtime=herd')
-        ->toContain('services=sail')
+        ->toContain('service_manager=sail')
         ->and($root.'/.ai-harness')->toBeFile()
         ->and((string) file_get_contents($root.'/composer.json'))->toContain('laravel-ai-harness:update');
 });
@@ -92,9 +92,9 @@ test('legacy artisan update migrates environment-only v0.1 settings', function (
 
     expect($status)->toBe(0)
         ->and($config)->toContain('runtime=herd')
-        ->toContain('services=sail')
+        ->toContain('service_manager=sail')
         ->toContain('agents=claude')
-        ->toContain('herd_php=8.4');
+        ->toContain('php_version=8.4');
 });
 
 test('legacy artisan update defaults to the Laravel application base path', function (): void {
