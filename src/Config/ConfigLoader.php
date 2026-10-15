@@ -7,6 +7,7 @@ namespace MrKoopie\LaravelAiHarness\Config;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
+use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 use MrKoopie\LaravelAiHarness\Support\PrimaryCheckout;
 
 final class ConfigLoader
@@ -40,6 +41,7 @@ final class ConfigLoader
     private const FILES = [
         '.ai-harness.config.dist',
         '.ai-harness.config',
+        GlobalInstallation::CONFIG_FILE,
         '.ai-harness.config.local',
     ];
 
@@ -168,11 +170,11 @@ final class ConfigLoader
         $files = [];
 
         foreach (self::FILES as $filename) {
-            if ($filename === '.ai-harness.config.local' && ! $cloud) {
+            if (in_array($filename, [GlobalInstallation::CONFIG_FILE, '.ai-harness.config.local'], true) && ! $cloud) {
                 $primary = PrimaryCheckout::forWorktree($root);
 
                 if ($primary !== null && realpath($primary) !== realpath($root)) {
-                    $path = $primary.'/.ai-harness.config.local';
+                    $path = $primary.'/'.$filename;
                     $files[$path] = $path;
                 }
             }

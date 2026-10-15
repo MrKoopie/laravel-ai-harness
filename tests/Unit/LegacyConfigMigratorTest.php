@@ -70,3 +70,13 @@ test('legacy migration reports obsolete package artifacts without deleting them'
         ->toContain('docker/mysql/init/10-create-testing-database.sh')
         ->toContain('polyscope.json');
 });
+
+test('legacy migration preserves global installation settings', function (): void {
+    $root = temp_directory('harness-legacy-global');
+    file_put_contents($root.'/.ai-harness.config.global', "runtime=valet\n");
+    $result = (new LegacyConfigMigrator(new SafeWriter))->migrate($root, ['herd' => true], [], []);
+
+    expect($result->created)->toBeFalse()
+        ->and($root.'/.ai-harness.config')->not->toBeFile()
+        ->and((new ConfigLoader)->load($root)->runtime)->toBe(Runtime::Valet);
+});

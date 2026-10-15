@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MrKoopie\LaravelAiHarness\Files;
 
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
+use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 
 final readonly class ProjectSynchronizer
 {
@@ -16,16 +17,17 @@ final readonly class ProjectSynchronizer
     ) {}
 
     /** Refresh project integration without preparing runtime resources. */
-    public function sync(string $root): SyncResult
+    public function sync(string $root, bool $global = false): SyncResult
     {
-        $createdConfig = $this->installer->ensureConfig($root);
+        $global = $global || GlobalInstallation::active($root);
+        $createdConfig = $this->installer->ensureConfig($root, $global);
         $config = $this->configLoader->load($root);
-        $written = $this->installer->install($root, $config);
+        $written = $this->installer->install($root, $config, $global);
 
-        if ($this->composerScripts->sync($root)) {
+        if (! $global && $this->composerScripts->sync($root)) {
             $written[] = 'composer.json';
         }
 
-        return new SyncResult($createdConfig, array_values(array_unique($written)));
+        return new SyncResult($createdConfig, array_values(array_unique($written)), $global ? GlobalInstallation::CONFIG_FILE : '.ai-harness.config');
     }
 }

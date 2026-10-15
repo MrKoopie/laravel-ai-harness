@@ -1,0 +1,12 @@
+version = 1
+name = "Laravel AI Harness (global)"
+
+[setup]
+script = '''
+ai-harness init --global && ai-harness setup
+'''
+
+[cleanup]
+script = '''
+ai-harness cleanup && ai-harness down
+'''

@@ -10,10 +10,14 @@ The harness loads these files in sequence. A later file overrides an earlier fil
 | --- | --- | --- | --- |
 | 1 | `.ai-harness.config.dist` | Shared defaults, for example in a template repository. | Yes |
 | 2 | `.ai-harness.config` | The project configuration. `init` creates it. | Yes |
-| 3 | Primary checkout's `.ai-harness.config.local` | Personal defaults inherited by linked local worktrees. | No |
-| 4 | Current checkout's `.ai-harness.config.local` | Personal overrides for this checkout. | No, Git ignores it |
+| 3 | Primary checkout's `.ai-harness.config.global` | Global-install defaults inherited by linked local worktrees. | No |
+| 4 | Current checkout's `.ai-harness.config.global` | Personal settings and mode marker created by `init --global`. Supports all keys. | No, Git ignores it |
+| 5 | Primary checkout's `.ai-harness.config.local` | Personal defaults inherited by linked local worktrees. | No |
+| 6 | Current checkout's `.ai-harness.config.local` | Personal overrides for this checkout. | No, Git ignores it |
 
 Each file can contain some or all keys. A key that is not in a file keeps its value from the earlier file or the default.
+
+Nested applications inherit personal files from the same relative application directory in the primary checkout. Discovery stops at an independent nested repository and never follows a corresponding primary application symlink outside that checkout.
 
 The primary file is loaded only for a registered Git worktree, and only locally. The harness reads the worktree's `.git` pointer, `commondir`, and registration back-pointer; it does not run Git. Ordinary checkouts read their local file once. Repositories with a bare or separate Git directory have no inherited primary file; put overrides in each checkout's own local file instead. Cloud execution does not inherit the primary file.
 

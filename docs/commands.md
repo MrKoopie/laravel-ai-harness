@@ -8,6 +8,8 @@ Run all commands from the project root through the `./.ai-harness` bootstrap scr
 
 `./vendor/bin/ai-harness` accepts the same commands. Use it only when `.ai-harness` does not exist yet, for example before `init`.
 
+With a [global installation](installation.md#global-installation), `ai-harness` on `PATH` accepts the same commands. Run `ai-harness init --global` once per project to create the agent integrations and an ignored `.ai-harness.config.global`. Subsequent `init` and `update` commands retain global mode, including in linked local worktrees.
+
 ## Runtime commands
 
 These commands run a tool in the configured runtime. Refer to [Runtimes](configuration.md#runtimes) for the exact command that each runtime uses.

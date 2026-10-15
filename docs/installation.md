@@ -32,16 +32,63 @@ This page tells you how to install the harness, which files it adds to your proj
 
 6. Commit the generated files.
 
+## Global installation
+
+Use the global Composer installation when the harness should be available across projects without adding it to their dependencies:
+
+```bash
+composer global require mrkoopie/laravel-ai-harness
+composer global config bin-dir --absolute
+```
+
+Add the bin directory printed by the second command to your shell's `PATH`. Ensure that Codex and Claude also inherit that `PATH`, then run this from each Laravel project:
+
+```bash
+ai-harness init --global
+```
+
+You can also target another directory with `ai-harness init --global --path /path/to/project`.
+
+Global initialization requires Git 2.31 or newer and an existing Git working tree. It creates personal integrations without changing shared `.gitignore`, `composer.json`, `AGENTS.md`, `CLAUDE.md`, or `.claude/settings.json`:
+
+| Personal file | Purpose |
+| --- | --- |
+| `.ai-harness.config.global` | All harness configuration keys and validation rules. |
+| `AGENTS.override.md` | Codex instructions, including a snapshot of existing shared `AGENTS.md` guidance. |
+| `CLAUDE.local.md` | Claude instructions, importing existing shared `AGENTS.md` when present. |
+| `.claude/settings.local.json` | Claude lifecycle hooks, merged with your other personal settings and hooks. |
+| `.codex/environments/ai-harness-global.toml` | A separate Codex environment named `Laravel AI Harness (global)`. |
+| `.ai-harness`, `.ai-harness-cloud` | Convenience launchers, created only when those paths are not already tracked. |
+
+All these files, personal local overrides, harness state, and `.env.testing` are excluded through the repository's local `.git/info/exclude`. The harness preserves existing exclude rules and maintains one managed block. Linked worktrees use the common Git directory's `info/exclude`. Nested applications get patterns scoped to their project directory. Git exclusions do not hide changes to tracked files: tracked personal integration paths cause initialization to stop before generating files; tracked shared launchers are preserved. The harness never removes files from Git's index or marks them `skip-worktree`.
+
+Use `ai-harness` from `PATH` for commands. Claude's personal hooks also call this command directly. The generated launchers are optional conveniences. Application dependencies and optional Sail still belong to the application; `setup` installs those as usual.
+
+Existing configuration is preserved: when shared or local settings already exist, the new global configuration starts with comments so it does not override them. Otherwise, it contains the default configuration. Global settings override shared settings, and `.ai-harness.config.local` overrides global settings. See [Configuration](configuration.md#configuration-files).
+
+`init` and `update` remember global mode from `.ai-harness.config.global`. Linked local worktrees inherit it from the primary checkout. In Codex, select `Laravel AI Harness (global)`; its setup command initializes ignored integrations in the new worktree before preparing the runtime. Claude's worktree hooks do the same. Each independent clone or cloud container needs its own global package installation and initialization, with Composer's global bin directory on `PATH`.
+
+When upgrading from the earlier global implementation, shared files it previously created remain unchanged. Exclusions cannot hide already-tracked files, and the harness does not automatically remove old shared instructions or hooks. Remove obsolete harness hooks from shared Claude settings before enabling personal hooks to avoid running both copies.
+
+Refresh a global installation with:
+
+```bash
+composer global update mrkoopie/laravel-ai-harness
+ai-harness update --path /path/to/project
+```
+
+Run the second command for each configured project. Global installs have no automatic project Composer refresh hooks; `doctor` recognizes this mode. Existing Composer hooks from a previous project installation are preserved but are not required for global mode.
+
 ## Managed project files
 
-The harness manages only these files:
+Project installations manage these files. Global installations use the personal paths listed above:
 
 | File | When | Contents |
 | --- | --- | --- |
 | `.ai-harness` | Always | Bootstrap script for all commands. |
 | `.ai-harness.config` | When no configuration file exists | Default project configuration. |
 | `.gitignore` | Always | One managed block. |
-| `composer.json` | Always | Two guarded script entries. |
+| `composer.json` | Project installation only | Two guarded script entries. |
 | `.ai-harness-cloud` | `cloud=true` | Cloud provisioning entrypoint. |
 | `AGENTS.md` | `codex` or `claude` in `agents` | One managed block. |
 | `.codex/environments/environment.toml` | `codex` in `agents` and `worktrees=true` | Codex local environment. |
@@ -63,7 +110,7 @@ Content outside the managed blocks stays unchanged. The harness overwrites `.cod
 
 ## The bootstrap script
 
-`.ai-harness` is a small Bash script. It sends each command to `vendor/bin/ai-harness`.
+`.ai-harness` is a small Bash script. In a project installation it sends each command to `vendor/bin/ai-harness`. In a global installation it calls `ai-harness` on `PATH`, reporting how to restore it if missing, without installing a project dependency.
 
 When `vendor/bin/ai-harness` is missing, the script first installs the dependencies:
 
@@ -74,7 +121,7 @@ The bootstrap never adds or updates package requirements. When `composer.lock` e
 
 ## Automatic refresh with Composer
 
-`init` adds one guarded command to the `post-install-cmd` and `post-update-cmd` events in your root `composer.json`. After each `composer install` or `composer update`, this command refreshes the managed files.
+For project installations, `init` adds one guarded command to the `post-install-cmd` and `post-update-cmd` events in your root `composer.json`. After each `composer install` or `composer update`, this command refreshes the managed files.
 
 - Existing project scripts stay.
 - A second `init` does not add duplicates.
@@ -116,6 +163,6 @@ To upgrade from version 0.1, refer to [Upgrading](upgrading.md).
 - Create databases.
 - Link Herd or Valet sites.
 - Run migrations.
-- Read or change Git.
+- Change Git branches, worktrees, or the index. Global installations query repository metadata and maintain local `info/exclude` rules.
 
 Use `setup`, `cleanup`, `up`, `down`, and the cloud commands for environment work. Refer to [Local environments](local-environments.md) and [Cloud environments](cloud.md).

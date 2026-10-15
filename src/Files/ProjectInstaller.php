@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MrKoopie\LaravelAiHarness\Files;
 
 use MrKoopie\LaravelAiHarness\Config\Config;
+use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 
 final readonly class ProjectInstaller
 {
@@ -15,8 +16,25 @@ final readonly class ProjectInstaller
     ) {}
 
     /** Create a default project configuration when none exists. */
-    public function ensureConfig(string $root): bool
+    public function ensureConfig(string $root, bool $global = false): bool
     {
+        if ($global) {
+            (new GlobalProjectInstaller($this->writer, $this->claudeSettings))->prepare($root);
+
+            if (GlobalInstallation::active($root)) {
+                return false;
+            }
+
+            $hasSharedConfig = is_file($root.'/.ai-harness.config.dist')
+                || is_file($root.'/.ai-harness.config') || is_file($root.'/.ai-harness.config.local');
+            $contents = $hasSharedConfig
+                ? "# Personal settings for the global AI Harness installation.\n# All harness configuration keys are supported; shared settings remain in effect.\n"
+                : "# Global installation: this personal file is ignored by Git.\n".$this->resource('project/ai-harness.config');
+            $this->writer->write($root, GlobalInstallation::CONFIG_FILE, $contents);
+
+            return true;
+        }
+
         foreach (['.ai-harness.config.dist', '.ai-harness.config', '.ai-harness.config.local'] as $filename) {
             if (is_file($root.DIRECTORY_SEPARATOR.$filename)) {
                 return false;
@@ -33,8 +51,12 @@ final readonly class ProjectInstaller
      *
      * @return list<string>
      */
-    public function install(string $root, Config $config): array
+    public function install(string $root, Config $config, bool $global = false): array
     {
+        if ($global) {
+            return (new GlobalProjectInstaller($this->writer, $this->claudeSettings))->install($root, $config);
+        }
+
         $written = ['.ai-harness', '.gitignore'];
 
         $this->writer->write($root, '.ai-harness', $this->resource('project/bootstrap.sh'), executable: true);
