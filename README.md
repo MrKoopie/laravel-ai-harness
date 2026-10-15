@@ -3,6 +3,11 @@
 [![CI](https://github.com/MrKoopie/laravel-ai-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/MrKoopie/laravel-ai-harness/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
+> [!WARNING]
+> **0.6.0 has breaking configuration changes. Rename removed keys before upgrading.**
+> Replace `herd_php`, `valet_php`, and `yerd_php` with `php_version`; replace `herd_secure`, `valet_secure`, and `yerd_secure` with `site_secure`; replace `services` with `service_manager`.
+> Old keys are rejected, including keys in personal files inherited by worktrees. Composer's automatic refresh fails if any remain. Follow the [0.6.0 upgrade instructions](docs/upgrading.md#upgrade-to-060), including the recovery steps if an update has already failed. A `^0.5` Composer constraint does not include `0.6.0`.
+
 Laravel AI Harness gives coding agents (Codex and Claude Code) and people one stable command to run a Laravel project. The command is `./.ai-harness`. It works the same way with native PHP, Laravel Herd, Laravel Valet, and Laravel Sail, and in Claude and Codex cloud environments.
 
 ```bash

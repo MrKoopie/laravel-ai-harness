@@ -1,8 +1,97 @@
 # Upgrading
 
+> [!WARNING]
+> **Upgrade to 0.6.0: configuration keys were removed without compatibility aliases.**
+> Rename them in every configuration layer **before running Composer**. Otherwise, the automatic refresh hook fails and harness commands reject the configuration. A `^0.5` constraint does not allow `0.6.0`; the commands below also update that constraint.
+
+## Upgrade to 0.6.0
+
+### 1. Rename the removed keys
+
+| Removed key | Replacement | Value |
+| --- | --- | --- |
+| `herd_php` | `php_version` | Keep the selected PHP version, for example `8.4`. |
+| `valet_php` | `php_version` | Keep the selected PHP version. |
+| `yerd_php` | `php_version` | Keep the selected PHP version. |
+| `herd_secure` | `site_secure` | Keep the boolean value. |
+| `valet_secure` | `site_secure` | Keep the boolean value. |
+| `yerd_secure` | `site_secure` | Keep the boolean value. |
+| `services` | `service_manager` | Keep `none` or `sail`. |
+
+Check every existing `.ai-harness.config.dist`, `.ai-harness.config`, `.ai-harness.config.global`, and `.ai-harness.config.local`. Include personal files in the primary checkout that linked worktrees inherit, and overrides in each worktree. For nested applications, check the corresponding application directory in each checkout. Updating a shared file does not migrate personal files.
+
+If several runtime-specific keys exist in one file, keep a single `php_version` and a single `site_secure` for the selected runtime, and remove the old keys for every runtime. Duplicate replacement keys are also rejected. Keep per-file overrides in their existing layers so configuration precedence stays the same.
+
+For example, change:
+
+```ini
+runtime=herd
+herd_php=8.4
+herd_secure=false
+services=sail
+sail_services=mysql,redis
+```
+
+to:
+
+```ini
+runtime=herd
+php_version=8.4
+site_secure=false
+service_manager=sail
+sail_services=mysql,redis
+```
+
+`sail_services` still lists Sail service names; do not rename it. `runtime`, `agents`, `worktrees`, `local_env.*`, and cloud settings keep their meaning. Do not rename keys in `.ai-harness.state.json`; resource ownership state is unchanged.
+
+The shared site settings follow the selected Herd, Valet, or Yerd runtime. An empty `php_version` preserves an existing PHP selection; it does not remove a site pin. `site_secure` defaults to `true`. Native PHP, Sail, and cloud execution ignore these two site settings. See [all configuration keys](configuration.md#all-keys).
+
+### 2. Install 0.6 and refresh the project
+
+Use host Composer for this transition: the old `./.ai-harness composer` command may still require the old configuration schema.
+
+For a project dependency, run from the Laravel project:
+
+```bash
+composer require --dev 'mrkoopie/laravel-ai-harness:^0.6'
+./.ai-harness update
+./.ai-harness doctor
+./.ai-harness setup
+```
+
+The Composer hook normally refreshes the managed files automatically; the explicit `update` also covers projects without that hook. Commit the renamed shared configuration, `composer.json`, `composer.lock`, and refreshed managed files, including `.ai-harness-cloud` when cloud support is enabled. Each collaborator must rename their personal keys before updating or using the new version.
+
+For an existing global installation, update the global package once, then refresh each configured project:
+
+```bash
+composer global require 'mrkoopie/laravel-ai-harness:^0.6'
+cd /path/to/your/laravel-project
+ai-harness update
+ai-harness doctor
+ai-harness setup
+```
+
+Repeat the refresh in existing linked worktrees that you use. New global installations start with the current keys; follow [Global installation](installation.md#global-installation) to initialize them. Global mode keeps its generated configuration and integrations out of Git through `.git/info/exclude`.
+
+### Recovery after a failed Composer hook
+
+If an update has already failed because removed keys remain, install the new package with scripts disabled using host Composer:
+
+```bash
+composer require --dev 'mrkoopie/laravel-ai-harness:^0.6' --no-scripts
+```
+
+For a global installation, use `composer global require 'mrkoopie/laravel-ai-harness:^0.6' --no-scripts` instead. Then rename the keys in every configuration layer as described above and run `update`, `doctor`, and `setup` using the commands for your installation mode.
+
+`--no-scripts` also skips unrelated Composer scripts. Review and run any other project-required scripts separately after the configuration is valid. Renaming keys is manual; rerunning Composer alone does not migrate them.
+
+<a id="shared-runtime-configuration-beta"></a>
+
+The former “Shared runtime configuration (beta)” instructions are now covered by [Upgrade to 0.6.0](#upgrade-to-060).
+
 ## Normal upgrades
 
-For the shared runtime configuration change, follow [Shared runtime configuration (beta)](#shared-runtime-configuration-beta) before updating: the automatic refresh hook rejects removed keys.
+When crossing from an earlier release to 0.6, follow [Upgrade to 0.6.0](#upgrade-to-060) first.
 
 For other upgrades, update the package with Composer:
 
@@ -53,35 +142,3 @@ Remove these files yourself after you read the warnings.
 ### After the first refresh
 
 Use `./.ai-harness update` from then on. The Artisan compatibility command is temporary. A later release, possibly 0.3, can remove it.
-
-## Shared runtime configuration (beta)
-
-Before running `composer update mrkoopie/laravel-ai-harness`, update every configuration layer, including `.ai-harness.config.dist`, `.ai-harness.config`, and personal `.ai-harness.config.local` files inherited by worktrees:
-
-- Replace `herd_php`, `valet_php`, or `yerd_php` with `php_version`.
-- Replace `herd_secure`, `valet_secure`, or `yerd_secure` with `site_secure`.
-- Replace `services=none|sail` with `service_manager=none|sail`.
-
-The old keys are rejected; no compatibility aliases are provided. If several runtime-specific keys exist in one file, keep one shared setting for the selected runtime and remove the others.
-
-Use host Composer for this transition, rather than `./.ai-harness composer`: the currently installed harness may still require the old schema. After changing the keys, run:
-
-```bash
-composer update mrkoopie/laravel-ai-harness
-./.ai-harness setup
-```
-
-The Composer hook refreshes managed project files using the new configuration. If old keys remain during the package update, that hook fails. To recover, first install the package with scripts disabled:
-
-```bash
-composer update mrkoopie/laravel-ai-harness --no-scripts
-```
-
-Then replace the keys in every configuration layer as described above, and refresh and prepare the project:
-
-```bash
-./.ai-harness update
-./.ai-harness setup
-```
-
-`--no-scripts` also skips unrelated Composer scripts; run any other project-required scripts separately after reviewing them. Sail service names, cloud settings, and ownership state keep their existing meaning.
