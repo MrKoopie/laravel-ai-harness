@@ -36,7 +36,7 @@ Use the Artisan command, not `./vendor/bin/ai-harness update`. The Artisan comma
 When no `.ai-harness.config`, `.ai-harness.config.dist`, or `.ai-harness.config.local` exists, the bridge translates the old choices:
 
 - Codex, Claude, Herd, Docker, and PHP version choices become the new keys.
-- Old Docker support becomes `services=sail` with `sail_services=mysql`.
+- Old Docker support becomes `service_manager=sail` with `sail_services=mysql`.
 
 An existing configuration in the new format always wins.
 
@@ -51,3 +51,7 @@ Remove these files yourself after you read the warnings.
 ### After the first refresh
 
 Use `./.ai-harness update` from then on. The Artisan compatibility command is temporary. A later release, possibly 0.3, can remove it.
+
+## Shared runtime configuration (beta)
+
+Replace `herd_php`, `valet_php`, or `yerd_php` with `php_version`, and `herd_secure`, `valet_secure`, or `yerd_secure` with `site_secure`. Replace `services=none|sail` with `service_manager=none|sail`. The old configuration keys are rejected; no compatibility aliases are provided. Update every configuration layer, including `.dist`, `.config`, and personal `.local` files inherited by worktrees. Then run `./.ai-harness setup`. Sail service names, cloud settings, and ownership state keep their existing meaning.

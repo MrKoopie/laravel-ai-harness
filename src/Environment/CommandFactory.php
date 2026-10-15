@@ -78,7 +78,7 @@ final readonly class CommandFactory
      */
     public function servicesDown(Config $config, string $root): array
     {
-        if ($config->services === Services::Sail && $config->sailServices === []) {
+        if ($config->serviceManager === Services::Sail && $config->sailServices === []) {
             return [$this->sail($root), 'down'];
         }
 
@@ -182,7 +182,7 @@ final readonly class CommandFactory
         }
 
         $yerd = $this->required($this->executables->yerd(), 'Yerd');
-        $php = (new Yerd)->php($yerd, $root, $config->yerdPhp);
+        $php = (new Yerd)->php($yerd, $root, $config->phpVersion);
 
         return match ($tool) {
             'php' => [$php],
@@ -309,13 +309,13 @@ final readonly class CommandFactory
      */
     private function sailTargets(Config $config): array
     {
-        if ($config->services === Services::Sail && $config->sailServices === []) {
+        if ($config->serviceManager === Services::Sail && $config->sailServices === []) {
             return [];
         }
 
         $targets = $config->runtime === Runtime::Sail ? ['laravel.test'] : [];
 
-        if ($config->services === Services::Sail) {
+        if ($config->serviceManager === Services::Sail) {
             $targets = [...$targets, ...$config->sailServices];
         }
 

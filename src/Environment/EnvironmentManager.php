@@ -101,9 +101,9 @@ final readonly class EnvironmentManager
             }
 
             $url = match ($tool) {
-                SiteTool::Herd => 'https://'.SiteName::forPath($root).'.test',
-                SiteTool::Valet => ($config->valetSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.ValetTld::current(),
-                SiteTool::Yerd => (new Yerd)->url($this->commands->yerd('status')[0], $root, $config->yerdSecure),
+                SiteTool::Herd => ($config->siteSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.test',
+                SiteTool::Valet => ($config->siteSecure ? 'https' : 'http').'://'.SiteName::forPath($root).'.'.ValetTld::current(),
+                SiteTool::Yerd => (new Yerd)->url($this->commands->yerd('status')[0], $root, $config->siteSecure),
             };
             $this->environmentFile->setAppUrl($root, $url);
             $output->writeln("<info>Configured APP_URL for the {$tool->label()} site</info>");
@@ -300,7 +300,7 @@ final readonly class EnvironmentManager
             }
         }
 
-        if ($this->secure($config, $tool)) {
+        if ($config->siteSecure) {
             if (! $this->state->siteSecured($root, $tool)) {
                 $status = $this->processes->run($this->siteCommand($tool, 'secure', $site), $root, $output);
 
@@ -321,11 +321,7 @@ final readonly class EnvironmentManager
             $this->state->clearSiteSecured($root, $tool);
         }
 
-        $php = match ($tool) {
-            SiteTool::Herd => $config->herdPhp,
-            SiteTool::Valet => $config->valetPhp,
-            SiteTool::Yerd => $config->yerdPhp,
-        };
+        $php = $config->phpVersion;
 
         if ($php === null) {
             return 0;
@@ -404,20 +400,10 @@ final readonly class EnvironmentManager
         };
     }
 
-    /** Determine whether the configured site must use HTTPS. */
-    private function secure(Config $config, SiteTool $tool): bool
-    {
-        return match ($tool) {
-            SiteTool::Herd => $config->herdSecure,
-            SiteTool::Valet => $config->valetSecure,
-            SiteTool::Yerd => $config->yerdSecure,
-        };
-    }
-
     /** Determine whether the configuration needs Sail containers. */
     private function requiresSail(Config $config): bool
     {
-        return $config->runtime === Runtime::Sail || $config->services === Services::Sail;
+        return $config->runtime === Runtime::Sail || $config->serviceManager === Services::Sail;
     }
 
     /** Determine whether the configured Sail services include MySQL. */

@@ -24,7 +24,7 @@ Each `FAIL` line tells you what is wrong. This page gives the fix for each messa
 | Yerd site unowned or reassigned | Preserve the existing site. Check its JSON target and harness state; use a distinct checkout path. |
 | `Laravel Valet is unavailable` | Install Valet and make sure that `valet` is on `PATH`, or change `runtime`. |
 | `Laravel Sail is missing or not executable` | Install Sail with the host Composer: `composer require laravel/sail --dev`. Do not use `./.ai-harness composer`, because with `runtime=sail` it needs Sail. Or change `runtime`. |
-| `services=sail requires vendor/bin/sail` | Install Laravel Sail with `./.ai-harness composer require laravel/sail --dev`, or set `services=none`. |
+| `service_manager=sail requires vendor/bin/sail` | Install Laravel Sail with `./.ai-harness composer require laravel/sail --dev`, or set `service_manager=none`. |
 | `Cloud mysql is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
 | `Cloud redis-cli is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
 | `Agent instructions are missing` | Run `./.ai-harness update`. |
@@ -42,10 +42,9 @@ The harness stops when the configuration is not valid. Examples:
 | --- | --- |
 | `Unknown configuration key [...]` | A key is misspelled or not supported. Refer to [All keys](configuration.md#all-keys). |
 | `Duplicate configuration key [...]` | The same key occurs two times in one file. |
-| `sail_services may only be set when services=sail.` | Set `services=sail`, or remove `sail_services`. |
+| `sail_services may only be set when service_manager=sail.` | Set `service_manager=sail`, or remove `sail_services`. |
 | `cloud_seed requires cloud_migrate=true` | Set `cloud_migrate=true`, or set `cloud_seed=false`. |
-| `herd_php must be empty or a major.minor version` | Use a value such as `8.4`. |
-| `valet_php must be empty or a major.minor version` | Use a value such as `8.4`, not `php@8.4`. |
+| `php_version must be empty or a major.minor version` | Use a value such as `8.4`, not `php@8.4`. |
 | `AI_HARNESS_ENV must be local, claude-cloud, or codex-cloud.` | Correct the environment variable. |
 
 ## Common problems
@@ -75,7 +74,7 @@ See [Local application environment overrides](configuration.md#local-application
 
 ### The harness does not create MySQL databases
 
-The harness manages databases only when `services=sail` and `mysql` is in `sail_services`. An empty `sail_services` starts the full stack, but the harness does not manage its databases. Refer to [MySQL with Sail](local-environments.md#mysql-with-sail).
+The harness manages databases only when `service_manager=sail` and `mysql` is in `sail_services`. An empty `sail_services` starts the full stack, but the harness does not manage its databases. Refer to [MySQL with Sail](local-environments.md#mysql-with-sail).
 
 ### Herd commands fail with exit code 127
 

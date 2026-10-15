@@ -18,7 +18,7 @@ function cloud_fixture(): array
     file_put_contents($root.'/composer.json', '{}');
     file_put_contents($root.'/composer.lock', '{}');
     file_put_contents($root.'/.env.example', "APP_KEY=present\nDB_CONNECTION=mysql\nDB_HOST=production.invalid\nDB_DATABASE=production\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservices=sail\nsail_services=mysql\nworktrees=false\ncloud_services=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nsail_services=mysql\nworktrees=false\ncloud_services=\n");
     write_executable($root.'/fake-bin/composer', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CLOUD_LOG"
