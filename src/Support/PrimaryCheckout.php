@@ -6,16 +6,35 @@ namespace MrKoopie\LaravelAiHarness\Support;
 
 final class PrimaryCheckout
 {
-    /** Find a linked checkout's primary directory using verified Git metadata, without running Git. */
+    /** Map a project, including a nested application, to its primary checkout using verified Git metadata. */
     public static function forWorktree(string $root): ?string
     {
-        $pointer = self::read($root.'/.git');
+        $project = realpath($root);
+
+        if ($project === false || ! is_dir($project)) {
+            return null;
+        }
+
+        $checkout = $project;
+
+        // Stop at the nearest repository boundary, including independent nested repositories.
+        while (! file_exists($checkout.'/.git') && ! is_link($checkout.'/.git')) {
+            $parent = dirname($checkout);
+
+            if ($parent === $checkout) {
+                return null;
+            }
+
+            $checkout = $parent;
+        }
+
+        $pointer = self::read($checkout.'/.git');
 
         if ($pointer === null || ! str_starts_with($pointer, 'gitdir: ')) {
             return null;
         }
 
-        $gitDirectory = self::resolve($root, substr($pointer, 8));
+        $gitDirectory = self::resolve($checkout, substr($pointer, 8));
 
         if ($gitDirectory === null) {
             return null;
@@ -25,7 +44,7 @@ final class PrimaryCheckout
         $backPointer = self::read($gitDirectory.'/gitdir');
 
         if ($commonPointer === null || $backPointer === null
-            || self::resolve($gitDirectory, $backPointer) !== realpath($root.'/.git')) {
+            || self::resolve($gitDirectory, $backPointer) !== realpath($checkout.'/.git')) {
             return null;
         }
 
@@ -36,7 +55,17 @@ final class PrimaryCheckout
             return null;
         }
 
-        return dirname($common);
+        $primary = dirname($common);
+        $relative = ltrim(substr($project, strlen($checkout)), DIRECTORY_SEPARATOR);
+        $mapped = realpath($primary.($relative === '' ? '' : DIRECTORY_SEPARATOR.$relative));
+
+        // A corresponding application symlink must not import settings from outside the primary tree.
+        if ($mapped === false || ! is_dir($mapped)
+            || ($mapped !== $primary && ! str_starts_with($mapped, $primary.DIRECTORY_SEPARATOR))) {
+            return null;
+        }
+
+        return $mapped;
     }
 
     /** Read a bounded, regular metadata file. */

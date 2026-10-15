@@ -65,6 +65,22 @@ Personal application settings go in `.ai-harness.config.local`, for example `loc
 
 From now on, people and agents use `./.ai-harness` for all Laravel, Composer, PHP, and npm commands.
 
+## Global installation
+
+Install once and configure each Laravel project without adding a project dependency:
+
+```bash
+composer global require mrkoopie/laravel-ai-harness
+# Add the directory printed by this command to your PATH:
+composer global config bin-dir --absolute
+cd /path/to/your/laravel-project
+ai-harness init --global
+```
+
+This configures Codex local environments and Claude hooks automatically, using the same options as a project installation. Edit `.ai-harness.config.global` to select your runtime, services, agents, and environment overrides. The harness excludes all generated integrations through Git’s local `.git/info/exclude`; shared `.gitignore`, `composer.json`, and agent configuration stay unchanged. Global initialization requires a Git working tree.
+
+Use `ai-harness doctor`, `ai-harness setup`, or the generated `./.ai-harness` launcher. Linked local worktrees inherit the primary checkout's global configuration. After updating the package with `composer global update mrkoopie/laravel-ai-harness`, run `ai-harness update` in each configured project. See [Global installation details](docs/installation.md#global-installation).
+
 ## Commands
 
 | Command | Purpose |

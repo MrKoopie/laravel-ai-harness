@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Files;
 
+use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
+
 final readonly class LegacyConfigMigrator
 {
     /** @var list<string> */
@@ -41,6 +43,10 @@ final readonly class LegacyConfigMigrator
     public function migrate(string $root, array $features, array $project, array $with): LegacyMigrationResult
     {
         $warnings = $this->artifactWarnings($root);
+
+        if (GlobalInstallation::active($root)) {
+            return new LegacyMigrationResult(false, $warnings);
+        }
 
         foreach (self::CONFIG_FILES as $filename) {
             if (is_file($root.'/'.$filename)) {

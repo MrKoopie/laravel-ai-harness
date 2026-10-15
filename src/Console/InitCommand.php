@@ -7,6 +7,7 @@ namespace MrKoopie\LaravelAiHarness\Console;
 use MrKoopie\LaravelAiHarness\Files\ProjectSynchronizer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'init', description: 'Install or refresh the small project-side harness files')]
@@ -22,15 +23,16 @@ final class InitCommand extends ProjectCommand
     protected function configure(): void
     {
         $this->configureProjectPath();
+        $this->addOption('global', null, InputOption::VALUE_NONE, 'Use the global Composer command and a Git-ignored personal configuration');
     }
 
     /** Install or refresh the project-side harness files. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $result = $this->synchronizer->sync($this->projectPath($input));
+        $result = $this->synchronizer->sync($this->projectPath($input), (bool) $input->getOption('global'));
 
         if ($result->createdConfig) {
-            $output->writeln('<info>created .ai-harness.config</info>');
+            $output->writeln("<info>created {$result->configFilename}</info>");
         }
 
         foreach ($result->written as $path) {

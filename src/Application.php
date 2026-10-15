@@ -75,7 +75,7 @@ final class Application extends SymfonyApplication
             new EnvironmentActionCommand('down', 'down', $environment, 'Stop configured Sail services without deleting volumes'),
             new EnvironmentActionCommand('setup', 'setup', $environment, 'Prepare the current checkout or worktree'),
             new EnvironmentActionCommand('cleanup', 'cleanup', $environment, 'Remove only resources owned by the harness'),
-            new HookCommand($config, $environment),
+            new HookCommand($config, $environment, $synchronizer),
         ]);
     }
 

@@ -8,6 +8,8 @@ use JsonException;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentManager;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
+use MrKoopie\LaravelAiHarness\Files\ProjectSynchronizer;
+use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 use MrKoopie\LaravelAiHarness\Support\ProjectPath;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -25,6 +27,7 @@ final class HookCommand extends Command
     public function __construct(
         private readonly ConfigLoader $configLoader,
         private readonly EnvironmentManager $environment,
+        private readonly ProjectSynchronizer $synchronizer,
     ) {
         parent::__construct();
     }
@@ -102,6 +105,10 @@ final class HookCommand extends Command
             $output->writeln('<info>Worktree automation is disabled.</info>');
 
             return self::SUCCESS;
+        }
+
+        if (GlobalInstallation::active($root) && in_array($event, ['session-start', 'enter-worktree'], true)) {
+            $this->synchronizer->sync($root);
         }
 
         return in_array($event, ['exit-worktree', 'worktree-remove'], true)

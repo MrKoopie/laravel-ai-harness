@@ -14,5 +14,6 @@ final readonly class SyncResult
     public function __construct(
         public bool $createdConfig,
         public array $written,
+        public string $configFilename = '.ai-harness.config',
     ) {}
 }

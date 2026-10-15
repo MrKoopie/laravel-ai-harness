@@ -31,6 +31,19 @@ final class SafeWriter
             throw new FileException("Refusing to overwrite symbolic link [{$target}].");
         }
 
+        $permissions = $executable ? 0755 : 0644;
+
+        if (! $executable && is_file($target)) {
+            clearstatcache(true, $target);
+            $existingPermissions = fileperms($target);
+
+            if ($existingPermissions === false) {
+                throw new FileException("Unable to read permissions on [{$target}].");
+            }
+
+            $permissions = $existingPermissions & 0777;
+        }
+
         $resolvedDirectory = realpath($directory);
 
         if ($resolvedDirectory === false) {
@@ -60,7 +73,7 @@ final class SafeWriter
                 throw new FileException("Unable to write temporary file [{$temporary}].");
             }
 
-            if (! chmod($temporary, $executable ? 0755 : 0644)) {
+            if (! chmod($temporary, $permissions)) {
                 throw new FileException("Unable to set permissions on [{$temporary}].");
             }
 
@@ -83,7 +96,7 @@ final class SafeWriter
     {
         $target = $this->target($root, $relativePath);
         $this->assertSafePath($root, $relativePath);
-        $hashComments = basename($relativePath) === '.gitignore';
+        $hashComments = basename($relativePath) === '.gitignore' || $relativePath === 'info/exclude';
         $start = $hashComments ? '# ai-harness:start' : '<!-- ai-harness:start -->';
         $end = $hashComments ? '# ai-harness:end' : '<!-- ai-harness:end -->';
         $managed = $start."\n".trim($block)."\n".$end;

@@ -2,6 +2,17 @@
 
 The harness integrates with Codex and Claude Code. Select the agents with the `agents` key. Refer to [Configuration](configuration.md#agents).
 
+## Personal integrations in global mode
+
+`ai-harness init --global` installs integrations for you in the current Git working tree, keeping generated files out of commits through `.git/info/exclude`. Shared instructions, settings, and `.gitignore` are left unchanged.
+
+- Codex uses `AGENTS.override.md` and `.codex/environments/ai-harness-global.toml`. Select `Laravel AI Harness (global)` for worktrees. Codex loads the override instead of `AGENTS.md`, so the harness includes shared guidance in its managed block and refreshes that snapshot on `update`. Your instructions outside the block remain intact. See [Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+- Claude uses `CLAUDE.local.md` and `.claude/settings.local.json`. Its personal instructions import existing `AGENTS.md`; existing `CLAUDE.md` is untouched. Hooks and commands use `ai-harness` on `PATH`. Your other personal settings, hooks, and instructions remain intact. See [Claude settings scopes](https://code.claude.com/docs/en/settings) and [personal instructions](https://code.claude.com/docs/en/memory).
+
+Ignored integrations are not copied by Git into new worktrees. Codex's global environment setup and Claude's global worktree hooks initialize them before runtime setup. Git exclusions are shared by linked worktrees through the common Git directory. Turning off an agent removes only its personal harness-managed content on the next update.
+
+The remaining sections describe project installations, whose integration files can be committed.
+
 ## Shared instructions in `AGENTS.md`
 
 When `codex` or `claude` is in `agents`, `init` and `update` add one managed block to `AGENTS.md`. The block tells agents to:

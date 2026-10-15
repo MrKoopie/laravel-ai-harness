@@ -14,10 +14,11 @@ final readonly class ClaudeSettings
     public function __construct(private SafeWriter $writer) {}
 
     /** Add or remove harness-owned Claude lifecycle hooks. */
-    public function sync(string $root, bool $enabled, bool $cloud = false): void
+    public function sync(string $root, bool $enabled, bool $cloud = false, bool $local = false): void
     {
-        $path = $root.'/.claude/settings.json';
-        $this->writer->assertSafePath($root, '.claude/settings.json');
+        $relative = $local ? '.claude/settings.local.json' : '.claude/settings.json';
+        $path = $root.'/'.$relative;
+        $this->writer->assertSafePath($root, $relative);
 
         if (! $enabled && ! $cloud && ! is_file($path)) {
             return;
@@ -47,19 +48,19 @@ final readonly class ClaudeSettings
         }
 
         if ($enabled || $cloud) {
-            $hooks['SessionStart'][] = $this->group(null, 'session-start', 'Preparing the Laravel AI Harness environment');
+            $hooks['SessionStart'][] = $this->group(null, 'session-start', 'Preparing the Laravel AI Harness environment', $local);
         }
 
         if ($cloud) {
-            $group = $this->group(null, 'session-end', 'Cleaning cloud testing databases');
+            $group = $this->group(null, 'session-end', 'Cleaning cloud testing databases', $local);
             $group['hooks'][0]['timeout'] = 60;
             $hooks['SessionEnd'][] = $group;
         }
 
         if ($enabled) {
-            $hooks['PostToolUse'][] = $this->group('EnterWorktree', 'enter-worktree', 'Preparing the Laravel AI Harness worktree');
-            $hooks['PreToolUse'][] = $this->group('ExitWorktree', 'exit-worktree', 'Cleaning the Laravel AI Harness worktree');
-            $hooks['WorktreeRemove'][] = $this->group(null, 'worktree-remove', 'Cleaning the Laravel AI Harness worktree');
+            $hooks['PostToolUse'][] = $this->group('EnterWorktree', 'enter-worktree', 'Preparing the Laravel AI Harness worktree', $local);
+            $hooks['PreToolUse'][] = $this->group('ExitWorktree', 'exit-worktree', 'Cleaning the Laravel AI Harness worktree', $local);
+            $hooks['WorktreeRemove'][] = $this->group(null, 'worktree-remove', 'Cleaning the Laravel AI Harness worktree', $local);
         }
 
         if ($hooks === []) {
@@ -80,7 +81,7 @@ final readonly class ClaudeSettings
             return;
         }
 
-        $this->writer->write($root, '.claude/settings.json', $encoded);
+        $this->writer->write($root, $relative, $encoded);
     }
 
     /**
@@ -162,7 +163,7 @@ final readonly class ClaudeSettings
     /** Identify current commands and the exact commands installed by v0.1. */
     private static function isHarnessCommand(string $command): bool
     {
-        if (str_contains($command, '.ai-harness" hook claude ')) {
+        if (str_contains($command, '.ai-harness" hook claude ') || str_starts_with($command, 'ai-harness hook claude ')) {
             return true;
         }
 
@@ -178,12 +179,12 @@ final readonly class ClaudeSettings
      *
      * @return array<string, mixed>
      */
-    private function group(?string $matcher, string $event, string $status): array
+    private function group(?string $matcher, string $event, string $status, bool $local = false): array
     {
         $group = [
             'hooks' => [[
                 'type' => 'command',
-                'command' => '"${CLAUDE_PROJECT_DIR}/.ai-harness" hook claude '.$event,
+                'command' => ($local ? 'ai-harness hook claude ' : '"${CLAUDE_PROJECT_DIR}/.ai-harness" hook claude ').$event,
                 'timeout' => 600,
                 'statusMessage' => $status,
             ]],

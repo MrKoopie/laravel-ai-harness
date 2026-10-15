@@ -30,7 +30,7 @@ final class UpdateCommand extends ProjectCommand
         $result = $this->synchronizer->sync($this->projectPath($input));
 
         if ($result->createdConfig) {
-            $output->writeln('<info>created .ai-harness.config</info>');
+            $output->writeln("<info>created {$result->configFilename}</info>");
         }
 
         foreach ($result->written as $path) {

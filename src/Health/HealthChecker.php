@@ -15,6 +15,7 @@ use MrKoopie\LaravelAiHarness\Environment\Yerd;
 use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
+use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 use Symfony\Component\Process\Exception\ExceptionInterface;
 use Symfony\Component\Process\Process;
 
@@ -33,16 +34,24 @@ final readonly class HealthChecker
      */
     public function check(Config $config, string $root): array
     {
+        $global = GlobalInstallation::active($root);
         $checks = [
-            $this->file(is_executable($root.'/.ai-harness'), '.ai-harness bootstrap is executable', '.ai-harness bootstrap is missing or not executable'),
             $this->file(is_file($root.'/artisan'), 'Laravel artisan entrypoint exists', 'Laravel artisan entrypoint is missing'),
             $this->file($config->sourceFiles !== [], 'Configuration loaded from '.implode(', ', $config->sourceFiles), 'No project configuration file exists; run init'),
-            $this->file(
+            $global ? $this->file(
+                $this->executables->find('ai-harness') !== null,
+                'Global AI Harness is available on PATH; refresh with ai-harness update',
+                'Global AI Harness is missing from PATH; add the Composer global bin directory',
+            ) : $this->file(
                 $this->composerScripts->installed($root),
                 'Automatic Composer refresh hooks are installed',
                 'Automatic Composer refresh hooks are missing; run ./.ai-harness update',
             ),
         ];
+
+        if (! $global) {
+            array_unshift($checks, $this->file(is_executable($root.'/.ai-harness'), '.ai-harness bootstrap is executable', '.ai-harness bootstrap is missing or not executable'));
+        }
 
         $cloud = ExecutionEnvironment::current()->isCloud();
 
@@ -107,15 +116,21 @@ final readonly class HealthChecker
         }
 
         if ($config->supportsAgent('codex') || $config->supportsAgent('claude')) {
-            $checks[] = $this->managed($root.'/AGENTS.md', 'Agent instructions');
+            if (! $global || $config->supportsAgent('codex')) {
+                $checks[] = $this->managed($root.($global ? '/AGENTS.override.md' : '/AGENTS.md'), 'Agent instructions');
+            }
         }
 
         if ($config->supportsAgent('codex') && $config->worktrees && ! $cloud) {
-            $checks[] = $this->file(is_file($root.'/.codex/environments/environment.toml'), 'Codex local environment is installed', 'Codex local environment is missing');
+            $checks[] = $this->file(is_file($root.'/'.($global ? GlobalInstallation::CODEX_ENVIRONMENT : '.codex/environments/environment.toml')), 'Codex local environment is installed', 'Codex local environment is missing');
         }
 
         if ($config->supportsAgent('claude')) {
-            if (is_file($root.'/CLAUDE.md')) {
+            if ($global) {
+                $checks[] = $this->managed($root.'/CLAUDE.local.md', 'Claude local instructions');
+            }
+
+            if (! $global && is_file($root.'/CLAUDE.md')) {
                 $claudeInstructions = is_link($root.'/CLAUDE.md') ? false : file_get_contents($root.'/CLAUDE.md');
                 $checks[] = $this->file(
                     is_string($claudeInstructions) && $this->importsAgents($claudeInstructions),
@@ -125,9 +140,10 @@ final readonly class HealthChecker
             }
 
             if ($config->worktrees || $config->cloud) {
-                $settings = is_file($root.'/.claude/settings.json') ? file_get_contents($root.'/.claude/settings.json') : false;
+                $settingsPath = $root.($global ? '/.claude/settings.local.json' : '/.claude/settings.json');
+                $settings = is_file($settingsPath) ? file_get_contents($settingsPath) : false;
                 $checks[] = $this->file(
-                    is_string($settings) && str_contains($settings, '.ai-harness\\" hook claude'),
+                    is_string($settings) && str_contains($settings, $global ? 'ai-harness hook claude' : '.ai-harness\\" hook claude'),
                     'Claude hooks are installed',
                     'Claude hooks are missing',
                 );
