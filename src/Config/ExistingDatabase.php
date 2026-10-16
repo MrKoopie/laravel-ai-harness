@@ -24,7 +24,9 @@ final readonly class ExistingDatabase
         'AI_HARNESS_DB_DATABASE' => 'DB_DATABASE',
     ];
 
-    /** @param list<string> $environmentOverrides */
+    /** Keep application and administrative credentials separate without persisting either in ownership state.
+     * @param  list<string>  $environmentOverrides
+     */
     public function __construct(
         public string $host,
         public int $port,
@@ -62,6 +64,9 @@ final readonly class ExistingDatabase
             }
         }
         $driver = $environment['DB_CONNECTION'] ?? '';
+        if (getenv('AI_HARNESS_DB_CONNECTION') !== false && ! in_array($driver, ['mysql', 'mariadb'], true)) {
+            throw new ConfigException('AI_HARNESS_DB_CONNECTION must be mysql or mariadb.');
+        }
         if (! in_array($driver, ['mysql', 'mariadb'], true)) {
             return null;
         }
@@ -111,7 +116,7 @@ final readonly class ExistingDatabase
     }
 
     /** Match Laravel's reserved dotenv scalars while preserving explicitly quoted credentials. */
-    private static function dotenvCredential(string $value): string
+    public static function dotenvCredential(string $value): string
     {
         return match (strtolower($value)) {
             'true', '(true)' => '1',
@@ -153,17 +158,26 @@ final readonly class ExistingDatabase
         return $result;
     }
 
+    /** Return the generated or explicitly selected development database name. */
     public function developmentName(string $root): string
     {
         return $this->database ?? DatabaseName::forPath($root);
     }
 
+    /** Keep testing isolated from the selected development database. */
     public function testingName(string $root): string
     {
         return $this->database !== null ? $this->database.'_testing' : DatabaseName::testingForPath($root);
     }
 
+    /** Identify the selected transport; TCP settings do not affect a socket connection. */
     public function endpoint(): string
+    {
+        return $this->socket !== '' ? hash('sha256', 'socket:'.$this->socket) : $this->legacyEndpoint();
+    }
+
+    /** Recognize a pre-canonicalization ownership record using its exact original settings. */
+    public function legacyEndpoint(): string
     {
         return hash('sha256', $this->host.':'.$this->port.':'.$this->socket);
     }

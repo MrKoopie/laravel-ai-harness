@@ -51,6 +51,14 @@ final readonly class EnvironmentManager
             }
         }
 
+        if ($config->existingDatabase !== null) {
+            $this->environmentFile->assertExistingRequirements($root);
+            if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
+                throw new EnvironmentException('Existing-server setup requires .env or .env.example.');
+            }
+            (new ExistingMySql($this->state))->setup($root, $config->existingDatabase);
+        }
+
         if ($this->environmentFile->ensure($root)) {
             $output->writeln('<info>Created .env from .env.example</info>');
         }
@@ -58,7 +66,7 @@ final readonly class EnvironmentManager
         if ($config->localEnvironment !== []) {
             // Clear stale configuration before Artisan can read the changed endpoint.
             $this->environmentFile->clearCloudConfigCache($root);
-            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment);
+            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment, $config->existingDatabase === null || $config->serviceManager === Services::Sail);
             $output->writeln('<info>Applied local environment overrides</info>');
         }
 
@@ -70,8 +78,7 @@ final readonly class EnvironmentManager
         }
 
         if ($config->existingDatabase !== null) {
-            $this->environmentFile->configureExistingMySql($root, $config->existingDatabase);
-            (new ExistingMySql($this->state))->setup($root, $config->existingDatabase);
+            $this->environmentFile->configureExistingMySql($root, $config->existingDatabase, $config->serviceManager === Services::Sail);
             $output->writeln('<info>Configured checkout-owned existing-server MySQL/MariaDB databases</info>');
         }
 

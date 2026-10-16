@@ -12,6 +12,7 @@ use MrKoopie\LaravelAiHarness\Environment\ExistingMySql;
 use MrKoopie\LaravelAiHarness\Environment\PdoDatabaseConnection;
 use MrKoopie\LaravelAiHarness\Environment\StateStore;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
+use Symfony\Component\Process\Process;
 
 test('existing-server environment reconciliation preserves unrelated settings and removes all PHPUnit database overrides', function (): void {
     $root = temp_directory('external-env');
@@ -74,6 +75,11 @@ test('existing-server provisioning works against a real MySQL or MariaDB server'
     $name = DatabaseName::forPath($root);
     $test = DatabaseName::testingForPath($root);
     try {
+        // A prior exact-schema SELECT grant must survive harness cleanup.
+        $partial = $admin->rows("SHOW VARIABLES LIKE 'partial_revokes'");
+        $literal = strtoupper((string) ($partial[0]['Value'] ?? 'OFF')) === 'ON';
+        $grantName = $literal ? $name : str_replace('_', '\\_', $name);
+        $admin->execute('GRANT SELECT ON `'.$grantName.'`.* TO ?@?', [$user, '%']);
         mkdir($root.'/vendor');
         file_put_contents($root.'/vendor/autoload.php', '<?php');
         file_put_contents($root.'/.env.example', "APP_KEY=existing\nDB_CONNECTION=mysql\nDB_HOST={$host}\nDB_PORT={$port}\nDB_USERNAME={$user}\nDB_PASSWORD=test-app-password\nDB_DATABASE=shared-original\n");
@@ -96,6 +102,10 @@ test('existing-server provisioning works against a real MySQL or MariaDB server'
         $manager->setup($other, $config);
         harness_process(['cleanup'], $root)->mustRun();
         $manager->cleanup($root, $config);
+        expect(fn () => $app->execute('CREATE DATABASE `'.$name.'`'))->toThrow(PDOException::class);
+        expect(fn () => $app->execute('CREATE DATABASE `'.$test.'_test_1`'))->toThrow(PDOException::class);
+        $prior = $admin->rows('SELECT Select_priv, Create_priv FROM mysql.db WHERE User = ? AND Host = ? AND Db = ?', [$user, '%', $grantName]);
+        expect($prior[0]['Select_priv'])->toBe('Y')->and($prior[0]['Create_priv'])->toBe('N');
         expect($admin->rows('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', [$name]))->toBe([]);
         expect($admin->rows('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', [$test.'_test_1']))->toBe([]);
         expect($admin->rows('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', [DatabaseName::forPath($other)]))->not->toBeEmpty();
@@ -176,8 +186,91 @@ test('literal process passwords survive dotenv serialization and repeat configur
     }
     (new EnvironmentFile(new SafeWriter))->configureExistingMySql($root, $config);
     putenv('AI_HARNESS_DB_PASSWORD');
-    expect((new ConfigLoader)->load($root)->existingDatabase->password)->toBe('null');
+    expect(((new ConfigLoader)->load($root)->existingDatabase ?? throw new RuntimeException('Expected existing-server configuration.'))->password)->toBe('null');
     // Laravel checks reserved words before stripping this inner quotation layer.
     $parsed = Dotenv::parse((string) file_get_contents($root.'/.env.testing'));
     expect($parsed['DB_PASSWORD'])->toBe('"null"');
+});
+
+test('doctor detects credential and TLS rotations without exposing values', function (): void {
+    $root = temp_directory('existing-stale-credentials');
+    file_put_contents($root.'/.env', "DB_CONNECTION=mysql\nDB_USERNAME=new-app\nDB_PASSWORD=new-secret\nMYSQL_ATTR_SSL_CA=/new/ca.pem\n");
+    $config = (new ConfigLoader)->load($root)->existingDatabase ?? throw new RuntimeException('Expected existing-server configuration.');
+    $files = new EnvironmentFile(new SafeWriter);
+    $files->configureExistingMySql($root, $config);
+    $path = $root.'/.env.testing';
+    $contents = str_replace(['new-app', 'new-secret', '/new/ca.pem'], ['old-app', 'old-secret', '/old/ca.pem'], file_get_contents($path) ?: throw new RuntimeException('Missing test environment.'));
+    file_put_contents($path, $contents);
+    $conflicts = $files->existingEnvironmentConflicts($root, $config);
+    expect($conflicts)->toBe(['.env.testing DB_USERNAME (run setup)', '.env.testing DB_PASSWORD (run setup)', '.env.testing MYSQL_ATTR_SSL_CA (run setup)']);
+    expect(implode(' ', $conflicts))->not->toContain('secret', 'old-app', 'new-app');
+    expect(file_get_contents($path))->toBe($contents);
+});
+
+foreach (['dotenv', 'local', 'process'] as $source) {
+    test('existing-server credentials with apostrophes and backticks round trip from '.$source, function () use ($source): void {
+        $root = temp_directory('existing-special-credentials');
+        $password = 'apostrophe\' backtick` dollar$ slash\\ hash#';
+        file_put_contents($root.'/.env', "DB_CONNECTION=mysql\nDB_USERNAME=app\nDB_PASSWORD=placeholder\n");
+        if ($source === 'dotenv') {
+            $encoded = str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $password);
+            file_put_contents($root.'/.env', 'DB_CONNECTION=mysql'."\n".'DB_USERNAME=app'."\n".'DB_PASSWORD="'.$encoded.'"'."\n");
+        } elseif ($source === 'local') {
+            file_put_contents($root.'/.ai-harness.config.local', 'local_env.DB_PASSWORD='.$password."\n");
+        } else {
+            putenv('AI_HARNESS_DB_PASSWORD='.$password);
+        }
+        $config = (new ConfigLoader)->load($root)->existingDatabase ?? throw new RuntimeException('Expected existing-server configuration.');
+        expect($config->password)->toBe($password);
+        $files = new EnvironmentFile(new SafeWriter);
+        $files->configureExistingMySql($root, $config);
+        putenv('AI_HARNESS_DB_PASSWORD');
+        expect(((new ConfigLoader)->load($root)->existingDatabase ?? throw new RuntimeException('Expected existing-server configuration.'))->password)->toBe($password);
+        expect($files->existingEnvironmentConflicts($root, $config))->toBe([]);
+        expect(Dotenv::parse(file_get_contents($root.'/.env.testing') ?: throw new RuntimeException('Missing test environment.'))['DB_PASSWORD'])->toBe($password);
+    });
+}
+
+foreach ([false, true] as $existing) {
+    test('failed provisioning preserves environment files and cache: '.($existing ? 'existing env' : 'template'), function () use ($existing): void {
+        $root = temp_directory('existing-failed-setup');
+        mkdir($root.'/bootstrap/cache', 0755, true);
+        $snapshots = [
+            ($existing ? '.env' : '.env.example') => "DB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=1\nDB_USERNAME=app\nDB_DATABASE=working\n",
+            '.env.testing' => "DB_CONNECTION=sqlite\nDB_DATABASE=:memory:\n",
+            'phpunit.xml' => '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/></php></phpunit>',
+            'bootstrap/cache/config.php' => '<?php return ["working" => true];',
+        ];
+        foreach ($snapshots as $path => $contents) {
+            file_put_contents($root.'/'.$path, $contents);
+        }
+        file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nservice_manager=none\nlocal_env.APP_NAME=changed\n");
+        $process = harness_process(['setup'], $root);
+        $process->run();
+        expect($process->getExitCode())->toBe(1);
+        expect($process->getOutput().$process->getErrorOutput())->toContain('Existing-server MySQL/MariaDB operation failed');
+        foreach ($snapshots as $path => $contents) {
+            expect(file_get_contents($root.'/'.$path))->toBe($contents);
+        }
+        if (! $existing) {
+            expect($root.'/.env')->not->toBeFile();
+        }
+    });
+}
+
+test('missing DOM fails before provisioning or environment changes', function (): void {
+    $root = temp_directory('existing-no-dom');
+    file_put_contents($root.'/.env.example', "DB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=1\n");
+    file_put_contents($root.'/phpunit.xml', '<phpunit/>');
+    $script = $root.'/without-dom.php';
+    $autoload = var_export(dirname(__DIR__, 2).'/vendor/autoload.php', true);
+    $project = var_export($root, true);
+    file_put_contents($script, '<?php namespace MrKoopie\\LaravelAiHarness\\Environment { function class_exists(string $name): bool { return $name !== \\DOMDocument::class && \\class_exists($name); } } namespace { require '.$autoload.'; exit((new \\MrKoopie\\LaravelAiHarness\\Application)->run(new \\Symfony\\Component\\Console\\Input\\ArrayInput(["command" => "setup", "--path" => '.$project.']))); }');
+    $process = new Process([PHP_BINARY, $script]);
+    $process->run();
+    expect($process->getExitCode())->toBe(1);
+    expect($process->getOutput().$process->getErrorOutput())->toContain('ext-dom');
+    expect($root.'/.env')->not->toBeFile();
+    expect($root.'/.ai-harness.state.json')->not->toBeFile();
+    expect(file_get_contents($root.'/phpunit.xml'))->toBe('<phpunit/>');
 });

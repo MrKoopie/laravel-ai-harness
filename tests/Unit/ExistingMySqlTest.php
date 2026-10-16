@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use MrKoopie\LaravelAiHarness\Config\ConfigException;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Config\ExistingDatabase;
 use MrKoopie\LaravelAiHarness\Environment\DatabaseConnection;
@@ -23,6 +24,14 @@ final class MemoryDatabaseServer implements DatabaseConnection
     /** @var list<string> */
     public array $statements = [];
 
+    /** @var array<string, array<string, string>> */
+    public array $grantRegistry = [];
+
+    /** @var array<string, list<string>> */
+    public array $schemaPrivileges = [];
+
+    public bool $grantRegistryExists = false;
+
     public ?string $fail = null;
 
     public bool $partialRevokes = false;
@@ -32,6 +41,7 @@ final class MemoryDatabaseServer implements DatabaseConnection
 
     public string $grants = 'GRANT ALL PRIVILEGES ON *.* TO account WITH GRANT OPTION';
 
+    /** Apply server mutations and allow a single injected failure at a chosen boundary. */
     public function execute(string $sql, array $parameters = []): void
     {
         $this->statements[] = $sql;
@@ -39,8 +49,22 @@ final class MemoryDatabaseServer implements DatabaseConnection
             $this->fail = null;
             throw new RuntimeException('secret password must never appear');
         }
-        if (str_starts_with($sql, 'GRANT ALL')) {
-            $this->grantAccounts[] = $parameters;
+        if (str_contains($sql, 'CREATE TABLE IF NOT EXISTS `ai_harness_registry`.`schema_grants`')) {
+            $this->grantRegistryExists = true;
+        } elseif (preg_match('/^(GRANT|REVOKE) (.+) ON `([^`]+)`\.\* (?:TO|FROM) /', $sql, $match)) {
+            $key = $match[3].'@'.implode('@', $parameters);
+            $current = $this->schemaPrivileges[$key] ?? [];
+            $privileges = explode(', ', $match[2]);
+            $this->schemaPrivileges[$key] = $match[1] === 'GRANT'
+                ? array_values(array_unique([...$current, ...$privileges]))
+                : array_values(array_diff($current, $privileges));
+            if ($match[1] === 'GRANT') {
+                $this->grantAccounts[] = $parameters;
+            }
+        } elseif (str_starts_with($sql, 'INSERT INTO `ai_harness_registry`.`schema_grants`')) {
+            $this->grantRegistry[$parameters[0]] = array_combine(['id', 'database_name', 'owner', 'token', 'username', 'user_host', 'grant_schema', 'baseline'], $parameters);
+        } elseif (str_starts_with($sql, 'DELETE FROM `ai_harness_registry`.`schema_grants`')) {
+            $this->grantRegistry = array_filter($this->grantRegistry, fn ($row) => $row['database_name'] !== $parameters[0]);
         } elseif (str_starts_with($sql, 'INSERT INTO')) {
             $this->registry[$parameters[0]] = ['owner' => $parameters[1], 'token' => $parameters[2], 'created' => '0'];
         } elseif (str_starts_with($sql, 'UPDATE ')) {
@@ -54,6 +78,7 @@ final class MemoryDatabaseServer implements DatabaseConnection
         }
     }
 
+    /** Return schema, account and registry metadata from the stateful server fixture. */
     public function rows(string $sql, array $parameters = []): array
     {
         $this->statements[] = $sql;
@@ -65,6 +90,22 @@ final class MemoryDatabaseServer implements DatabaseConnection
         }
         if (str_contains($sql, 'SELECT owner, token, created')) {
             return isset($this->registry[$parameters[0]]) ? [$this->registry[$parameters[0]]] : [];
+        }
+        if (str_contains($sql, 'SELECT * FROM `ai_harness_registry`.`schema_grants`')) {
+            return array_values(array_filter($this->grantRegistry, fn ($row) => str_contains($sql, 'WHERE id =') ? $row['id'] === $parameters[0] : $row['database_name'] === $parameters[0]));
+        }
+        if (str_contains($sql, 'SELECT * FROM mysql.db')) {
+            $key = $parameters[2].'@'.$parameters[0].'@'.$parameters[1];
+            $flags = ['SELECT' => 'Select_priv', 'CREATE' => 'Create_priv', 'INSERT' => 'Insert_priv', 'UPDATE' => 'Update_priv', 'DELETE' => 'Delete_priv', 'DROP' => 'Drop_priv', 'REFERENCES' => 'References_priv', 'INDEX' => 'Index_priv', 'ALTER' => 'Alter_priv', 'CREATE TEMPORARY TABLES' => 'Create_tmp_table_priv', 'LOCK TABLES' => 'Lock_tables_priv', 'EXECUTE' => 'Execute_priv', 'CREATE VIEW' => 'Create_view_priv', 'SHOW VIEW' => 'Show_view_priv', 'CREATE ROUTINE' => 'Create_routine_priv', 'ALTER ROUTINE' => 'Alter_routine_priv', 'EVENT' => 'Event_priv', 'TRIGGER' => 'Trigger_priv'];
+            $row = [];
+            foreach ($this->schemaPrivileges[$key] ?? [] as $privilege) {
+                $row[$flags[$privilege]] = 'Y';
+            }
+
+            return [$row];
+        }
+        if (str_contains($sql, 'information_schema.TABLES')) {
+            return $this->grantRegistryExists ? [['TABLE_NAME' => 'schema_grants']] : [];
         }
         if (str_contains($sql, 'information_schema')) {
             return isset($this->schemas[$parameters[0]]) ? [['SCHEMA_NAME' => $parameters[0]]] : [];
@@ -80,11 +121,13 @@ final class MemoryDatabaseServer implements DatabaseConnection
     }
 }
 
+/** Build application and administrative settings for the in-memory server. */
 function existing_config(int $parallel = 0, string $host = '127.0.0.1'): ExistingDatabase
 {
     return new ExistingDatabase($host, 3306, '', 'app', 'sensitive', 'localhost', 'admin', 'top-secret', $parallel);
 }
 
+/** Route both connection roles through a shared stateful server fixture. */
 function existing_manager(MemoryDatabaseServer $server): ExistingMySql
 {
     return new ExistingMySql(new StateStore(new SafeWriter), fn () => $server);
@@ -109,7 +152,7 @@ test('existing-server databases isolate same-named checkouts and repeated setup 
     expect($one.'/.ai-harness.state.json')->not->toBeFile();
 });
 
-foreach (['CREATE DATABASE `external', 'GRANT ALL'] as $failure) {
+foreach (['CREATE DATABASE `external', 'GRANT '] as $failure) {
     test('existing-server setup recovers after '.$failure, function () use ($failure): void {
         $root = temp_directory('external-partial');
         $server = new MemoryDatabaseServer;
@@ -327,4 +370,134 @@ test('overridden names retain ownership and remain isolated across checkout coll
     expect($server->schemas['custom_database'])->toBe('preserved data');
     $manager->cleanup($one, $resumed);
     expect($server->schemas)->not->toHaveKey('custom_database');
+});
+
+test('cleanup revokes only grants added by this checkout and preserves prior access', function (): void {
+    $root = temp_directory('existing-grant-baseline');
+    $server = new MemoryDatabaseServer;
+    $schema = str_replace('_', '\\_', DatabaseName::forPath($root));
+    $key = $schema.'@app@localhost';
+    $server->schemaPrivileges[$key] = ['SELECT'];
+    $server->schemaPrivileges['unrelated@other@%'] = ['CREATE'];
+    $manager = existing_manager($server);
+    $manager->setup($root, existing_config(2));
+    $manager->setup($root, existing_config(2));
+    $manager->cleanup($root, existing_config());
+    expect($server->schemaPrivileges[$key])->toBe(['SELECT'])
+        ->and($server->schemaPrivileges['unrelated@other@%'])->toBe(['CREATE'])
+        ->and($server->grantRegistry)->toBeEmpty();
+    foreach ($server->schemaPrivileges as $account => $privileges) {
+        if (! in_array($account, [$key, 'unrelated@other@%'], true)) {
+            expect($privileges)->toBe([]);
+        }
+    }
+});
+
+test('cleanup retains grant evidence on revocation failure and retries without dropping early', function (): void {
+    $root = temp_directory('existing-revoke-retry');
+    $server = new MemoryDatabaseServer;
+    $manager = existing_manager($server);
+    $manager->setup($root, existing_config());
+    $server->fail = 'REVOKE ';
+    expect(fn () => $manager->cleanup($root, existing_config()))->toThrow(EnvironmentException::class);
+    expect($server->schemas)->toHaveKey(DatabaseName::forPath($root));
+    expect($server->grantRegistry)->not->toBeEmpty();
+    expect($root.'/.ai-harness.state.json')->toBeFile();
+    $manager->cleanup($root, existing_config());
+    expect($server->grantRegistry)->toBeEmpty();
+    expect(array_keys($server->schemas))->toBe(['ai_harness_registry']);
+});
+
+test('cleanup revokes all recorded account hosts after application credential rotation', function (): void {
+    $root = temp_directory('existing-grant-rotation');
+    $server = new MemoryDatabaseServer;
+    $manager = existing_manager($server);
+    $manager->setup($root, existing_config());
+    $rotated = new ExistingDatabase('127.0.0.1', 3306, '', 'replacement', '', '%', 'admin', '', 0);
+    $manager->setup($root, $rotated);
+    expect($server->grantRegistry)->toHaveCount(4);
+    $manager->cleanup($root, $rotated);
+    expect(array_filter($server->schemaPrivileges))->toBe([]);
+});
+
+test('tampered grant ownership cannot revoke permissions or drop databases', function (): void {
+    $root = temp_directory('existing-grant-tamper');
+    $server = new MemoryDatabaseServer;
+    $manager = existing_manager($server);
+    $manager->setup($root, existing_config());
+    $id = array_key_first($server->grantRegistry);
+    $server->grantRegistry[$id]['token'] = str_repeat('0', 64);
+    expect(fn () => $manager->cleanup($root, existing_config()))->toThrow(EnvironmentException::class, 'grant ownership');
+    expect($server->schemas)->toHaveKey(DatabaseName::forPath($root));
+    expect(array_filter($server->statements, fn ($sql) => str_starts_with($sql, 'REVOKE')))->toBe([]);
+});
+
+test('socket ownership ignores unused TCP settings and migrates matching legacy records', function (): void {
+    $root = temp_directory('existing-socket-identity');
+    $server = new MemoryDatabaseServer;
+    $manager = existing_manager($server);
+    $original = new ExistingDatabase('old-host', 3306, '/tmp/test.sock', 'app', '', '%', 'admin', '', 0);
+    $changed = new ExistingDatabase('new-host', 3307, '/tmp/test.sock', 'app', '', '%', 'admin', '', 0);
+    $different = new ExistingDatabase('old-host', 3306, '/tmp/other.sock', 'app', '', '%', 'admin', '', 0);
+    expect($original->endpoint())->toBe($changed->endpoint());
+    expect($original->endpoint())->not->toBe($different->endpoint());
+    $manager->setup($root, $original);
+    $path = $root.'/.ai-harness.state.json';
+    $state = json_decode(file_get_contents($path) ?: throw new RuntimeException('Missing ownership state.'), true);
+    $state['existing_databases']['endpoint'] = $original->legacyEndpoint();
+    file_put_contents($path, json_encode($state));
+    $manager->setup($root, $original);
+    $manager->setup($root, $changed);
+    expect(fn () => $manager->cleanup($root, $different))->toThrow(EnvironmentException::class);
+    $manager->cleanup($root, $changed);
+    expect(array_keys($server->schemas))->toBe(['ai_harness_registry']);
+});
+
+foreach (['', 'mysql-typo', 'sqlite', 'pgsql'] as $driver) {
+    test('an explicit unsupported provisioning driver fails clearly: '.($driver ?: 'empty'), function () use ($driver): void {
+        $root = temp_directory('existing-invalid-driver');
+        file_put_contents($root.'/.env.example', "DB_CONNECTION=mysql\n");
+        putenv('AI_HARNESS_DB_CONNECTION='.$driver);
+        expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'must be mysql or mariadb');
+        putenv('AI_HARNESS_DB_CONNECTION');
+        file_put_contents($root.'/.env.example', 'DB_CONNECTION='.$driver."\n");
+        if (! in_array($driver, ['mysql-typo'], true)) {
+            expect((new ConfigLoader)->load($root)->existingDatabase)->toBeNull();
+        }
+    });
+}
+
+test('a failed first grant retains the original privilege baseline for setup and cleanup retries', function (): void {
+    $root = temp_directory('existing-grant-partial');
+    $server = new MemoryDatabaseServer;
+    $key = str_replace('_', '\\_', DatabaseName::forPath($root)).'@app@localhost';
+    $server->schemaPrivileges[$key] = ['SELECT'];
+    $server->fail = 'GRANT ';
+    $manager = existing_manager($server);
+    expect(fn () => $manager->setup($root, existing_config()))->toThrow(EnvironmentException::class);
+    expect($server->grantRegistry)->toHaveCount(1);
+    $manager->setup($root, existing_config());
+    $manager->cleanup($root, existing_config());
+    expect($server->schemaPrivileges[$key])->toBe(['SELECT']);
+});
+
+test('cleanup refuses changed server grant semantics while retaining ownership for recovery', function (): void {
+    $root = temp_directory('existing-grant-mode');
+    $server = new MemoryDatabaseServer;
+    $manager = existing_manager($server);
+    $manager->setup($root, existing_config());
+    $server->partialRevokes = true;
+    expect(fn () => $manager->cleanup($root, existing_config()))->toThrow(EnvironmentException::class, 'grant mode changed');
+    expect($server->schemas)->toHaveKey(DatabaseName::forPath($root));
+    expect($root.'/.ai-harness.state.json')->toBeFile();
+    $server->partialRevokes = false;
+    $manager->cleanup($root, existing_config());
+    expect($server->grantRegistry)->toBeEmpty();
+});
+
+test('existing-server local overrides retain shell restrictions when Sail manages other services', function (): void {
+    $root = temp_directory('existing-sail-redis-credential');
+    file_put_contents($root.'/.env.example', "DB_CONNECTION=mysql\nDB_USERNAME=app\n");
+    file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nservice_manager=sail\nsail_services=redis\nlocal_env.DB_PASSWORD=apostrophe'backtick`\n");
+    expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'cannot combine backticks');
 });

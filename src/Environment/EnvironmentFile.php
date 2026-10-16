@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Environment;
 
+use Dotenv\Dotenv;
 use MrKoopie\LaravelAiHarness\Config\ExistingDatabase;
 use MrKoopie\LaravelAiHarness\Files\FileException;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
+use Throwable;
 
 final readonly class EnvironmentFile
 {
@@ -86,13 +88,13 @@ final readonly class EnvironmentFile
      *
      * @param  array<string, string>  $values
      */
-    public function applyLocalOverrides(string $root, array $values): void
+    public function applyLocalOverrides(string $root, array $values, bool $shellSafe = true): void
     {
         if (! is_file($root.'/.env')) {
             throw new FileException('Local environment overrides require .env or .env.example in the project root.');
         }
 
-        $encoded = $this->encodeValues($values);
+        $encoded = $this->encodeValues($values, $shellSafe);
 
         $this->replaceValues($root, '.env', $encoded);
     }
@@ -121,9 +123,18 @@ final readonly class EnvironmentFile
         return true;
     }
 
-    /** Configure existing-server endpoints without replacing unrelated application/test settings. */
-    public function configureExistingMySql(string $root, ExistingDatabase $config): void
+    /** Fail before changing files when PHPUnit requires an unavailable runtime extension. */
+    public function assertExistingRequirements(string $root): void
     {
+        if ((is_file($root.'/phpunit.xml') || is_file($root.'/phpunit.xml.dist')) && ! class_exists(\DOMDocument::class)) {
+            throw new EnvironmentException('Existing-server PHPUnit configuration requires ext-dom; enable the DOM extension in the PHP process launching ai-harness.');
+        }
+    }
+
+    /** Configure existing-server endpoints without replacing unrelated application/test settings. */
+    public function configureExistingMySql(string $root, ExistingDatabase $config, bool $shellSafe = false): void
+    {
+        $this->assertExistingRequirements($root);
         $this->clearCloudConfigCache($root);
         $this->ensureTesting($root);
         $values = [
@@ -139,8 +150,8 @@ final readonly class EnvironmentFile
                 $values[$name] = '"'.$values[$name].'"';
             }
         }
-        $this->applyLocalOverrides($root, $values);
-        $encoded = $this->encodeValues($values);
+        $this->applyLocalOverrides($root, $values, $shellSafe);
+        $encoded = $this->encodeValues($values, $shellSafe);
         $encoded['DB_DATABASE'] = $config->testingName($root);
         $this->replaceValues($root, '.env.testing', $encoded);
         $this->configureExistingPhpUnit($root);
@@ -222,12 +233,23 @@ final readonly class EnvironmentFile
                 continue;
             }
             $contents = $this->read($root.'/'.$file);
-            foreach (['DB_CONNECTION' => $config->connection, 'DB_DATABASE' => $database, 'DB_HOST' => $config->host, 'DB_PORT' => (string) $config->port, 'DB_SOCKET' => $config->socket, 'DB_URL' => '', 'DATABASE_URL' => ''] as $name => $expected) {
+            try {
+                $parsed = Dotenv::parse($contents);
+            } catch (Throwable) {
+                $conflicts[] = $file.' invalid dotenv syntax (run setup)';
+
+                continue;
+            }
+            foreach (['DB_CONNECTION' => $config->connection, 'DB_DATABASE' => $database, 'DB_HOST' => $config->host, 'DB_PORT' => (string) $config->port, 'DB_SOCKET' => $config->socket, 'DB_URL' => '', 'DATABASE_URL' => '', 'DB_USERNAME' => $config->username, 'DB_PASSWORD' => $config->password, 'MYSQL_ATTR_SSL_CA' => $config->sslCa] as $name => $expected) {
                 preg_match_all('/^[ \t]*(?:export[ \t]+)?'.preg_quote($name, '/').'[ \t]*=[ \t]*(.*)$/m', $contents, $matches);
                 if ($matches[1] === [] && $expected === '') {
                     continue;
                 }
-                if (count($matches[1]) !== 1 || trim(trim($matches[1][0]), "\"'") !== $expected) {
+                $actual = $parsed[$name] ?? '';
+                if (in_array($name, ['DB_USERNAME', 'DB_PASSWORD'], true)) {
+                    $actual = ExistingDatabase::dotenvCredential($actual);
+                }
+                if (count($matches[1]) !== 1 || $actual !== $expected) {
                     $conflicts[] = $file.' '.$name.' (run setup)';
                 }
             }
@@ -526,11 +548,11 @@ final readonly class EnvironmentFile
     /** @param array<string, string> $values
      * @return array<string, string>
      */
-    private function encodeValues(array $values): array
+    private function encodeValues(array $values, bool $shellSafe = true): array
     {
         $encoded = [];
         foreach ($values as $name => $value) {
-            if (str_contains($value, '`')) {
+            if ($shellSafe && str_contains($value, '`')) {
                 if (str_contains($value, "'")) {
                     throw new FileException('Database/environment values cannot combine backticks with apostrophes.');
                 }

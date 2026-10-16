@@ -87,6 +87,9 @@ final readonly class HealthChecker
         $mode = $cloud ? 'cloud' : ($config->existingDatabase !== null ? 'existing-server MySQL/MariaDB' : ($config->managesMySql() ? 'Sail MySQL' : 'application-managed / SQLite defaults'));
         $checks[] = new CheckResult(true, 'Database provisioning mode: '.$mode);
         if (! $cloud && $config->existingDatabase !== null) {
+            if (is_file($root.'/phpunit.xml') || is_file($root.'/phpunit.xml.dist')) {
+                $checks[] = $this->file(class_exists(\DOMDocument::class), 'DOM is available for PHPUnit reconciliation', 'PHPUnit reconciliation requires ext-dom in the PHP process launching ai-harness');
+            }
             foreach ($config->existingDatabase->environmentOverrides as $variable) {
                 $checks[] = new CheckResult(true, "Database override {$variable} (value redacted)");
             }

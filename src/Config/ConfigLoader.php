@@ -202,7 +202,7 @@ final class ConfigLoader
     private function validateLocalEnvironment(Config $config): void
     {
         foreach ($config->localEnvironment as $name => $value) {
-            if (str_contains($value, '`') && str_contains($value, "'")) {
+            if (str_contains($value, '`') && str_contains($value, "'") && ($config->existingDatabase === null || $config->serviceManager === Services::Sail)) {
                 throw new ConfigException("local_env.{$name} cannot combine backticks with apostrophes; that literal cannot be represented safely for both Laravel and Sail.");
             }
 

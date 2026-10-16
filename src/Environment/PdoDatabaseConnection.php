@@ -11,6 +11,7 @@ final readonly class PdoDatabaseConnection implements DatabaseConnection
 {
     private PDO $pdo;
 
+    /** Open the selected TCP or socket endpoint using application or provisioning credentials. */
     public function __construct(ExistingDatabase $config, bool $application = false)
     {
         $endpoint = $config->socket !== '' ? 'unix_socket='.$config->socket : 'host='.$config->host.';port='.$config->port;
@@ -21,11 +22,13 @@ final readonly class PdoDatabaseConnection implements DatabaseConnection
         $this->pdo = new PDO('mysql:'.$endpoint.';charset=utf8mb4', $application ? $config->username : $config->provisionUsername, $application ? $config->password : $config->provisionPassword, $options);
     }
 
+    /** Execute parameterized SQL without exposing driver diagnostics to CLI output. */
     public function execute(string $sql, array $parameters = []): void
     {
         $this->pdo->prepare($sql)->execute($parameters);
     }
 
+    /** Fetch associative result rows for ownership and privilege inspection. */
     public function rows(string $sql, array $parameters = []): array
     {
         $statement = $this->pdo->prepare($sql);

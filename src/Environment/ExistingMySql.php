@@ -13,14 +13,18 @@ final readonly class ExistingMySql
 {
     private const REGISTRY = '`ai_harness_registry`.`databases`';
 
-    /** @param null|Closure(ExistingDatabase, bool): DatabaseConnection $connect */
+    /** Create the schema owner coordinator with an optional test connection factory.
+     * @param  null|Closure(ExistingDatabase, bool): DatabaseConnection  $connect
+     */
     public function __construct(private StateStore $state, private ?Closure $connect = null) {}
 
+    /** Create or recover only schemas belonging to the current checkout. */
     public function setup(string $root, ExistingDatabase $config): void
     {
         $this->manage($root, $config, false);
     }
 
+    /** Revoke owned grants and remove individually verified checkout schemas. */
     public function cleanup(string $root, ExistingDatabase $config): void
     {
         $this->manage($root, $config, true);
@@ -45,7 +49,7 @@ final readonly class ExistingMySql
                 }
             }
             $missing = [];
-            // GRANT ALL at schema scope requires each schema privilege, not only CREATE/DROP.
+            // Every schema privilege we grant must be available, along with registry metadata access.
             foreach (['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'REFERENCES', 'INDEX', 'ALTER', 'CREATE TEMPORARY TABLES', 'LOCK TABLES', 'EXECUTE', 'CREATE VIEW', 'SHOW VIEW', 'CREATE ROUTINE', 'ALTER ROUTINE', 'EVENT', 'TRIGGER', 'GRANT OPTION'] as $privilege) {
                 $all = in_array('ALL PRIVILEGES', $global, true) && $privilege !== 'GRANT OPTION';
                 $present = $privilege === 'GRANT OPTION' ? $grantOption : in_array($privilege, $global, true);
@@ -64,6 +68,7 @@ final readonly class ExistingMySql
         }
     }
 
+    /** Connect without selecting an application database. */
     private function connection(ExistingDatabase $config, bool $application = false): DatabaseConnection
     {
         return $this->connect !== null ? ($this->connect)($config, $application) : new PdoDatabaseConnection($config, $application);
@@ -85,7 +90,9 @@ final readonly class ExistingMySql
         return substr($account, $separator + 1);
     }
 
-    /** @return list<string> */
+    /** Enumerate the only development, testing and parallel schema names this checkout can own.
+     * @return list<string>
+     */
     private function names(string $root, ExistingDatabase $config): array
     {
         $names = [$config->developmentName($root), $config->testingName($root)];
@@ -96,14 +103,16 @@ final readonly class ExistingMySql
         return $names;
     }
 
-    /** @return array{owner: string, endpoint: string, token: string, names: list<string>}|null */
+    /** Verify local ownership and normalize legacy endpoint fingerprints before any server mutation.
+     * @return array{owner: string, endpoint: string, token: string, names: list<string>}|null
+     */
     private function ownership(string $root, ExistingDatabase $config): ?array
     {
         $record = $this->state->existingDatabases($root);
         if ($record === null) {
             return null;
         }
-        if (($record['owner'] ?? null) !== hash('sha256', $root) || ($record['endpoint'] ?? null) !== $config->endpoint()
+        if (($record['owner'] ?? null) !== hash('sha256', $root) || ! in_array($record['endpoint'] ?? null, [$config->endpoint(), $config->legacyEndpoint()], true)
             || ! is_string($record['token'] ?? null) || preg_match('/^[a-f0-9]{64}$/D', $record['token']) !== 1
             || ! is_array($record['names'] ?? null) || ! array_is_list($record['names'])) {
             throw new EnvironmentException('Existing-server database ownership does not match this checkout or endpoint; restore its original configuration.');
@@ -119,6 +128,7 @@ final readonly class ExistingMySql
         return ['owner' => hash('sha256', $root), 'endpoint' => $config->endpoint(), 'token' => $record['token'], 'names' => $names];
     }
 
+    /** Serialize provisioning and teardown around shared server ownership records. */
     private function manage(string $root, ExistingDatabase $config, bool $cleanup): void
     {
         $record = $this->ownership($root, $config);
@@ -130,6 +140,7 @@ final readonly class ExistingMySql
         try {
             $userHost = $cleanup ? '' : $this->applicationHost($config);
             $db = $this->connection($config);
+            $grants = new ExistingMySqlGrants($db);
             // One server-wide lock also serializes registry initialization and retries across checkouts.
             $lock = $db->rows("SELECT GET_LOCK('ai_harness_external_databases', 10) AS acquired");
             if ((string) ($lock[0]['acquired'] ?? '') !== '1') {
@@ -147,6 +158,7 @@ final readonly class ExistingMySql
                     $this->state->recordExistingDatabases($root, $record);
                     $db->execute('CREATE DATABASE IF NOT EXISTS `ai_harness_registry`');
                     $db->execute('CREATE TABLE IF NOT EXISTS '.self::REGISTRY.' (name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, owner CHAR(64) NOT NULL, token CHAR(64) NOT NULL, created TINYINT NOT NULL DEFAULT 0) ENGINE=InnoDB');
+                    $grants->ensureRegistry();
                 }
                 if ($record === null) {
                     return;
@@ -174,9 +186,11 @@ final readonly class ExistingMySql
                         throw new EnvironmentException('Existing-server database creation was interrupted or collided with another creator; existing schema ownership is unverified. Preserve the records and ask the database administrator to verify it.');
                     }
                     if ($cleanup) {
+                        $grants->revoke($name, $owner, $record['token']);
                         if ($created) {
                             $db->execute('DROP DATABASE IF EXISTS `'.$name.'`');
                         }
+                        $grants->forget($name, $owner, $record['token']);
                         $db->execute('DELETE FROM '.self::REGISTRY.' WHERE name = ? AND owner = ? AND token = ?', [$name, $owner, $record['token']]);
                     } else {
                         if (! $exists) {
@@ -190,7 +204,7 @@ final readonly class ExistingMySql
                         $literalGrants = strtoupper((string) ($partial[0]['Value'] ?? 'OFF')) === 'ON';
                         $grantName = $literalGrants ? $name : str_replace('_', '\\_', $name);
                         // Grant only exact schemas, including pre-provisioned Laravel parallel test tokens.
-                        $db->execute('GRANT ALL PRIVILEGES ON `'.$grantName.'`.* TO ?@?', [$config->username, $userHost]);
+                        $grants->grant($name, $owner, $record['token'], $config->username, $userHost, $grantName);
                     }
                 }
                 if ($cleanup) {

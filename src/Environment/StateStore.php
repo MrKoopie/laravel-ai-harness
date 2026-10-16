@@ -97,7 +97,9 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
-    /** @return array<string, mixed>|null */
+    /** Read existing-server ownership, including the earlier state key for safe upgrades.
+     * @return array<string, mixed>|null
+     */
     public function existingDatabases(string $root): ?array
     {
         $state = $this->read($root);
@@ -109,7 +111,9 @@ final readonly class StateStore
         return $record;
     }
 
-    /** @param array<string, mixed> $record */
+    /** Persist retryable ownership evidence without application or administrative credentials.
+     * @param  array<string, mixed>  $record
+     */
     public function recordExistingDatabases(string $root, array $record): void
     {
         $state = $this->read($root);
@@ -118,6 +122,7 @@ final readonly class StateStore
         $this->write($root, $state);
     }
 
+    /** Forget checkout ownership only after the complete teardown succeeds. */
     public function clearExistingDatabases(string $root): void
     {
         $state = $this->read($root);
