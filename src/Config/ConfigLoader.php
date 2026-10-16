@@ -31,6 +31,9 @@ final class ConfigLoader
         'cloud_seed' => 'false',
         'cloud_build' => 'false',
         'cloud_browser' => 'false',
+        'database_provision_username' => '',
+        'database_provision_password' => '',
+        'database_parallel_processes' => '0',
     ];
 
     /** @var array<string, string> */
@@ -142,9 +145,15 @@ final class ConfigLoader
             throw new ConfigException('cloud_seed requires cloud_migrate=true; seeders must be safe to rerun.');
         }
 
+        $sailMySql = $services === Services::Sail && in_array('mysql', $sailServices, true);
+        $sailStack = $services === Services::Sail && $sailServices === [];
+        $existing = ! $cloud && ! $sailMySql && ! $sailStack && $runtime !== Runtime::Sail
+            ? ExistingDatabase::forProject($root, $values, $localEnvironment) : null;
+
         /** @var list<'claude'|'codex'> $agents */
         $config = new Config(
             runtime: $runtime,
+            existingDatabase: $existing,
             serviceManager: $services,
             agents: $agents,
             sailServices: $sailServices,
@@ -199,10 +208,14 @@ final class ConfigLoader
 
             $managed = in_array($name, ['APP_KEY', 'APP_ENV', 'APP_CONFIG_CACHE'], true)
                 || ($name === 'APP_URL' && in_array($config->runtime, [Runtime::Herd, Runtime::Valet, Runtime::Yerd], true))
-                || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)));
+                || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)))
+                || ($config->existingDatabase !== null && ($name === 'DB_DATABASE' || in_array($name, ['DB_URL', 'DATABASE_URL'], true) && $value !== ''));
 
             if ($managed) {
-                throw new ConfigException("local_env.{$name} is managed by the harness for this runtime; use local_env.FORWARD_DB_PORT for a Sail host port.");
+                $hint = $config->existingDatabase !== null
+                    ? 'the harness generates database names; configure connection values with local_env.DB_*.'
+                    : 'use local_env.FORWARD_DB_PORT for a Sail host port.';
+                throw new ConfigException("local_env.{$name} is managed by the harness for this runtime; ".$hint);
             }
 
             if (in_array($name, ['DB_PORT', 'FORWARD_DB_PORT', 'REDIS_PORT', 'FORWARD_REDIS_PORT', 'MAIL_PORT', 'FORWARD_MAILPIT_PORT', 'FORWARD_MAILPIT_DASHBOARD_PORT', 'APP_PORT', 'VITE_PORT'], true)

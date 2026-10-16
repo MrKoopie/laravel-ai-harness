@@ -97,6 +97,34 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
+    /** @return array<string, mixed>|null */
+    public function existingDatabases(string $root): ?array
+    {
+        $state = $this->read($root);
+        $record = $state['existing_databases'] ?? $state['external_databases'] ?? null;
+        if ($record !== null && ! is_array($record)) {
+            throw new EnvironmentException('Invalid existing-server database ownership state.');
+        }
+
+        return $record;
+    }
+
+    /** @param array<string, mixed> $record */
+    public function recordExistingDatabases(string $root, array $record): void
+    {
+        $state = $this->read($root);
+        $state['existing_databases'] = $record;
+        unset($state['external_databases']);
+        $this->write($root, $state);
+    }
+
+    public function clearExistingDatabases(string $root): void
+    {
+        $state = $this->read($root);
+        unset($state['existing_databases'], $state['external_databases']);
+        $this->writeOrRemove($root, $state);
+    }
+
     /** Check cloud ownership against the current checkout, including after a move. */
     public function ownsCloudTesting(string $root): bool
     {

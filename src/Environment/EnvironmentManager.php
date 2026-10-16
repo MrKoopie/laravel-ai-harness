@@ -30,6 +30,13 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
+        if ($config->existingDatabase !== null) {
+            $conflicts = $this->environmentFile->existingDatabaseConflicts($root);
+            if ($conflicts !== []) {
+                throw new EnvironmentException('Existing-server database configuration conflicts with '.implode(', ', $conflicts).'; remove these conflicting overrides.');
+            }
+        }
+
         if ($config->localEnvironment !== []) {
             if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
                 throw new EnvironmentException('Local environment overrides require .env or .env.example in the project root.');
@@ -37,7 +44,7 @@ final readonly class EnvironmentManager
         }
 
         if ($config->localEnvironment !== [] || $config->managesMySql()) {
-            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail);
+            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null);
 
             if ($conflicts !== []) {
                 throw new EnvironmentException('Local environment settings conflict with '.implode(', ', $conflicts).'; unset conflicting process variables or explicitly clear inherited URL/socket entries using local_env.<NAME>=.');
@@ -60,6 +67,12 @@ final readonly class EnvironmentManager
         if ($usesMySql) {
             $this->environmentFile->configureMySql($root, $config->runtime === Runtime::Sail);
             $output->writeln('<info>Configured MySQL environment values</info>');
+        }
+
+        if ($config->existingDatabase !== null) {
+            $this->environmentFile->configureExistingMySql($root, $config->existingDatabase);
+            (new ExistingMySql($this->state))->setup($root, $config->existingDatabase);
+            $output->writeln('<info>Configured checkout-owned existing-server MySQL/MariaDB databases</info>');
         }
 
         if (! is_file($root.'/vendor/autoload.php')) {
@@ -151,6 +164,13 @@ final readonly class EnvironmentManager
         }
 
         $config = $this->configLoader->load($root);
+        if ($this->state->existingDatabases($root) !== null) {
+            if ($config->existingDatabase === null) {
+                throw new EnvironmentException('Existing-server database ownership remains; restore its original MySQL/MariaDB connection settings in .env before cleanup.');
+            }
+            (new ExistingMySql($this->state))->cleanup($root, $config->existingDatabase);
+            $output->writeln('<info>Dropped checkout-owned existing-server databases</info>');
+        }
         $sites = [];
 
         foreach (SiteTool::cases() as $tool) {

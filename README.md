@@ -138,3 +138,7 @@ Refer to [Commands](docs/commands.md) for all details.
 ## License
 
 Laravel AI Harness is open-source software under the [MIT license](LICENSE.md).
+
+## Existing MySQL and MariaDB servers
+
+The harness reads MySQL/MariaDB connection settings from `.env` and automatically provisions isolated development, testing and parallel-testing databases on an existing server, independently of PHP runtime and service management. Setup and cleanup verify ownership; `up` and `down` leave the server running. See the [complete Yerd + PHP 8.5 + existing MariaDB example](docs/configuration.md#complete-yerd--php-85--existing-mariadb-example) for configuration, personal credentials and provisioning privileges.
