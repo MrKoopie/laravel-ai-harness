@@ -67,3 +67,18 @@ The test suite covers:
 - Runtime commands use argument arrays, never shell command strings.
 - Configuration files are data. Never source them as shell scripts.
 - Cleanup removes only resources that the harness recorded as owned.
+
+## Existing-server database integration tests
+
+The regular suite models server state to inject creation, grant, ownership and cleanup failures. The live integration test is opt-in and requires a **disposable** server with a TCP-accessible root account. It creates test accounts, schemas and the shared harness registry. Never point it at a developer's existing server.
+
+```bash
+AI_HARNESS_TEST_DB_HOST=127.0.0.1 \
+AI_HARNESS_TEST_DB_PORT=3306 \
+AI_HARNESS_TEST_DB_PASSWORD=disposable-root-password \
+vendor/bin/pest tests/Feature/ExistingDatabaseTest.php
+```
+
+The dedicated CI workflow runs this against `mysql:8.4` and `mariadb:11.4`, using PHP 8.5 with `pdo_mysql`. Without the opt-in endpoint, the live test is skipped. The standard suite continues to cover Sail, SQLite, cloud development-data preservation and runtime selection.
+
+Implementation verification on 2026-10-16 passed against temporary MySQL 8.4.11 and MariaDB 11.8.6 servers with PHP 8.5.10: CLI setup/cleanup, repeated setup with data retention, exact schema grants, parallel schema recreation and cross-checkout cleanup isolation, process credential/host/name overrides and persisted custom database names. Failure injection covers interrupted DDL, failed grants, cleanup retries, missing or mismatched ownership, and the ambiguous CREATE acknowledgement boundary. Other server releases and remote TLS connections were not verified locally. Grant escaping follows the [MySQL GRANT documentation](https://dev.mysql.com/doc/refman/8.4/en/grant.html); both `partial_revokes` branches have unit coverage, and MySQL was also verified with `partial_revokes=ON`, including denial of unconfigured parallel tokens and lookalike names.

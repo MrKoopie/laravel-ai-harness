@@ -38,6 +38,7 @@ final readonly class Config
         public array $localEnvironment = [],
         public array $localEnvironmentSources = [],
         public array $sources = [],
+        public ?ExistingDatabase $existingDatabase = null,
     ) {}
 
     /** Determine whether the named coding agent is enabled. */

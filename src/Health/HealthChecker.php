@@ -9,8 +9,10 @@ use MrKoopie\LaravelAiHarness\Environment\ComposerAuth;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentException;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentFile;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
+use MrKoopie\LaravelAiHarness\Environment\ExistingMySql;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
 use MrKoopie\LaravelAiHarness\Environment\Services;
+use MrKoopie\LaravelAiHarness\Environment\StateStore;
 use MrKoopie\LaravelAiHarness\Environment\Yerd;
 use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
@@ -69,7 +71,7 @@ final readonly class HealthChecker
 
             $environmentFile = new EnvironmentFile(new SafeWriter);
 
-            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail) as $name) {
+            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null) as $name) {
                 $checks[] = new CheckResult(false, "Local environment override conflicts with {$name}; remove it or explicitly clear the URL/socket override");
             }
 
@@ -80,6 +82,23 @@ final readonly class HealthChecker
                     'Laravel configuration is cached; setup clears it when applying local overrides',
                 );
             }
+        }
+
+        $mode = $cloud ? 'cloud' : ($config->existingDatabase !== null ? 'existing-server MySQL/MariaDB' : ($config->managesMySql() ? 'Sail MySQL' : 'application-managed / SQLite defaults'));
+        $checks[] = new CheckResult(true, 'Database provisioning mode: '.$mode);
+        if (! $cloud && $config->existingDatabase !== null) {
+            if (is_file($root.'/phpunit.xml') || is_file($root.'/phpunit.xml.dist')) {
+                $checks[] = $this->file(class_exists(\DOMDocument::class), 'DOM is available for PHPUnit reconciliation', 'PHPUnit reconciliation requires ext-dom in the PHP process launching ai-harness');
+            }
+            foreach ($config->existingDatabase->environmentOverrides as $variable) {
+                $checks[] = new CheckResult(true, "Database override {$variable} (value redacted)");
+            }
+            $environment = new EnvironmentFile(new SafeWriter);
+            foreach ($environment->existingEnvironmentConflicts($root, $config->existingDatabase) as $name) {
+                $checks[] = new CheckResult(false, 'Existing-server database configuration conflict: '.$name);
+            }
+            [$passed, $message] = (new ExistingMySql(new StateStore(new SafeWriter)))->diagnose($config->existingDatabase);
+            $checks[] = new CheckResult($passed, $message);
         }
 
         $checks[] = match ($cloud ? Runtime::Native : $config->runtime) {

@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Environment;
 
+use Dotenv\Dotenv;
+use MrKoopie\LaravelAiHarness\Config\ExistingDatabase;
 use MrKoopie\LaravelAiHarness\Files\FileException;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
+use Throwable;
 
 final readonly class EnvironmentFile
 {
@@ -85,26 +88,13 @@ final readonly class EnvironmentFile
      *
      * @param  array<string, string>  $values
      */
-    public function applyLocalOverrides(string $root, array $values): void
+    public function applyLocalOverrides(string $root, array $values, bool $shellSafe = true): void
     {
         if (! is_file($root.'/.env')) {
             throw new FileException('Local environment overrides require .env or .env.example in the project root.');
         }
 
-        $encoded = [];
-
-        foreach ($values as $name => $value) {
-            if (str_contains($value, '`')) {
-                // Sail sources .env as Bash; single quotes also keep backticks literal there.
-                $encoded[$name] = "'".$value."'";
-
-                continue;
-            }
-
-            $encoded[$name] = preg_match('/^[A-Za-z0-9_.:\/\-]*$/', $value) === 1
-                ? $value
-                : '"'.str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $value).'"';
-        }
+        $encoded = $this->encodeValues($values, $shellSafe);
 
         $this->replaceValues($root, '.env', $encoded);
     }
@@ -131,6 +121,148 @@ final readonly class EnvironmentFile
         $this->writer->write($root, '.env.testing', $this->withValues($this->read($source), self::TESTING_VALUES));
 
         return true;
+    }
+
+    /** Fail before changing files when PHPUnit requires an unavailable runtime extension. */
+    public function assertExistingRequirements(string $root): void
+    {
+        if ((is_file($root.'/phpunit.xml') || is_file($root.'/phpunit.xml.dist')) && ! class_exists(\DOMDocument::class)) {
+            throw new EnvironmentException('Existing-server PHPUnit configuration requires ext-dom; enable the DOM extension in the PHP process launching ai-harness.');
+        }
+    }
+
+    /** Configure existing-server endpoints without replacing unrelated application/test settings. */
+    public function configureExistingMySql(string $root, ExistingDatabase $config, bool $shellSafe = false): void
+    {
+        $this->assertExistingRequirements($root);
+        $this->clearCloudConfigCache($root);
+        $this->ensureTesting($root);
+        $values = [
+            'DB_CONNECTION' => $config->connection, 'DB_HOST' => $config->host, 'DB_PORT' => (string) $config->port,
+            'DB_DATABASE' => $config->developmentName($root), 'DB_USERNAME' => $config->username,
+            'DB_PASSWORD' => $config->password, 'DB_SOCKET' => $config->socket,
+            'DB_URL' => '', 'DATABASE_URL' => '', 'MYSQL_ATTR_SSL_CA' => $config->sslCa,
+            'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php',
+        ];
+        foreach (['DB_USERNAME', 'DB_PASSWORD'] as $name) {
+            if (in_array(strtolower($values[$name]), ['true', '(true)', 'false', '(false)', 'null', '(null)', 'empty', '(empty)'], true)) {
+                // Keep reserved words as literal credentials when Laravel reads the generated dotenv.
+                $values[$name] = '"'.$values[$name].'"';
+            }
+        }
+        $this->applyLocalOverrides($root, $values, $shellSafe);
+        $encoded = $this->encodeValues($values, $shellSafe);
+        $encoded['DB_DATABASE'] = $config->testingName($root);
+        $this->replaceValues($root, '.env.testing', $encoded);
+        $this->configureExistingPhpUnit($root);
+    }
+
+    /** Remove inline connection overrides so Laravel reads the isolated .env.testing. */
+    private function configureExistingPhpUnit(string $root): void
+    {
+        $source = is_file($root.'/phpunit.xml') ? 'phpunit.xml' : 'phpunit.xml.dist';
+        if (! is_file($root.'/'.$source)) {
+            return;
+        }
+        $contents = $this->read($root.'/'.$source);
+        if (stripos($contents, '<!DOCTYPE') !== false) {
+            throw new FileException('PHPUnit configuration must not contain a document type declaration.');
+        }
+        $document = new \DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        try {
+            if (! $document->loadXML($contents, LIBXML_NONET)) {
+                throw new FileException('Invalid PHPUnit XML configuration.');
+            }
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+        $nodes = (new \DOMXPath($document))->query('/phpunit/php/env | /phpunit/php/server');
+        foreach ($nodes ?: [] as $node) {
+            if ($node instanceof \DOMElement && (str_starts_with($node->getAttribute('name'), 'DB_') || in_array($node->getAttribute('name'), ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA', 'APP_ENV', 'APP_CONFIG_CACHE'], true))) {
+                $node->parentNode?->removeChild($node);
+            }
+        }
+        $php = $document->getElementsByTagName('php')->item(0);
+        if ($php === null) {
+            $php = $document->createElement('php');
+            $document->documentElement?->appendChild($php);
+        }
+        foreach (['APP_ENV' => 'testing', 'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php'] as $name => $value) {
+            $node = $document->createElement('env');
+            $node->setAttribute('name', $name);
+            $node->setAttribute('value', $value);
+            $node->setAttribute('force', 'true');
+            $php->appendChild($node);
+        }
+        $updated = $document->saveXML();
+        if ($updated === false) {
+            throw new FileException('Unable to serialize PHPUnit configuration.');
+        }
+        $this->writer->write($root, 'phpunit.xml', $updated);
+    }
+
+    /** Process connection overrides would also override .env.testing.
+     *
+     * @return list<string>
+     */
+    public function existingDatabaseConflicts(string $root): array
+    {
+        $conflicts = $this->localOverrideConflicts($root, []);
+        foreach (['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_URL', 'DATABASE_URL', 'DB_SOCKET', 'MYSQL_ATTR_SSL_CA'] as $name) {
+            if (getenv($name) !== false) {
+                $conflicts[] = 'process '.$name;
+            }
+        }
+
+        return array_values(array_unique($conflicts));
+    }
+
+    /** Report stale file overrides without including their values.
+     *
+     * @return list<string>
+     */
+    public function existingEnvironmentConflicts(string $root, ExistingDatabase $config): array
+    {
+        $conflicts = $this->existingDatabaseConflicts($root);
+        foreach (['.env' => $config->developmentName($root), '.env.testing' => $config->testingName($root)] as $file => $database) {
+            if (! is_file($root.'/'.$file)) {
+                $conflicts[] = $file.' missing (run setup)';
+
+                continue;
+            }
+            $contents = $this->read($root.'/'.$file);
+            try {
+                $parsed = Dotenv::parse($contents);
+            } catch (Throwable) {
+                $conflicts[] = $file.' invalid dotenv syntax (run setup)';
+
+                continue;
+            }
+            foreach (['DB_CONNECTION' => $config->connection, 'DB_DATABASE' => $database, 'DB_HOST' => $config->host, 'DB_PORT' => (string) $config->port, 'DB_SOCKET' => $config->socket, 'DB_URL' => '', 'DATABASE_URL' => '', 'DB_USERNAME' => $config->username, 'DB_PASSWORD' => $config->password, 'MYSQL_ATTR_SSL_CA' => $config->sslCa] as $name => $expected) {
+                preg_match_all('/^[ \t]*(?:export[ \t]+)?'.preg_quote($name, '/').'[ \t]*=[ \t]*(.*)$/m', $contents, $matches);
+                if ($matches[1] === [] && $expected === '') {
+                    continue;
+                }
+                $actual = $parsed[$name] ?? '';
+                if (in_array($name, ['DB_USERNAME', 'DB_PASSWORD'], true)) {
+                    $actual = ExistingDatabase::dotenvCredential($actual);
+                }
+                if (count($matches[1]) !== 1 || $actual !== $expected) {
+                    $conflicts[] = $file.' '.$name.' (run setup)';
+                }
+            }
+        }
+        $source = is_file($root.'/phpunit.xml') ? 'phpunit.xml' : 'phpunit.xml.dist';
+        if (is_file($root.'/'.$source) && preg_match('/name\s*=\s*["\'](?:DB_[A-Z_]+|DATABASE_URL|MYSQL_ATTR_SSL_CA)["\']/', $this->read($root.'/'.$source)) === 1) {
+            $conflicts[] = $source.' inline database overrides (run setup)';
+        }
+        if (is_file($root.'/bootstrap/cache/config.php')) {
+            $conflicts[] = 'cached Laravel configuration (run setup)';
+        }
+
+        return $conflicts;
     }
 
     /** Configure project environment files for checkout-specific MySQL. */
@@ -174,7 +306,7 @@ final readonly class EnvironmentFile
         return $created;
     }
 
-    /** Configure only local cloud services, never inherited external database hosts. */
+    /** Configure only local cloud services, never inherited existing-server database hosts. */
     public function configureCloud(string $root, bool $mysql, bool $redis): void
     {
         $socket = getenv('AI_HARNESS_MYSQL_SOCKET') ?: '/var/run/mysqld/mysqld.sock';
@@ -248,8 +380,12 @@ final readonly class EnvironmentFile
      * @param  array<string, string>  $overrides
      * @return list<string>
      */
-    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false, bool $insideSail = false): array
+    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false, bool $insideSail = false, bool $existingMySql = false): array
     {
+        if ($existingMySql) {
+            // Existing-server connections are resolved from these values and checked separately.
+            $overrides = array_filter($overrides, static fn (string $name): bool => ! str_starts_with($name, 'DB_') && ! in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true), ARRAY_FILTER_USE_KEY);
+        }
         $conflicts = [];
         $path = is_file($root.'/.env') ? $root.'/.env' : $root.'/.env.example';
         $contents = is_file($path) ? $this->read($path) : '';
@@ -407,6 +543,28 @@ final readonly class EnvironmentFile
         $this->writer->write($root, 'phpunit.xml', $updated);
 
         return true;
+    }
+
+    /** @param array<string, string> $values
+     * @return array<string, string>
+     */
+    private function encodeValues(array $values, bool $shellSafe = true): array
+    {
+        $encoded = [];
+        foreach ($values as $name => $value) {
+            if ($shellSafe && str_contains($value, '`')) {
+                if (str_contains($value, "'")) {
+                    throw new FileException('Database/environment values cannot combine backticks with apostrophes.');
+                }
+                $encoded[$name] = "'".$value."'";
+            } else {
+                $encoded[$name] = preg_match('/^[A-Za-z0-9_.:\/\-]*$/', $value) === 1
+                    ? $value
+                    : '"'.str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $value).'"';
+            }
+        }
+
+        return $encoded;
     }
 
     /**

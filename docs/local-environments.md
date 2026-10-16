@@ -12,13 +12,14 @@ Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.
 2. Copy `.env.example` to `.env` when `.env` does not exist.
 3. Apply `local_env.*` overrides to `.env` and clear cached Laravel configuration when overrides are configured.
 4. Set the MySQL values in `.env` when Sail manages MySQL. Host PHP uses `127.0.0.1`; PHP inside Sail uses `mysql`. The harness activates commented default values and removes duplicates.
-5. Run `composer install` when `vendor/autoload.php` does not exist.
-6. Start the configured Sail services. Create the development and testing databases for this checkout.
-7. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
-8. Secure the site when `site_secure=true`. Isolate its PHP version when `php_version` has a value.
-9. Generate `APP_KEY` when the key is empty.
-10. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. Without it, it uses isolated SQLite defaults.
-11. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
+5. For MySQL/MariaDB on an existing server, read the normal `.env` connection settings and create isolated development/testing databases. No database mode setting is required; see [existing server configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server).
+6. Run `composer install` when `vendor/autoload.php` does not exist.
+7. Start the configured Sail services. Create the development and testing databases for this checkout.
+8. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
+9. Secure the site when `site_secure=true`. Isolate its PHP version when `php_version` has a value.
+10. Generate `APP_KEY` when the key is empty.
+11. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. With an existing MySQL/MariaDB server, it uses the generated testing database. Otherwise it uses isolated SQLite defaults.
+12. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
 
 `setup` does not:
 
