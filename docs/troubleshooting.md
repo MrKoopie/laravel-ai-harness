@@ -105,11 +105,11 @@ See [Local application environment overrides](configuration.md#local-application
 
 ### The harness does not create MySQL databases
 
-With `db_connection=auto`, the harness manages databases only when `mysql` is explicitly listed in `sail_services`. With `runtime=sail`, an empty list starts the full stack; add `db_connection=mysql` to enable isolated MySQL databases. An empty list with a host PHP runtime starts no containers. For an existing local MySQL/MariaDB service outside Sail, select `--database=mysql` or `db_connection=mysql`. See [Sail MySQL](local-environments.md#mysql-with-sail) and [host MySQL](local-environments.md#existing-host-mysql-or-mariadb).
+With `db_connection=auto`, the harness manages Sail databases when `mysql` is explicitly listed in `sail_services`, and detects existing MySQL/MariaDB servers from the application environment for host PHP. With `runtime=sail`, an empty list starts the full stack; add `db_connection=mysql` to enable isolated MySQL databases. An empty list with a host PHP runtime starts no containers. For an existing local MySQL/MariaDB service outside Sail, select `--database=mysql` or `db_connection=mysql`. See [Sail MySQL](local-environments.md#mysql-with-sail) and [host MySQL](local-environments.md#existing-host-mysql-or-mariadb).
 
 ### Host MySQL setup or cleanup fails
 
-Check that the existing loopback server is running, the configured port/socket and credentials are correct, and the executing PHP has `pdo_mysql`. The account must have CREATE/DROP permissions for the generated development, testing, and worker databases. Unset process `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA` values; clear conflicting dotenv URL/SSL aliases and use the default configuration-cache path. The harness never starts the host service or creates database users.
+Check that the existing server is running, the configured port/socket and credentials are correct, and the executing PHP has `pdo_mysql`. Use an existing administrative account with the provisioning and grant permissions described in [database configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server). Unset process `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA` values; clear conflicting dotenv URL aliases and use the default configuration-cache path. The harness never starts the host service or creates database users.
 
 A refusal to adopt existing databases means those names exist without an ownership record. Do not delete them or fabricate state; identify their owner before retrying. A checkout/endpoint ownership mismatch requires restoring the original path and connection. Failed SQL retains ownership so `cleanup` can be retried. The password is not stored in ownership state.
 

@@ -33,7 +33,10 @@ This generates configuration without provisioning resources. Parameters override
 | `agents` | `--agents=codex,claude` or repeated `--agent=codex --agent=claude` |
 | `site_secure` | `--site-secure=true\|false` |
 | `php_version` | `--php-version=8.5` (empty preserves the site's selection) |
-| `db_connection` | `--db-connection=auto\|sqlite\|mysql` or `--database=...` |
+| `database_provision_username` | `--database-provision-username=local_admin` |
+| `database_provision_password` | `--database-provision-password=...` |
+| `database_parallel_processes` | `--database-parallel-processes=4` (0–64) |
+| `db_connection` | `--db-connection=auto\|sqlite\|mysql\|mariadb` or `--database=...` |
 | `worktrees` | `--worktrees=true\|false` |
 | `cloud` | `--cloud=true\|false` |
 | `cloud_services` | `--cloud-services=mysql,redis` (empty selects SQLite) |

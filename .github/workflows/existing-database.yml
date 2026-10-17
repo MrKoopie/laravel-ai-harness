@@ -1,0 +1,46 @@
+name: Existing MySQL and MariaDB
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  existing-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        database: ['mysql:8.4', 'mariadb:11.4']
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ROOT_PASSWORD: harness-test-root
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pharness-test-root || mariadb-admin ping -h localhost -pharness-test-root"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_mysql
+          coverage: none
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: vendor/bin/pest tests/Feature/ExistingDatabaseTest.php
+        env:
+          AI_HARNESS_TEST_DB_HOST: 127.0.0.1
+          AI_HARNESS_TEST_DB_PORT: ${{ job.services.database.ports['3306'] }}
+          AI_HARNESS_TEST_DB_PASSWORD: harness-test-root

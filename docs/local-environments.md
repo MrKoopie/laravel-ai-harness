@@ -2,7 +2,7 @@
 
 This page tells you what the environment commands do on a local machine. For cloud containers, refer to [Cloud environments](cloud.md).
 
-Each checkout gets its own `.env.testing`. Managed Sail MySQL or explicit host MySQL creates checkout-specific development and testing databases; Herd, Valet, and Yerd create checkout-specific sites. Generated names come from the checkout path, so managed worktrees do not share database names or site links. Resource names do not depend on Git or agent metadata; Git metadata is used only to find inherited personal configuration.
+Each checkout gets its own `.env.testing`. Managed Sail MySQL or detected existing MySQL/MariaDB creates checkout-specific development and testing databases; Herd, Valet, and Yerd create checkout-specific sites. Generated names come from the checkout path, so managed worktrees do not share database names or site links. Resource names do not depend on Git or agent metadata; Git metadata is used only to find inherited personal configuration.
 
 ## `setup`
 
@@ -12,13 +12,14 @@ Each checkout gets its own `.env.testing`. Managed Sail MySQL or explicit host M
 2. Copy `.env.example` to `.env` when `.env` does not exist.
 3. Apply `local_env.*` overrides to `.env` and clear cached Laravel configuration when overrides are configured.
 4. Set the MySQL values in `.env` when Sail manages MySQL. Host PHP uses `127.0.0.1`; PHP inside Sail uses `mysql`. The harness activates commented default values and removes duplicates.
-5. Run `composer install` when `vendor/autoload.php` does not exist.
-6. Start the configured Sail services. Create the development and testing databases for this checkout.
-7. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
-8. Secure the site when `site_secure=true`. Isolate its PHP version when `php_version` has a value.
-9. Generate `APP_KEY` when the key is empty.
-10. Create `.env.testing` when it does not exist. With managed MySQL, it uses the checkout testing database. Otherwise it uses isolated SQLite defaults.
-11. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
+5. For MySQL/MariaDB on an existing server, read the normal `.env` connection settings and create isolated development/testing databases. No database mode setting is required; see [existing server configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server).
+6. Run `composer install` when `vendor/autoload.php` does not exist.
+7. Start the configured Sail services. Create the development and testing databases for this checkout.
+8. Link the directory in Herd when `runtime=herd`, or in Valet when `runtime=valet`. Set `APP_URL` to the URL of the site.
+9. Secure the site when `site_secure=true`. Isolate its PHP version when `php_version` has a value.
+10. Generate `APP_KEY` when the key is empty.
+11. Create `.env.testing` when it does not exist. With Sail MySQL, it uses the testing database. With an existing MySQL/MariaDB server, it uses the generated testing database. Otherwise it uses isolated SQLite defaults.
+12. With Sail MySQL, change the default SQLite entries in `phpunit.xml` to the Sail testing database.
 
 `setup` does not:
 
@@ -202,15 +203,13 @@ Yerd-managed SQL services are not provisioned by the harness. Use `db_connection
 
 ## Existing host MySQL or MariaDB
 
-Select `db_connection=mysql` (or export `AI_HARNESS_DB_CONNECTION=mysql`) with native, Herd, Valet, or Yerd PHP. Without managed Sail MySQL, setup connects to the existing loopback server using `DB_HOST`, `DB_PORT`, `DB_SOCKET`, `DB_USERNAME`, and `DB_PASSWORD` from `.env` or `.env.example`. Missing values default to `127.0.0.1:3306`, user `root`, and an empty password. Personal `local_env` endpoint overrides are applied first. Remote hosts are refused; no server or user is installed or reconfigured.
+Select `db_connection=mysql` or `db_connection=mariadb` with native, Herd, Valet, or Yerd PHP. The default `auto` detects these drivers from `.env` or `.env.example`. Without managed Sail MySQL, setup uses the existing server's endpoint and application credentials. Configure an administrative account with `database_provision_username` and `database_provision_password` when the application account lacks provisioning rights. No database server or user is installed.
 
-The database account needs permission to create and drop the generated development/testing databases and their parallel workers. Setup refuses to adopt preexisting databases without an ownership record. It records exact path-derived names and the connection endpoint, without a password, before creation so partial failures are retryable. Both `.env` and `.env.testing` receive their isolated database names, and forced PHPUnit database settings are reconciled. The selected site PHP needs `pdo_mysql`.
+Setup creates isolated development and testing databases, verifies server-side ownership, and grants access to the application account. Set `database_parallel_processes=N` (or `init --database-parallel-processes=N`) before parallel tests to provision exact worker schemas and grants. Cleanup removes only recorded databases and numeric workers whose ownership it can verify, and revokes only grants added by the harness. Unrelated databases, backup names, and prior grants remain. Failed cleanup retains ownership for retry; restore the original connection settings and rerun it. Neither cleanup nor `down` stops the existing server.
 
-Cleanup removes the owned development and testing databases plus exact numeric worker names (`<testing>_1` and `<testing>_test_1`). Similar backup names and other checkouts are preserved. Cleanup finds recorded host ownership even after runtime or database selections change. A changed endpoint, copied checkout state, or failed SQL leaves ownership intact for retry; restore the original endpoint and rerun `cleanup`. Cleanup uses the selected host PHP when available. If its runtime is unavailable or has changed to Sail, it uses the running harness PHP, which then needs `pdo_mysql`. Neither cleanup nor `down` stops the host database service.
+Provisioning runs through the PHP launching the harness, which needs `pdo_mysql`; PHPUnit reconciliation also needs `ext-dom`. Endpoint overrides, custom names, TLS, registry ownership, and separate credentials are covered in [existing server configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server).
 
-Unset process-level `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA` values so they cannot redirect Laravel from the generated database. Clear dotenv connection URLs/SSL aliases and use the default Laravel configuration-cache path.
-
-`db_connection=sqlite` explicitly selects `database/database.sqlite` in the checkout and an in-memory testing connection; it requires `pdo_sqlite`. It cannot be combined with managed Sail MySQL. `db_connection=auto` retains the previous defaults.
+`db_connection=sqlite` explicitly selects `database/database.sqlite` in the checkout and an in-memory testing connection; the selected runtime needs `pdo_sqlite`. It cannot be combined with managed Sail MySQL.
 
 ## Optional application preparation
 

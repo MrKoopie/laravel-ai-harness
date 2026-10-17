@@ -37,6 +37,9 @@ Precedence is built-in defaults → the configuration files above → exported p
 | `AI_HARNESS_PHP_VERSION` | `php_version` |
 | `AI_HARNESS_SITE_SECURE` | `site_secure` |
 | `AI_HARNESS_DB_CONNECTION` | `db_connection` |
+| `AI_HARNESS_DATABASE_PROVISION_USERNAME` | `database_provision_username` |
+| `AI_HARNESS_DATABASE_PROVISION_PASSWORD` | `database_provision_password` |
+| `AI_HARNESS_DATABASE_PARALLEL_PROCESSES` | `database_parallel_processes` |
 | `AI_HARNESS_AGENTS` | `agents` |
 | `AI_HARNESS_SAIL_SERVICES` | `sail_services` |
 | `AI_HARNESS_WORKTREES` | `worktrees` |
@@ -175,7 +178,7 @@ The namespace is accepted in all configuration layers, so teams can also put non
 2. Herd, Valet, and Yerd own `APP_URL`. With those runtimes, a conflicting override is an error.
 3. When `sail_services` explicitly includes `mysql`, or `runtime=sail` uses an empty list with `db_connection=mysql`, the harness owns `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA`. Use `FORWARD_DB_PORT` for the host port. Host PHP uses `127.0.0.1:<forwarded-port>`; PHP inside Sail uses `mysql:3306`. The development and testing databases keep separate generated names. Setup clears inherited database URLs, sockets, and SSL CA settings in both files so they cannot redirect the managed connection.
 4. Overrides target `.env`. A newly created `.env.testing` starts from `.env`, then receives the harness's testing defaults: isolated SQLite, array mail/cache/session drivers, and a synchronous queue. Database URL and socket aliases are cleared. Existing testing files are preserved, except when Sail MySQL or an explicit `db_connection` selection manages the testing connection. Changing a development override does not rewrite unrelated settings in an existing `.env.testing`.
-5. Explicit `db_connection=mysql` outside managed Sail also owns `DB_CONNECTION` and `DB_DATABASE`. Endpoint overrides such as `DB_HOST`, `DB_PORT`, and credentials remain configurable, subject to the [host MySQL](local-environments.md#existing-host-mysql-or-mariadb) checks. Explicit SQLite likewise owns its connection and database name.
+5. Existing-server provisioning owns generated `DB_DATABASE` names. Driver and endpoint overrides such as `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, and credentials remain configurable; explicit `db_connection=mysql` or `mariadb` takes precedence over the application driver. See [host MySQL](local-environments.md#existing-host-mysql-or-mariadb). Explicit SQLite owns its connection and database name.
 6. `local_env.*` values are ignored in cloud execution, including custom application variables. The existing cloud configuration remains independent.
 
 ### Inspecting conflicts
@@ -206,7 +209,7 @@ Explicit clears cannot override conflicting system-level environment variables; 
 | `runtime` | `native` | `native`, `herd`, `valet`, `yerd`, `sail` | Where PHP, Artisan, Composer, and npm run. |
 | `sail_services` | (empty) | List of Sail service names | A nonempty list enables Sail services for any runtime. Empty means the full stack for `runtime=sail`, and no containers for host PHP. |
 | `site_secure` | `true` | Boolean | Enable HTTPS for the selected Herd, Valet, or Yerd site and its `APP_URL`. Ignored by native, Sail, and cloud execution. |
-| `db_connection` | `auto` | `auto`, `sqlite`, `mysql` | `auto` preserves existing database behavior. `mysql` uses managed Sail MySQL when configured, otherwise an existing host service. `sqlite` selects a checkout-local SQLite file. |
+| `db_connection` | `auto` | `auto`, `sqlite`, `mysql`, `mariadb` | `auto` detects existing MySQL/MariaDB from the application environment. `mysql` uses managed Sail MySQL when configured, otherwise an existing host service. `sqlite` selects a checkout-local SQLite file. |
 | `php_version` | (empty) | Empty or `major.minor`, for example `8.4` | Select the PHP version for a Herd, Valet, or Yerd site. Empty preserves the existing selection. Ignored by native, Sail, and cloud execution. |
 
 The site settings follow `runtime`, so switching between Herd, Valet, and Yerd does not require new keys. Run `setup` after changing them. An empty `php_version` does not remove an existing site pin. Valet can install missing PHP through Homebrew; Herd and Yerd require the requested version to be installed. Native PHP uses PATH, Sail uses its image, and cloud uses the provisioned PHP.
@@ -323,3 +326,107 @@ cloud_services=mysql,redis
 cloud_migrate=true
 cloud_build=true
 ```
+
+## Databases on an existing MySQL / MariaDB server
+
+Setup reads the application's normal `.env` settings. When `.env` does not exist, it reads `.env.example`, which setup copies into `.env`. `DB_CONNECTION=mysql` or `DB_CONNECTION=mariadb` automatically selects provisioning on that existing server. There is no database mode flag and no duplicate connection configuration. This works with native PHP, Yerd, Herd and Valet. Sail runtimes and full Sail stacks keep their existing database behavior, as does Sail's explicitly configured MySQL service; SQLite and other connections keep theirs. Cloud uses its own local services and preserves development data during cleanup.
+
+Development and testing database names are generated by default from the checkout basename and path hash. Setup replaces the original `DB_DATABASE` value; worktree-specific names are never required. An explicit `AI_HARNESS_DB_DATABASE` override can select a custom development name when needed. The server address, port, socket, username and password come from the normal `DB_*` settings. Explicit `init --database=mysql` or `--database=mariadb` selects that driver even for a SQLite template; `--database=sqlite` disables existing-server provisioning. Defaults are `127.0.0.1:3306`, username `root` and an empty password. `DB_SOCKET` takes precedence over host/port. Quoted values, comments, exports and references to earlier dotenv variables use Laravel's dotenv parser, without executing code or modifying the process environment. `MYSQL_ATTR_SSL_CA` is preserved and also used by the provisioning connection when configured.
+
+Personal overrides still use the existing `local_env.DB_*` configuration keys and primary-checkout inheritance. They override the dotenv values. Keep personal credentials in `.ai-harness.config.local` when they differ from the application defaults. `local_env.DB_DATABASE` is reserved for generated names; nonempty connection URL overrides cannot override managed connections. Setup clears stale `DB_URL` and `DATABASE_URL` entries in the environment files.
+
+Only these optional provisioning settings are added to the harness configuration:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `database_provision_username` | empty | Existing administrative account; empty reuses the application credentials from `.env` |
+| `database_provision_password` | empty | Password for that administrative account; empty means an empty password |
+| `database_parallel_processes` | `0` | Pre-provision Laravel parallel test tokens 1 through N; 0–64 |
+
+### Process environment overrides
+
+Process overrides take precedence over dotenv and personal `local_env.*` settings. Use harness-prefixed variables so Laravel does not inherit a development database name into the testing connection:
+
+| Variable | Overrides |
+| --- | --- |
+| `AI_HARNESS_DB_USERNAME` | Application login (`DB_USERNAME`) |
+| `AI_HARNESS_DB_PASSWORD` | Application password (`DB_PASSWORD`); an empty value is intentional |
+| `AI_HARNESS_DB_HOST` | Server host (`DB_HOST`) |
+| `AI_HARNESS_DB_PORT` | TCP port (`DB_PORT`) |
+| `AI_HARNESS_DB_SOCKET` | Socket (`DB_SOCKET`); set empty to clear an inherited socket |
+| `AI_HARNESS_DB_CONNECTION` | `auto`, `sqlite`, `mysql`, or `mariadb`; explicit SQL drivers can switch a SQLite template |
+| `AI_HARNESS_DB_DATABASE` | Custom development database name; testing uses `<name>_testing` |
+
+```bash
+AI_HARNESS_DB_HOST=127.0.0.1 \
+AI_HARNESS_DB_USERNAME=local_app \
+AI_HARNESS_DB_PASSWORD="$LOCAL_DATABASE_PASSWORD" \
+AI_HARNESS_DB_DATABASE=my_custom_database \
+./.ai-harness setup
+```
+
+Only supplied overrides replace the normal connection settings. Passwords retain whitespace, literal values and empty strings. Custom database names must contain 1–48 letters, digits or underscores, leaving room for testing and parallel process suffixes; the harness registry name is reserved. Both custom and generated names require the same ownership verification: a pre-existing custom database is never adopted. A different checkout using the same custom name is refused.
+
+Setup writes the effective application connection into `.env` and `.env.testing` and records the selected database pair in checkout ownership state. Later setup and cleanup can reuse it without repeating one-command overrides. Clean up the owned pair before selecting different names. Provisioning credentials stay in harness configuration. Doctor lists override variable names with values redacted. Standard process-level `DB_*` overrides remain conflicts because they would also override `.env.testing`.
+
+These keys follow normal configuration precedence and primary-checkout inheritance. Keep administrative credentials in `.ai-harness.config.local`. The application account must already exist; setup connects without selecting the old application's database and discovers its account host using `CURRENT_USER()`. The harness never creates accounts or changes passwords. Separate administrative credentials let an application account with limited privileges use the generated databases.
+
+The provisioning account needs `CREATE`, `DROP`, and authority to grant the common MySQL/MariaDB schema privileges to the application account, plus `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE` and schema creation privileges for the registry. An administrative account with `ALL PRIVILEGES ON *.* WITH GRANT OPTION` meets these requirements; a separate application account does not need global privileges. `SHOW GRANTS FOR` the application account and `SELECT` on `mysql.db` must also be permitted; the latter records original exact-schema privileges before granting access. Doctor checks connectivity, stale credentials and SSL CA settings, and inspects grants without modifying databases or printing credential values. Restricted or role-derived grants can be reported as unverified and require manual review.
+
+The PHP process launching the harness needs `pdo_mysql`; DOM (`ext-dom`) is also required when `phpunit.xml` or `phpunit.xml.dist` is present. Setup checks DOM before provisioning or changing files. Provisioning does not invoke the selected PHP runtime, application Artisan commands, Sail, or a MySQL CLI, and never starts or stops the server. Both the harness and application must be able to reach the configured endpoint. Conflicting process-level connection variables must be unset so that `.env.testing` can select its own database. Custom `APP_CONFIG_CACHE` paths must also be removed; setup clears the standard Laravel configuration cache.
+
+Setup provisions databases and grants access before publishing database settings or clearing the Laravel configuration cache. Connection and privilege failures preserve existing `.env`, `.env.testing`, PHPUnit and cache contents. It then reconciles database settings in `.env` and `.env.testing`, preserving unrelated application and test settings. Dotenv credentials may contain both backticks and apostrophes when Sail is not sourcing the environment file; Sail retains its shell-safe encoding restrictions. It removes inline PHPUnit database overrides, including forced `<env>` and `<server>` entries, and ensures PHPUnit selects `.env.testing`. If only `phpunit.xml.dist` exists, it creates a local `phpunit.xml`.
+
+Ownership uses `.ai-harness.state.json` plus matching random tokens and checkout identities in the shared server table `ai_harness_registry.databases`. Keep the registry private to provisioning accounts and preserve the local state file. The registry reserves each absent schema before creation and records the successful CREATE acknowledgement. Rejected CREATE statements and failed grants are retryable. If execution stops between CREATE and its acknowledgement record, the existing schema is ambiguous: setup and cleanup both refuse it until an administrator verifies ownership. A concurrent unrelated CREATE is never adopted. Existing schemas without matching ownership evidence are refused, even if their names match.
+
+The shared `ai_harness_registry.schema_grants` table records application usernames, account hosts and original exact-schema privileges before each grant. Cleanup revokes only privileges added by the harness, including grants to earlier application accounts after credential changes, before dropping individually verified schemas. Pre-existing exact-schema and broader grants remain intact. Failed revocation, DROP or metadata deletion retains evidence for retry. Ownership records created before grant tracking was introduced have no verifiable privilege baseline, so cleanup does not revoke their unknown grants. Restore the original connection settings and administrative credentials before retrying. Copied ownership state or a different endpoint cannot authorize cleanup. Socket identity uses the socket path alone because host and port are ignored for that transport; matching legacy fingerprints migrate during setup. The shared registry schema, application account and database server stay available. A server advisory lock serializes cooperating harness commands; administrators must not replace schemas or change ownership records concurrently.
+
+For parallel testing, set `database_parallel_processes` at least as high as `artisan test --parallel --processes=N`. Each exact `<testing_database>_test_<token>` schema is created, recorded and granted separately, including CREATE/DROP for `--recreate-databases`. No database wildcard is granted. Lowering the configured count retains previously recorded ownership for cleanup; unrelated matching schemas are never adopted or dropped. Existing broader application grants are not revoked.
+
+### Complete Yerd + PHP 8.5 + existing MariaDB example
+
+With MariaDB already running locally, keep the runtime configuration in `.ai-harness.config`:
+
+```ini
+runtime=yerd
+php_version=8.5
+site_secure=true
+sail_services=
+database_parallel_processes=4
+```
+
+Use the application's existing `.env` connection settings. If it is missing, setup copies `.env.example` first:
+
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=harness_app
+DB_PASSWORD="your-existing-application-password"
+```
+
+`DB_DATABASE=laravel` is only the original application setting: setup replaces it with a generated checkout name and generates a separate testing name. Keep real personal passwords out of a committed `.env.example`. If needed, use inherited personal overrides in the primary checkout's `.ai-harness.config.local`:
+
+```ini
+# Optional personal connection overrides:
+local_env.DB_USERNAME=harness_app
+local_env.DB_PASSWORD='your-personal-application-password'
+
+# Optional separate existing administrative account:
+database_provision_username=local_database_admin
+database_provision_password='your-admin-password'
+```
+
+Omit the administrative settings when the application account already has the required provisioning privileges. Both accounts must already exist. Install PHP 8.5 in Yerd and ensure the PHP launching the harness has `pdo_mysql`. Then run:
+
+```bash
+./.ai-harness doctor
+./.ai-harness setup
+./.ai-harness artisan test --parallel --processes=4
+./.ai-harness cleanup
+```
+
+Doctor may report missing setup or runtime resources before the first setup. Hostname, HTTPS and PHP selection follow the existing runtime behavior. Linked worktrees inherit personal `local_env.*` and administrative credentials, read their own `.env` or `.env.example`, and automatically receive distinct database names. The harness does not copy the primary checkout's entire `.env`. `up` and `down` leave MariaDB running.
+
+Parameterized agent generation also retains exported `AI_HARNESS_DB_HOST`, `AI_HARNESS_DB_PORT`, `AI_HARNESS_DB_SOCKET`, `AI_HARNESS_DB_USERNAME`, `AI_HARNESS_DB_PASSWORD`, and `AI_HARNESS_DB_DATABASE` values. Prefer `--local-env=DB_HOST=...` and other endpoint overrides when configuring from parameters. Provisioning credentials and parallel workers have dedicated parameters; generated agent files containing credentials need the same protection as `.env`.

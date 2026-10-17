@@ -17,6 +17,7 @@ final readonly class Config
      * @param  list<string>  $cloudServices
      * @param  array<string, string>  $localEnvironment
      * @param  array<string, string>  $localEnvironmentSources
+     * @param  array<string, string>  $databaseEnvironment
      * @param  array<string, string>  $sources
      */
     public function __construct(
@@ -37,6 +38,11 @@ final readonly class Config
         public array $localEnvironmentSources = [],
         public array $sources = [],
         public string $dbConnection = 'auto',
+        public ?ExistingDatabase $existingDatabase = null,
+        public string $databaseProvisionUsername = '',
+        public string $databaseProvisionPassword = '',
+        public string $databaseParallelProcesses = '0',
+        public array $databaseEnvironment = [],
     ) {}
 
     /** Return string values suitable for every agent's command environment.
@@ -51,6 +57,9 @@ final readonly class Config
             'site_secure' => $this->siteSecure ? 'true' : 'false',
             'php_version' => $this->phpVersion ?? '',
             'db_connection' => $this->dbConnection,
+            'database_provision_username' => $this->databaseProvisionUsername,
+            'database_provision_password' => $this->databaseProvisionPassword,
+            'database_parallel_processes' => $this->databaseParallelProcesses,
             'worktrees' => $this->worktrees ? 'true' : 'false',
             'cloud' => $this->cloud ? 'true' : 'false',
             'cloud_services' => implode(',', $this->cloudServices),
@@ -65,12 +74,15 @@ final readonly class Config
         }
         $environment['AI_HARNESS_LOCAL_ENV'] = json_encode((object) $this->localEnvironment, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 
-        return $environment;
+        return [...$this->databaseEnvironment, ...$environment];
     }
 
     /** Identify command/process selections that must reach new agent sessions. */
     public function hasOverrides(): bool
     {
+        if ($this->databaseEnvironment !== []) {
+            return true;
+        }
         foreach ([...$this->sources, ...$this->localEnvironmentSources] as $source) {
             if ($source === 'command option' || str_starts_with($source, 'AI_HARNESS_')) {
                 return true;
@@ -102,6 +114,6 @@ final readonly class Config
     /** Use an existing host MySQL service without starting or stopping it. */
     public function usesHostMySql(): bool
     {
-        return $this->dbConnection === 'mysql' && ! $this->managesMySql();
+        return $this->existingDatabase !== null;
     }
 }

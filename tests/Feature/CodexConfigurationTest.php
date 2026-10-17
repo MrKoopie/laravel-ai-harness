@@ -157,6 +157,7 @@ test('all harness settings are accepted and preserved for both agents without pr
     $secret = 'literal $HOME $(touch not-executed) "quotes" = value';
     $args = ['init', '--global', '--agents=codex,claude', '--runtime=herd', '--php-version=8.5', '--site-secure=false',
         '--sail-services=mysql,redis', '--database=mysql', '--worktrees=true',
+        '--database-provision-username=local_admin', '--database-provision-password='.$secret, '--database-parallel-processes=4',
         '--cloud=true', '--cloud-services=mysql,redis', '--cloud-migrate=true', '--cloud-seed=true', '--cloud-build=true', '--cloud-browser=false',
         '--local-env=FORWARD_DB_PORT=3308', '--local-env=CUSTOM_TOKEN='.$secret];
     harness_process($args, $root)->mustRun();
@@ -164,6 +165,8 @@ test('all harness settings are accepted and preserved for both agents without pr
     $claude = json_decode((string) file_get_contents($root.'/.claude/settings.local.json'), true, flags: JSON_THROW_ON_ERROR);
     expect($settings)->toMatchArray([
         'AI_HARNESS_RUNTIME' => 'herd', 'AI_HARNESS_PHP_VERSION' => '8.5', 'AI_HARNESS_SITE_SECURE' => 'false',
+        'AI_HARNESS_DATABASE_PROVISION_USERNAME' => 'local_admin', 'AI_HARNESS_DATABASE_PROVISION_PASSWORD' => $secret,
+        'AI_HARNESS_DATABASE_PARALLEL_PROCESSES' => '4',
         'AI_HARNESS_DB_CONNECTION' => 'mysql', 'AI_HARNESS_AGENTS' => 'codex,claude',
         'AI_HARNESS_SAIL_SERVICES' => 'mysql,redis', 'AI_HARNESS_WORKTREES' => 'true', 'AI_HARNESS_CLOUD' => 'true',
         'AI_HARNESS_CLOUD_SERVICES' => 'mysql,redis', 'AI_HARNESS_CLOUD_MIGRATE' => 'true', 'AI_HARNESS_CLOUD_SEED' => 'true',
@@ -220,6 +223,7 @@ test('Claude-only parameters and disabled worktrees do not require Codex generat
 });
 
 foreach ([
+    ['--database-parallel-processes=65'], ['--database-provision-password=missing-user'],
     ['--agents=other'], ['--agent=codex', '--agents=claude'], ['--cloud-seed=true', '--cloud-migrate=false'],
     ['--worktrees=maybe'], ['--local-env=lowercase=value'], ['--local-env=PORT=1', '--local-env=PORT=2'],
     ['--local-env=APP_KEY=secret'], ['--database=mysql', '--db-connection=sqlite'],
@@ -298,4 +302,20 @@ test('regeneration removes obsolete service manager exports from both agents', f
         ->and($claude['env'])->not->toHaveKey('AI_HARNESS_SERVICE_MANAGER')
         ->and($claude['env']['CUSTOM'])->toBe('keep')
         ->and(file_get_contents($root.'/.codex/environments/ai-harness-global.toml'))->not->toContain('AI_HARNESS_SERVICE_MANAGER');
+});
+
+test('agent generation preserves existing-server process credentials without provisioning', function (): void {
+    $root = temp_directory('harness-existing-agent-parameters');
+    $secret = 'literal $(touch not-executed) $HOME';
+    $overrides = ['AI_HARNESS_DB_HOST' => 'database.invalid', 'AI_HARNESS_DB_PORT' => '3311',
+        'AI_HARNESS_DB_USERNAME' => 'app', 'AI_HARNESS_DB_PASSWORD' => $secret,
+        'AI_HARNESS_DB_DATABASE' => 'custom_database', 'AI_HARNESS_DB_SOCKET' => ''];
+    harness_process(['init', '--agents=codex,claude', '--runtime=native', '--database=mariadb', '--database-parallel-processes=4'], $root, $overrides)->mustRun();
+    $settings = read_codex_toml($root.'/.codex/config.toml')['shell_environment_policy']['set'];
+    expect($settings)->toMatchArray($overrides)
+        ->and($settings['AI_HARNESS_DB_CONNECTION'])->toBe('mariadb')
+        ->and($settings['AI_HARNESS_DATABASE_PARALLEL_PROCESSES'])->toBe('4')
+        ->and($root.'/.env')->not->toBeFile()
+        ->and($root.'/.ai-harness.state.json')->not->toBeFile()
+        ->and($root.'/not-executed')->not->toBeFile();
 });

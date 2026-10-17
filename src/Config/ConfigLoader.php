@@ -23,6 +23,9 @@ final class ConfigLoader
         'site_secure' => 'true',
         'php_version' => '',
         'db_connection' => 'auto',
+        'database_provision_username' => '',
+        'database_provision_password' => '',
+        'database_parallel_processes' => '0',
         'worktrees' => 'true',
         'cloud' => 'true',
         'cloud_services' => 'mysql',
@@ -38,6 +41,9 @@ final class ConfigLoader
         'AI_HARNESS_PHP_VERSION' => 'php_version',
         'AI_HARNESS_SITE_SECURE' => 'site_secure',
         'AI_HARNESS_DB_CONNECTION' => 'db_connection',
+        'AI_HARNESS_DATABASE_PROVISION_USERNAME' => 'database_provision_username',
+        'AI_HARNESS_DATABASE_PROVISION_PASSWORD' => 'database_provision_password',
+        'AI_HARNESS_DATABASE_PARALLEL_PROCESSES' => 'database_parallel_processes',
         'AI_HARNESS_AGENTS' => 'agents',
         'AI_HARNESS_SAIL_SERVICES' => 'sail_services',
         'AI_HARNESS_WORKTREES' => 'worktrees',
@@ -145,8 +151,8 @@ final class ConfigLoader
             $sources[$key] = 'command option';
         }
 
-        if (! in_array($values['db_connection'], ['auto', 'sqlite', 'mysql'], true)) {
-            throw new ConfigException('db_connection must be auto, sqlite, or mysql.');
+        if (! in_array($values['db_connection'], ['auto', 'sqlite', 'mysql', 'mariadb'], true)) {
+            throw new ConfigException('db_connection must be auto, sqlite, mysql, or mariadb.');
         }
 
         $runtime = Runtime::tryFrom($values['runtime']);
@@ -188,6 +194,23 @@ final class ConfigLoader
             throw new ConfigException('cloud_seed requires cloud_migrate=true; seeders must be safe to rerun.');
         }
 
+        $sailMySql = in_array('mysql', $sailServices, true)
+            || ($runtime === Runtime::Sail && $sailServices === [] && $values['db_connection'] === 'mysql');
+        $existing = ! $cloud && ! $sailMySql && $runtime !== Runtime::Sail && $values['db_connection'] !== 'sqlite'
+            ? ExistingDatabase::forProject($root, $values, $localEnvironment) : null;
+        $databaseEnvironment = [];
+        foreach (ExistingDatabase::ENVIRONMENT as $variable => $key) {
+            if ($variable !== 'AI_HARNESS_DB_CONNECTION' && ($value = getenv($variable)) !== false) {
+                $databaseEnvironment[$variable] = $value;
+            }
+        }
+        if (! ctype_digit($values['database_parallel_processes']) || (int) $values['database_parallel_processes'] > 64) {
+            throw new ConfigException('database_parallel_processes is outside its supported range.');
+        }
+        if ($values['database_provision_password'] !== '' && $values['database_provision_username'] === '') {
+            throw new ConfigException('database_provision_password requires database_provision_username.');
+        }
+
         /** @var list<'claude'|'codex'> $agents */
         $config = new Config(
             runtime: $runtime,
@@ -207,9 +230,14 @@ final class ConfigLoader
             phpVersion: $phpVersion === '' ? null : $phpVersion,
             sources: $sources,
             dbConnection: $values['db_connection'],
+            existingDatabase: $existing,
+            databaseProvisionUsername: $values['database_provision_username'],
+            databaseProvisionPassword: $values['database_provision_password'],
+            databaseParallelProcesses: $values['database_parallel_processes'],
+            databaseEnvironment: $databaseEnvironment,
         );
 
-        if (! $cloud && $config->usesHostMySql() && $runtime === Runtime::Sail) {
+        if (! $cloud && in_array($config->dbConnection, ['mysql', 'mariadb'], true) && ! $config->managesMySql() && $runtime === Runtime::Sail) {
             throw new ConfigException('A Sail MySQL subset must include mysql in sail_services; use an empty list for the full stack.');
         }
         if (! $cloud && $config->dbConnection === 'sqlite' && $config->managesMySql()) {
@@ -246,15 +274,16 @@ final class ConfigLoader
     private function validateLocalEnvironment(Config $config): void
     {
         foreach ($config->localEnvironment as $name => $value) {
-            if (str_contains($value, '`') && str_contains($value, "'")) {
+            if (str_contains($value, '`') && str_contains($value, "'") && ($config->existingDatabase === null || $config->usesSail())) {
                 throw new ConfigException("local_env.{$name} cannot combine backticks with apostrophes; that literal cannot be represented safely for both Laravel and Sail.");
             }
 
             $managed = in_array($name, ['APP_KEY', 'APP_ENV', 'APP_CONFIG_CACHE'], true)
                 || ($name === 'APP_URL' && in_array($config->runtime, [Runtime::Herd, Runtime::Valet, Runtime::Yerd], true))
-                || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)));
+                || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)))
+                || ($config->existingDatabase !== null && ($name === 'DB_DATABASE' || in_array($name, ['DB_URL', 'DATABASE_URL'], true) && $value !== ''));
 
-            $managed = $managed || (($config->usesHostMySql() || $config->dbConnection === 'sqlite')
+            $managed = $managed || (($config->dbConnection === 'sqlite')
                 && in_array($name, ['DB_CONNECTION', 'DB_DATABASE'], true));
 
             if ($managed) {

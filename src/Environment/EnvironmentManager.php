@@ -30,6 +30,13 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
+        if ($config->existingDatabase !== null) {
+            $conflicts = $this->environmentFile->existingDatabaseConflicts($root);
+            if ($conflicts !== []) {
+                throw new EnvironmentException('Existing-server database configuration conflicts with '.implode(', ', $conflicts).'; remove these conflicting overrides.');
+            }
+        }
+
         if ($config->localEnvironment !== []) {
             if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
                 throw new EnvironmentException('Local environment overrides require .env or .env.example in the project root.');
@@ -37,11 +44,19 @@ final readonly class EnvironmentManager
         }
 
         if ($config->localEnvironment !== [] || $config->managesMySql()) {
-            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail);
+            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null);
 
             if ($conflicts !== []) {
                 throw new EnvironmentException('Local environment settings conflict with '.implode(', ', $conflicts).'; unset conflicting process variables or explicitly clear inherited URL/socket entries using local_env.<NAME>=.');
             }
+        }
+
+        if ($config->existingDatabase !== null) {
+            $this->environmentFile->assertExistingRequirements($root);
+            if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
+                throw new EnvironmentException('Existing-server setup requires .env or .env.example.');
+            }
+            (new ExistingMySql($this->state))->setup($root, $config->existingDatabase);
         }
 
         if ($this->environmentFile->ensure($root)) {
@@ -51,12 +66,8 @@ final readonly class EnvironmentManager
         if ($config->localEnvironment !== []) {
             // Clear stale configuration before Artisan can read the changed endpoint.
             $this->environmentFile->clearCloudConfigCache($root);
-            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment);
+            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment, $config->existingDatabase === null || $config->usesSail());
             $output->writeln('<info>Applied local environment overrides</info>');
-        }
-
-        if ($config->usesHostMySql()) {
-            HostMySql::validate($root);
         }
 
         $usesMySql = $this->usesMySql($config);
@@ -64,6 +75,11 @@ final readonly class EnvironmentManager
         if ($usesMySql) {
             $this->environmentFile->configureMySql($root, $config->runtime === Runtime::Sail);
             $output->writeln('<info>Configured MySQL environment values</info>');
+        }
+
+        if ($config->existingDatabase !== null) {
+            $this->environmentFile->configureExistingMySql($root, $config->existingDatabase, $config->usesSail());
+            $output->writeln('<info>Configured checkout-owned existing-server MySQL/MariaDB databases</info>');
         }
 
         if ($config->dbConnection === 'sqlite') {
@@ -74,13 +90,6 @@ final readonly class EnvironmentManager
             }
             $database = $this->environmentFile->configureSqlite($root);
             $status = $this->processes->run($this->commands->runtime($config, 'php', ['-r', 'new PDO("sqlite:".$argv[1]);', $database], $root), $root, $output);
-            if ($status !== 0) {
-                return $status;
-            }
-        }
-
-        if ($config->usesHostMySql()) {
-            $status = $this->hostMySql($config, 'setup', $root, $output);
             if ($status !== 0) {
                 return $status;
             }
@@ -147,9 +156,8 @@ final readonly class EnvironmentManager
             }
         }
 
-        if (($config->usesHostMySql() || $config->dbConnection === 'sqlite') && is_file($root.'/.env.testing')) {
+        if (($config->existingDatabase !== null || $config->dbConnection === 'sqlite') && is_file($root.'/.env.testing')) {
             $this->environmentFile->syncTestingKey($root);
-            $this->environmentFile->configureCloudPhpUnit($root);
         }
 
         if (is_file($root.'/artisan')) {
@@ -180,6 +188,13 @@ final readonly class EnvironmentManager
         }
 
         $config = $this->configLoader->load($root);
+        if ($this->state->existingDatabases($root) !== null) {
+            if ($config->existingDatabase === null) {
+                throw new EnvironmentException('Existing-server database ownership remains; restore its original MySQL/MariaDB connection settings in .env before cleanup.');
+            }
+            (new ExistingMySql($this->state))->cleanup($root, $config->existingDatabase);
+            $output->writeln('<info>Dropped checkout-owned existing-server databases</info>');
+        }
         $sites = [];
 
         foreach (SiteTool::cases() as $tool) {
@@ -196,13 +211,6 @@ final readonly class EnvironmentManager
             }
 
             $sites[$tool->value] = $site;
-        }
-
-        if ($this->state->hostMySql($root) !== null) {
-            $status = $this->hostMySql($config, 'cleanup', $root, $output);
-            if ($status !== 0) {
-                return $status;
-            }
         }
 
         $ownsMySql = $this->state->ownsMySqlDatabases($root)
@@ -275,24 +283,6 @@ final readonly class EnvironmentManager
         }
 
         return 0;
-    }
-
-    private function hostMySql(Config $config, string $action, string $root, OutputInterface $output): int
-    {
-        $arguments = [dirname(__DIR__, 2).'/resources/project/host-mysql.php', $action, $root];
-        // Prefer the selected site's PDO driver. A removed runtime must not strand host ownership.
-        try {
-            $command = $action === 'cleanup' && $config->runtime === Runtime::Sail
-                ? [PHP_BINARY, ...$arguments]
-                : $this->commands->runtime($config, 'php', $arguments, $root);
-        } catch (EnvironmentException $exception) {
-            if ($action !== 'cleanup') {
-                throw $exception;
-            }
-            $command = [PHP_BINARY, ...$arguments];
-        }
-
-        return $this->processes->run($command, $root, $output);
     }
 
     /** Start the configured Sail services. */

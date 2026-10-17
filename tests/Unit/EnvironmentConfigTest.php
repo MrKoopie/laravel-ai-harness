@@ -123,3 +123,13 @@ foreach (['[]', 'null', '{"PORT":3307}', '{"lowercase":"value"}', '{broken'] as 
         expect(fn () => (new ConfigLoader)->load(temp_directory('harness-invalid-local-process')))->toThrow(ConfigException::class);
     });
 }
+
+test('explicit database parameters take precedence over the process driver', function (): void {
+    $root = temp_directory('harness-database-option-precedence');
+    file_put_contents($root.'/.env.example', "DB_CONNECTION=sqlite\n");
+    putenv('AI_HARNESS_DB_CONNECTION=mysql');
+    $loader = new ConfigLoader;
+    expect($loader->load($root, ['db_connection' => 'auto'])->existingDatabase)->toBeNull()
+        ->and($loader->load($root, ['db_connection' => 'sqlite'])->existingDatabase)->toBeNull()
+        ->and($loader->load($root, ['db_connection' => 'mariadb'])->existingDatabase?->connection)->toBe('mariadb');
+});

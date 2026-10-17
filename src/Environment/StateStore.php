@@ -97,40 +97,36 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
-    /** @return array<string, string>|null */
-    public function hostMySql(string $root): ?array
-    {
-        $value = $this->read($root)['host_mysql'] ?? null;
-        if ($value === null) {
-            return null;
-        }
-        if (! is_array($value) || array_keys($value) !== ['host', 'port', 'socket', 'username', 'database', 'testing']) {
-            throw new EnvironmentException('Invalid host MySQL ownership record.');
-        }
-        foreach ($value as $item) {
-            if (! is_string($item)) {
-                throw new EnvironmentException('Invalid host MySQL ownership record.');
-            }
-        }
-        if ($value['database'] !== DatabaseName::forPath($root) || $value['testing'] !== DatabaseName::testingForPath($root)) {
-            throw new EnvironmentException('Host MySQL ownership does not match this checkout.');
-        }
-
-        return $value;
-    }
-
-    /** @param array<string, string> $identity */
-    public function recordHostMySql(string $root, array $identity): void
+    /** Read existing-server ownership, including the earlier state key for safe upgrades.
+     * @return array<string, mixed>|null
+     */
+    public function existingDatabases(string $root): ?array
     {
         $state = $this->read($root);
-        $state['host_mysql'] = $identity;
+        $record = $state['existing_databases'] ?? $state['external_databases'] ?? null;
+        if ($record !== null && ! is_array($record)) {
+            throw new EnvironmentException('Invalid existing-server database ownership state.');
+        }
+
+        return $record;
+    }
+
+    /** Persist retryable ownership evidence without application or administrative credentials.
+     * @param  array<string, mixed>  $record
+     */
+    public function recordExistingDatabases(string $root, array $record): void
+    {
+        $state = $this->read($root);
+        $state['existing_databases'] = $record;
+        unset($state['external_databases']);
         $this->write($root, $state);
     }
 
-    public function clearHostMySql(string $root): void
+    /** Forget checkout ownership only after the complete teardown succeeds. */
+    public function clearExistingDatabases(string $root): void
     {
         $state = $this->read($root);
-        unset($state['host_mysql']);
+        unset($state['existing_databases'], $state['external_databases']);
         $this->writeOrRemove($root, $state);
     }
 
