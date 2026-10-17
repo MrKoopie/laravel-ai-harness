@@ -29,7 +29,6 @@ test('setup composes Herd with selected Sail services and cleanup only unlinks o
     file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=herd',
-        'service_manager=sail',
         'agents=',
         'sail_services=mysql,redis',
         'site_secure=true',
@@ -214,16 +213,15 @@ test('each checkout gets its own Valet site name', function (): void {
 
 test('Sail runtime starts laravel.test with or without explicitly managed supporting services', function (): void {
     foreach ([
-        ['service_manager=none', 'sail_services=', 'up -d laravel.test', 'stop laravel.test'],
-        ['service_manager=sail', 'sail_services=mysql,redis', 'up -d laravel.test mysql redis', 'stop laravel.test mysql redis'],
-    ] as [$services, $sailServices, $expectedSetup, $expectedDown]) {
+        ['sail_services=', 'up -d', 'down'],
+        ['sail_services=mysql,redis', 'up -d laravel.test mysql redis', 'stop laravel.test mysql redis'],
+    ] as [$sailServices, $expectedSetup, $expectedDown]) {
         $root = temp_directory('harness-sail-runtime');
         $sailLog = temp_file('sail-runtime-log');
         mkdir($root.'/vendor/bin', 0755, true);
         file_put_contents($root.'/vendor/autoload.php', "<?php\n");
         file_put_contents($root.'/.ai-harness.config', implode("\n", [
             'runtime=sail',
-            $services,
             'agents=',
             $sailServices,
             '',
@@ -265,7 +263,7 @@ test('setup normalizes existing Laravel test environment to checkout-specific Sa
     file_put_contents($root.'/.env', "APP_KEY=present\nFORWARD_DB_PORT=3310\nDB_CONNECTION=sqlite\n");
     file_put_contents($root.'/.env.testing', "APP_ENV=testing\nDB_CONNECTION=sqlite\nDB_DATABASE=:memory:\n");
     file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\nsail_services=mysql\n");
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${SAIL_LOG}"
@@ -303,7 +301,7 @@ test('setup configures PHPUnit for a digit-leading checkout database name', func
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
     file_put_contents($root.'/.env', "APP_KEY=present\n");
     file_put_contents($root.'/phpunit.xml', '<phpunit><php><env name="DB_CONNECTION" value="sqlite"/><env name="DB_DATABASE" value=":memory:"/></php></phpunit>');
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nagents=\nsail_services=mysql\n");
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${SAIL_LOG}"
@@ -322,7 +320,7 @@ test('cleanup preserves Herd ownership state when removing HTTPS fails', functio
     $herdLog = temp_file('herd-unsecure-log');
     $site = SiteName::forPath($root);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -352,7 +350,7 @@ test('cleanup removes harness-owned MySQL databases without a Herd site', functi
     $sailLog = temp_file('sail-mysql-cleanup-log');
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
@@ -367,42 +365,43 @@ BASH);
         ->and(environment_log_lines($sailLog)[0])->toContain('DROP DATABASE IF EXISTS `'.DatabaseName::testingForPath($root).'`');
 });
 
-test('cleanup drops only this checkout’s numeric parallel testing databases', function (): void {
-    $root = temp_directory('harness-parallel-cleanup').'/'.str_repeat('long-branch-name-', 4);
-    $fakeBin = $root.'/fake-bin';
-    $mysqlLog = temp_file('harness-parallel-mysql-log');
-    $databaseList = temp_file('harness-parallel-database-list');
-    $database = DatabaseName::forPath($root);
-    $testing = DatabaseName::testingForPath($root);
-    $legacyDatabase = DatabaseName::legacyForPath($root);
-    $legacyTesting = $legacyDatabase.'_testing';
-    mkdir($fakeBin, 0755, true);
-    mkdir($root.'/vendor/bin', 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=sail\nagents=\nsail_services=mysql\n");
-    file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
-    file_put_contents($databaseList, implode("\n", [
-        $database,
-        $testing,
-        $legacyDatabase,
-        $legacyTesting,
-        $testing.'_test_1',
-        $testing.'_test_2',
-        $testing.'_1',
-        $testing.'_test_2_backup',
-        $testing.'_test_other',
-        'another_checkout_testing_test_1',
-        '',
-    ]));
-    write_executable($root.'/vendor/bin/sail', <<<'BASH'
+foreach (["runtime=native\nsail_services=mysql", "runtime=sail\ndb_connection=mysql"] as $selection) {
+    test('cleanup drops only this checkout’s numeric parallel testing databases for '.str_replace("\n", ', ', $selection), function () use ($selection): void {
+        $root = temp_directory('harness-parallel-cleanup').'/'.str_repeat('long-branch-name-', 4);
+        $fakeBin = $root.'/fake-bin';
+        $mysqlLog = temp_file('harness-parallel-mysql-log');
+        $databaseList = temp_file('harness-parallel-database-list');
+        $database = DatabaseName::forPath($root);
+        $testing = DatabaseName::testingForPath($root);
+        $legacyDatabase = DatabaseName::legacyForPath($root);
+        $legacyTesting = $legacyDatabase.'_testing';
+        mkdir($fakeBin, 0755, true);
+        mkdir($root.'/vendor/bin', 0755, true);
+        file_put_contents($root.'/.ai-harness.config', "{$selection}\nagents=\n");
+        file_put_contents($root.'/.ai-harness.state.json', '{"mysql_databases":true}');
+        file_put_contents($databaseList, implode("\n", [
+            $database,
+            $testing,
+            $legacyDatabase,
+            $legacyTesting,
+            $testing.'_test_1',
+            $testing.'_test_2',
+            $testing.'_1',
+            $testing.'_test_2_backup',
+            $testing.'_test_other',
+            'another_checkout_testing_test_1',
+            '',
+        ]));
+        write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
 shift 3
 exec "$@"
 BASH);
-    write_executable($fakeBin.'/mysqladmin', <<<'BASH'
+        write_executable($fakeBin.'/mysqladmin', <<<'BASH'
 #!/usr/bin/env bash
 exit 0
 BASH);
-    write_executable($fakeBin.'/mysql', <<<'BASH'
+        write_executable($fakeBin.'/mysql', <<<'BASH'
 #!/usr/bin/env bash
 if [[ "$*" == *"SHOW DATABASES"* ]]; then
     cat "$MYSQL_DATABASE_LIST"
@@ -411,30 +410,32 @@ else
 fi
 BASH);
 
-    harness_process(['cleanup'], $root, [
-        'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
-        'MYSQL_ROOT_PASSWORD' => '',
-        'MYSQL_LOG' => $mysqlLog,
-        'MYSQL_DATABASE_LIST' => $databaseList,
-    ])->mustRun();
+        harness_process(['cleanup'], $root, [
+            'PATH' => $fakeBin.PATH_SEPARATOR.getenv('PATH'),
+            'MYSQL_ROOT_PASSWORD' => '',
+            'MYSQL_LOG' => $mysqlLog,
+            'MYSQL_DATABASE_LIST' => $databaseList,
+        ])->mustRun();
 
-    $drops = environment_log_lines($mysqlLog);
-    $dropSql = implode("\n", $drops);
+        $drops = environment_log_lines($mysqlLog);
+        $dropSql = implode("\n", $drops);
 
-    expect($legacyDatabase)->not->toBe($database)
-        ->and($drops)->toHaveCount(4)
-        ->and($dropSql)->toContain('DROP DATABASE IF EXISTS `'.$database.'`')
-        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'`')
-        ->toContain('DROP DATABASE IF EXISTS `'.$legacyDatabase.'`')
-        ->toContain('DROP DATABASE IF EXISTS `'.$legacyTesting.'`')
-        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_test_1`')
-        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_test_2`')
-        ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_1`')
-        ->and(str_contains($dropSql, $testing.'_test_2_backup'))->toBeFalse()
-        ->and(str_contains($dropSql, $testing.'_test_other'))->toBeFalse()
-        ->and(str_contains($dropSql, 'another_checkout_testing_test_1'))->toBeFalse()
-        ->and($root.'/.ai-harness.state.json')->not->toBeFile();
-});
+        expect($legacyDatabase)->not->toBe($database)
+            ->and($drops)->toHaveCount(4)
+            ->and($dropSql)->toContain('DROP DATABASE IF EXISTS `'.$database.'`')
+            ->toContain('DROP DATABASE IF EXISTS `'.$testing.'`')
+            ->toContain('DROP DATABASE IF EXISTS `'.$legacyDatabase.'`')
+            ->toContain('DROP DATABASE IF EXISTS `'.$legacyTesting.'`')
+            ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_test_1`')
+            ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_test_2`')
+            ->toContain('DROP DATABASE IF EXISTS `'.$testing.'_1`')
+            ->and(str_contains($dropSql, $testing.'_test_2_backup'))->toBeFalse()
+            ->and(str_contains($dropSql, $testing.'_test_other'))->toBeFalse()
+            ->and(str_contains($dropSql, 'another_checkout_testing_test_1'))->toBeFalse()
+            ->and($root.'/.ai-harness.state.json')->not->toBeFile();
+    });
+
+}
 
 test('cleanup unlinks Herd and preserves MySQL ownership when Sail is unavailable', function (): void {
     $root = temp_directory('harness-mysql-cleanup-no-sail');
@@ -442,7 +443,7 @@ test('cleanup unlinks Herd and preserves MySQL ownership when Sail is unavailabl
     $herdLog = temp_file('herd-mysql-cleanup-no-sail-log');
     $site = SiteName::forPath($root);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -476,7 +477,7 @@ test('cleanup migrates legacy Herd state to MySQL database cleanup', function ()
     mkdir($fakeBin, 0755, true);
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nagents=\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\nsail_services=mysql\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode(['herd_site' => $site], JSON_THROW_ON_ERROR));
     write_executable($root.'/vendor/bin/sail', <<<'BASH'
 #!/usr/bin/env bash
@@ -504,7 +505,7 @@ test('cleanup records successful HTTPS removal before a failed Herd unlink', fun
     $herdLog = temp_file('herd-unlink-log');
     $site = SiteName::forPath($root);
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode([
         'herd_site' => $site,
         'herd_secured' => true,
@@ -549,7 +550,7 @@ test('repeated Herd setup does not reissue a harness-owned certificate', functio
     mkdir($fakeBin, 0755, true);
     mkdir($root.'/vendor', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\n");
     write_executable($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${HERD_LOG}"
@@ -574,7 +575,7 @@ test('cleanup refuses a state file that names a Herd site not derived from this 
     $fakeBin = $root.'/fake-bin';
     $herdLog = temp_file('herd-guard-log');
     mkdir($fakeBin, 0755, true);
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\n");
     file_put_contents($root.'/.ai-harness.state.json', json_encode(['herd_site' => 'someone-elses-site'], JSON_THROW_ON_ERROR));
     write_executable($fakeBin.'/herd', <<<'BASH'
 #!/usr/bin/env bash
@@ -603,7 +604,6 @@ test('an unsecured first-time Herd setup does not emit TLS commands or warnings'
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
     file_put_contents($root.'/.ai-harness.config', implode("\n", [
         'runtime=herd',
-        'service_manager=none',
         'agents=',
         'site_secure=false',
         '',
@@ -632,7 +632,7 @@ test('setup does not run migrations or alter PHPUnit configuration outside Sail 
     $root = temp_directory('harness-no-migrations');
     mkdir($root.'/vendor', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', "<?php\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nagents=\n");
     file_put_contents($root.'/phpunit.xml', '<phpunit/>');
 
     harness_process(['setup'], $root)->mustRun();
@@ -647,7 +647,7 @@ test('repeated setup restores overwritten worktree environment without migration
     mkdir($root.'/vendor/bin', 0755, true);
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/artisan', '<?php');
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=sail\nsail_services=mysql\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nsail_services=mysql\nagents=\n");
     file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=https://shared.test\nDB_DATABASE=shared\n");
     write_executable($root.'/fake-bin/herd', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> \"\${COMMAND_LOG}\"\n");
     write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> \"\${COMMAND_LOG}\"\n");

@@ -97,6 +97,43 @@ final readonly class StateStore
         $this->writeOrRemove($root, $state);
     }
 
+    /** @return array<string, string>|null */
+    public function hostMySql(string $root): ?array
+    {
+        $value = $this->read($root)['host_mysql'] ?? null;
+        if ($value === null) {
+            return null;
+        }
+        if (! is_array($value) || array_keys($value) !== ['host', 'port', 'socket', 'username', 'database', 'testing']) {
+            throw new EnvironmentException('Invalid host MySQL ownership record.');
+        }
+        foreach ($value as $item) {
+            if (! is_string($item)) {
+                throw new EnvironmentException('Invalid host MySQL ownership record.');
+            }
+        }
+        if ($value['database'] !== DatabaseName::forPath($root) || $value['testing'] !== DatabaseName::testingForPath($root)) {
+            throw new EnvironmentException('Host MySQL ownership does not match this checkout.');
+        }
+
+        return $value;
+    }
+
+    /** @param array<string, string> $identity */
+    public function recordHostMySql(string $root, array $identity): void
+    {
+        $state = $this->read($root);
+        $state['host_mysql'] = $identity;
+        $this->write($root, $state);
+    }
+
+    public function clearHostMySql(string $root): void
+    {
+        $state = $this->read($root);
+        unset($state['host_mysql']);
+        $this->writeOrRemove($root, $state);
+    }
+
     /** Check cloud ownership against the current checkout, including after a move. */
     public function ownsCloudTesting(string $root): bool
     {

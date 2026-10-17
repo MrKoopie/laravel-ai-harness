@@ -92,7 +92,7 @@ test('runtime commands preserve options spaces and shell metacharacters as argv 
     $root = temp_directory('harness-cli-runtime');
     $log = temp_file('harness-runtime-log');
     $unexpected = $root.'/should-not-exist';
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nagents=\n");
     file_put_contents($root.'/artisan', <<<'PHP'
 <?php
 file_put_contents((string) getenv('RUNTIME_LOG'), json_encode(array_slice($argv, 1), JSON_THROW_ON_ERROR));
@@ -123,7 +123,7 @@ PHP);
 test('test command maps to artisan test and forwards help instead of consuming it', function (): void {
     $root = temp_directory('harness-cli-test');
     $log = temp_file('harness-test-log');
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nagents=\n");
     file_put_contents($root.'/artisan', <<<'PHP'
 <?php
 file_put_contents((string) getenv('RUNTIME_LOG'), json_encode(array_slice($argv, 1), JSON_THROW_ON_ERROR));
@@ -138,7 +138,7 @@ PHP);
 test('runtime commands forward standard input to the configured tool', function (): void {
     $root = temp_directory('harness-cli-stdin');
     $log = temp_file('harness-stdin-log');
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\nagents=\n");
     file_put_contents($root.'/read-stdin.php', <<<'PHP'
 <?php
 file_put_contents((string) getenv('RUNTIME_LOG'), stream_get_contents(STDIN));

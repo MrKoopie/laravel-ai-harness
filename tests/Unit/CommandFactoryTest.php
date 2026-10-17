@@ -7,16 +7,14 @@ use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
 use MrKoopie\LaravelAiHarness\Environment\DatabaseName;
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentException;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Environment\SiteName;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 /** @param list<non-empty-string> $sailServices */
-function harness_config(Runtime $runtime, Services $services = Services::None, array $sailServices = []): Config
+function harness_config(Runtime $runtime, array $sailServices = []): Config
 {
     return new Config(
         runtime: $runtime,
-        serviceManager: $services,
         agents: ['codex', 'claude'],
         sailServices: $sailServices,
         siteSecure: true,
@@ -84,7 +82,7 @@ test('sail services can start and stop a selected subset', function (): void {
     mkdir($root.'/vendor/bin', 0755, true);
     write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
     $factory = new CommandFactory(new ExecutableLocator);
-    $config = harness_config(Runtime::Herd, Services::Sail, ['mysql', 'redis']);
+    $config = harness_config(Runtime::Herd, ['mysql', 'redis']);
 
     expect($factory->servicesUp($config, $root))
         ->toBe([$root.'/vendor/bin/sail', 'up', '-d', 'mysql', 'redis'])
@@ -134,7 +132,7 @@ test('an empty sail service list controls the full stack', function (): void {
     mkdir($root.'/vendor/bin', 0755, true);
     write_executable($root.'/vendor/bin/sail', "#!/usr/bin/env bash\nexit 0\n");
     $factory = new CommandFactory(new ExecutableLocator);
-    $config = harness_config(Runtime::Sail, Services::Sail);
+    $config = harness_config(Runtime::Sail);
 
     expect($factory->servicesUp($config, $root))
         ->toBe([$root.'/vendor/bin/sail', 'up', '-d'])
@@ -149,12 +147,12 @@ test('Sail runtime always starts its application container', function (): void {
     $factory = new CommandFactory(new ExecutableLocator);
 
     expect($factory->servicesUp(harness_config(Runtime::Sail), $root))
-        ->toBe([$root.'/vendor/bin/sail', 'up', '-d', 'laravel.test'])
+        ->toBe([$root.'/vendor/bin/sail', 'up', '-d'])
         ->and($factory->servicesDown(harness_config(Runtime::Sail), $root))
-        ->toBe([$root.'/vendor/bin/sail', 'stop', 'laravel.test'])
-        ->and($factory->servicesUp(harness_config(Runtime::Sail, Services::Sail, ['mysql', 'redis']), $root))
+        ->toBe([$root.'/vendor/bin/sail', 'down'])
+        ->and($factory->servicesUp(harness_config(Runtime::Sail, ['mysql', 'redis']), $root))
         ->toBe([$root.'/vendor/bin/sail', 'up', '-d', 'laravel.test', 'mysql', 'redis'])
-        ->and($factory->servicesDown(harness_config(Runtime::Sail, Services::Sail, ['mysql', 'redis']), $root))
+        ->and($factory->servicesDown(harness_config(Runtime::Sail, ['mysql', 'redis']), $root))
         ->toBe([$root.'/vendor/bin/sail', 'stop', 'laravel.test', 'mysql', 'redis']);
 });
 

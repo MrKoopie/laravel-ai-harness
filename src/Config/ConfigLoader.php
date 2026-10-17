@@ -6,7 +6,6 @@ namespace MrKoopie\LaravelAiHarness\Config;
 
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 use MrKoopie\LaravelAiHarness\Support\PrimaryCheckout;
 
@@ -19,11 +18,11 @@ final class ConfigLoader
     /** @var array<string, string> */
     private const DEFAULTS = [
         'runtime' => 'native',
-        'service_manager' => 'none',
         'agents' => 'codex,claude',
         'sail_services' => '',
         'site_secure' => 'true',
         'php_version' => '',
+        'db_connection' => 'auto',
         'worktrees' => 'true',
         'cloud' => 'true',
         'cloud_services' => 'mysql',
@@ -34,11 +33,20 @@ final class ConfigLoader
     ];
 
     /** @var array<string, string> */
-    private const ENVIRONMENT = [
+    public const ENVIRONMENT = [
         'AI_HARNESS_RUNTIME' => 'runtime',
         'AI_HARNESS_PHP_VERSION' => 'php_version',
         'AI_HARNESS_SITE_SECURE' => 'site_secure',
-        'AI_HARNESS_SERVICE_MANAGER' => 'service_manager',
+        'AI_HARNESS_DB_CONNECTION' => 'db_connection',
+        'AI_HARNESS_AGENTS' => 'agents',
+        'AI_HARNESS_SAIL_SERVICES' => 'sail_services',
+        'AI_HARNESS_WORKTREES' => 'worktrees',
+        'AI_HARNESS_CLOUD' => 'cloud',
+        'AI_HARNESS_CLOUD_SERVICES' => 'cloud_services',
+        'AI_HARNESS_CLOUD_MIGRATE' => 'cloud_migrate',
+        'AI_HARNESS_CLOUD_SEED' => 'cloud_seed',
+        'AI_HARNESS_CLOUD_BUILD' => 'cloud_build',
+        'AI_HARNESS_CLOUD_BROWSER' => 'cloud_browser',
     ];
 
     /** @var list<string> */
@@ -49,8 +57,10 @@ final class ConfigLoader
         '.ai-harness.config.local',
     ];
 
-    /** Load and validate the layered configuration for a project. */
-    public function load(string $root): Config
+    /** Load and validate the layered configuration for a project.
+     * @param  array<string, string>  $overrides
+     */
+    public function load(string $root, array $overrides = []): Config
     {
         $values = self::DEFAULTS;
         $sourceFiles = [];
@@ -92,16 +102,57 @@ final class ConfigLoader
             }
         }
 
+        $localJson = getenv('AI_HARNESS_LOCAL_ENV');
+        if ($localJson !== false) {
+            if (strlen($localJson) > self::MAX_FILE_SIZE) {
+                throw new ConfigException('AI_HARNESS_LOCAL_ENV exceeds 64 KiB.');
+            }
+            try {
+                $localValues = json_decode($localJson, flags: JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                throw new ConfigException('AI_HARNESS_LOCAL_ENV must be a JSON object of string values.');
+            }
+            if (! $localValues instanceof \stdClass) {
+                throw new ConfigException('AI_HARNESS_LOCAL_ENV must be a JSON object of string values.');
+            }
+            foreach (get_object_vars($localValues) as $name => $value) {
+                if (! is_string($name) || preg_match('/^[A-Z_][A-Z0-9_]*$/D', $name) !== 1 || ! is_string($value)) {
+                    throw new ConfigException('AI_HARNESS_LOCAL_ENV requires uppercase variable names and string values.');
+                }
+                $this->validateValue($value, 'local_env.'.$name, 'AI_HARNESS_LOCAL_ENV');
+                if (! $cloud) {
+                    $localEnvironment[$name] = $value;
+                    $localEnvironmentSources[$name] = 'AI_HARNESS_LOCAL_ENV';
+                }
+            }
+        }
+
+        foreach ($overrides as $key => $value) {
+            if (preg_match('/^local_env\.([A-Z_][A-Z0-9_]*)$/D', $key, $match) === 1) {
+                $this->validateValue($value, $key, 'command option');
+                if (! $cloud) {
+                    $localEnvironment[$match[1]] = $value;
+                    $localEnvironmentSources[$match[1]] = 'command option';
+                }
+
+                continue;
+            }
+            if (! array_key_exists($key, self::DEFAULTS)) {
+                throw new ConfigException("Unknown configuration key [{$key}].");
+            }
+            $this->validateValue($value, $key, 'command option');
+            $values[$key] = $value;
+            $sources[$key] = 'command option';
+        }
+
+        if (! in_array($values['db_connection'], ['auto', 'sqlite', 'mysql'], true)) {
+            throw new ConfigException('db_connection must be auto, sqlite, or mysql.');
+        }
+
         $runtime = Runtime::tryFrom($values['runtime']);
 
         if ($runtime === null) {
             throw new ConfigException('runtime must be one of: native, herd, valet, yerd, sail.');
-        }
-
-        $services = Services::tryFrom($values['service_manager']);
-
-        if ($services === null) {
-            throw new ConfigException('service_manager must be one of: none, sail.');
         }
 
         $agents = $this->list($values['agents'], 'agents');
@@ -118,11 +169,6 @@ final class ConfigLoader
             if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $service) !== 1) {
                 throw new ConfigException("Invalid Sail service name [{$service}].");
             }
-        }
-
-        // Cloud execution uses cloud_services rather than the local Sail relationship.
-        if (! $cloud && $services !== Services::Sail && $sailServices !== []) {
-            throw new ConfigException('sail_services may only be set when service_manager=sail.');
         }
 
         $phpVersion = trim($values['php_version']);
@@ -145,7 +191,6 @@ final class ConfigLoader
         /** @var list<'claude'|'codex'> $agents */
         $config = new Config(
             runtime: $runtime,
-            serviceManager: $services,
             agents: $agents,
             sailServices: $sailServices,
             worktrees: $this->boolean($values['worktrees'], 'worktrees'),
@@ -161,7 +206,15 @@ final class ConfigLoader
             siteSecure: $this->boolean($values['site_secure'], 'site_secure'),
             phpVersion: $phpVersion === '' ? null : $phpVersion,
             sources: $sources,
+            dbConnection: $values['db_connection'],
         );
+
+        if (! $cloud && $config->usesHostMySql() && $runtime === Runtime::Sail) {
+            throw new ConfigException('A Sail MySQL subset must include mysql in sail_services; use an empty list for the full stack.');
+        }
+        if (! $cloud && $config->dbConnection === 'sqlite' && $config->managesMySql()) {
+            throw new ConfigException('db_connection=sqlite conflicts with harness-managed Sail MySQL.');
+        }
 
         $this->validateLocalEnvironment($config);
 
@@ -200,6 +253,9 @@ final class ConfigLoader
             $managed = in_array($name, ['APP_KEY', 'APP_ENV', 'APP_CONFIG_CACHE'], true)
                 || ($name === 'APP_URL' && in_array($config->runtime, [Runtime::Herd, Runtime::Valet, Runtime::Yerd], true))
                 || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)));
+
+            $managed = $managed || (($config->usesHostMySql() || $config->dbConnection === 'sqlite')
+                && in_array($name, ['DB_CONNECTION', 'DB_DATABASE'], true));
 
             if ($managed) {
                 throw new ConfigException("local_env.{$name} is managed by the harness for this runtime; use local_env.FORWARD_DB_PORT for a Sail host port.");

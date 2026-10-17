@@ -4,6 +4,18 @@
 > **Upgrade to 0.6.0: configuration keys were removed without compatibility aliases.**
 > Rename them in every configuration layer **before running Composer**. Otherwise, the automatic refresh hook fails and harness commands reject the configuration. A `^0.5` constraint does not allow `0.6.0`; the commands below also update that constraint.
 
+## Remove service_manager
+
+`service_manager` and `--service-manager` have been removed. Delete the key from every configuration layer, including inherited personal files; old keys are rejected. The old `AI_HARNESS_SERVICE_MANAGER` variable is ignored: remove it from shell exports and agent settings.
+
+- `runtime=sail` with an empty `sail_services` starts and tears down the full stack.
+- Any runtime with a nonempty `sail_services` starts and stops that subset. Sail PHP also includes `laravel.test`.
+- Host PHP with an empty list starts no containers. If you previously used `service_manager=sail` with host PHP and an empty list, explicitly list the supporting services you need.
+
+For managed MySQL, list `mysql` in `sail_services`, or set `db_connection=mysql` for a full Sail stack. Full-stack `db_connection=auto` does not assume MySQL. Cloud settings remain independent.
+
+After removing old file keys, rerun parameterized `init` with your runtime and service selections for each agent. It removes the obsolete variable from generated Codex and Claude environment settings and regenerates lifecycle scripts. Start a new agent session to receive the settings. Resource ownership in `.ai-harness.state.json` is unchanged; do not edit it. Cleanup still removes owned development, testing, and numeric parallel worker databases before stopping Sail.
+
 ## Upgrade to 0.6.0
 
 ### 1. Rename the removed keys
@@ -16,7 +28,7 @@
 | `herd_secure` | `site_secure` | Keep the boolean value. |
 | `valet_secure` | `site_secure` | Keep the boolean value. |
 | `yerd_secure` | `site_secure` | Keep the boolean value. |
-| `services` | `service_manager` | Keep `none` or `sail`. |
+| `services`, `service_manager` | `runtime` and `sail_services` | Remove the old key; follow [Sail inference](#remove-service_manager). |
 
 Check every existing `.ai-harness.config.dist`, `.ai-harness.config`, `.ai-harness.config.global`, and `.ai-harness.config.local`. Include personal files in the primary checkout that linked worktrees inherit, and overrides in each worktree. For nested applications, check the corresponding application directory in each checkout. Updating a shared file does not migrate personal files.
 
@@ -38,7 +50,6 @@ to:
 runtime=herd
 php_version=8.4
 site_secure=false
-service_manager=sail
 sail_services=mysql,redis
 ```
 
@@ -127,7 +138,7 @@ Use the Artisan command, not `./vendor/bin/ai-harness update`. The Artisan comma
 When no `.ai-harness.config`, `.ai-harness.config.dist`, or `.ai-harness.config.local` exists, the bridge translates the old choices:
 
 - Codex, Claude, Herd, Docker, and PHP version choices become the new keys.
-- Old Docker support becomes `service_manager=sail` with `sail_services=mysql`.
+- Old Docker support becomes `sail_services=mysql`.
 
 An existing configuration in the new format always wins.
 

@@ -1,12 +1,12 @@
 # Coding agents
 
-The harness integrates with Codex and Claude Code. Select the agents with the `agents` key. Refer to [Configuration](configuration.md#agents).
+The harness integrates with Codex and Claude Code. Select the agents with the `agents` key, `init --agents=codex,claude`, or repeated `--agent=codex --agent=claude` parameters. Explicit selections and other init parameters are preserved in each selected agent's command environment. Refer to [Configuration](configuration.md#agents).
 
 ## Personal integrations in global mode
 
 `ai-harness init --global` installs integrations for you in the current Git working tree, keeping generated files out of commits through `.git/info/exclude`. Shared instructions, settings, and `.gitignore` are left unchanged.
 
-- Codex uses `AGENTS.override.md` and `.codex/environments/ai-harness-global.toml`. Select `Laravel AI Harness (global)` for worktrees. Codex loads the override instead of `AGENTS.md`, so the harness includes shared guidance in its managed block and refreshes that snapshot on `update`. Your instructions outside the block remain intact. See [Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+- Codex uses `AGENTS.override.md` and `.codex/environments/ai-harness-global.toml`. Select `Laravel AI Harness (global)` after basic init, or `Laravel AI Harness (Codex)` after parameter-based init. Codex loads the override instead of `AGENTS.md`, so the harness includes shared guidance in its managed block and refreshes that snapshot on `update`. Your instructions outside the block remain intact. See [Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 - Claude uses `CLAUDE.local.md` and `.claude/settings.local.json`. Its personal instructions import existing `AGENTS.md`; existing `CLAUDE.md` is untouched. Hooks and commands use `ai-harness` on `PATH`. Your other personal settings, hooks, and instructions remain intact. See [Claude settings scopes](https://code.claude.com/docs/en/settings) and [personal instructions](https://code.claude.com/docs/en/memory).
 
 Ignored integrations are not copied by Git into new worktrees. Codex's global environment setup and Claude's global worktree hooks initialize them before runtime setup. Git exclusions are shared by linked worktrees through the common Git directory. Turning off an agent removes only its personal harness-managed content on the next update.
@@ -20,7 +20,7 @@ When `codex` or `claude` is in `agents`, `init` and `update` add one managed blo
 - Run Laravel, test, Composer, PHP, and npm commands through `./.ai-harness`.
 - Use `up`, `down`, and `doctor` for the local environment.
 - Not bypass the configured runtime unless the user asks.
-- Run Herd and Valet commands outside the Codex sandbox.
+- Run Herd, Valet, and Yerd commands outside the Codex sandbox.
 - Use the cloud commands in cloud sessions.
 
 The block starts with `<!-- ai-harness:start -->`. Do not edit the text inside the block. The next refresh replaces it. Put your own instructions above or below the block.
@@ -45,13 +45,19 @@ script = '''
 
 To use it, select the `Laravel AI Harness` local environment in Codex when you create a worktree.
 
-The harness overwrites this file on each refresh. Put custom Codex configuration in a different file.
+The basic environment above is refreshed on update. For runtime selections, migrations, builds, and settings for later commands, use `init --agent=codex`; see the [complete Codex configuration example](configuration.md#codex-environment-example). Its configured environment is preserved on ordinary refreshes and includes ownership-aware database cleanup.
 
 ### Codex cloud
 
-The local environment file does not configure Codex cloud. Refer to [Codex cloud](cloud.md#codex-cloud).
+The local environment file does not configure Codex cloud or its hosted setup/maintenance scripts. Export the corresponding `AI_HARNESS_CLOUD_*` values in that environment when using process-based cloud settings. Refer to [Codex cloud](cloud.md#codex-cloud).
 
 ## Claude Code
+
+### Parameter-selected command settings
+
+`init --agents=claude` and `init --agents=codex,claude` merge all resolved harness selections into Claude's `env` object. The file is `.claude/settings.local.json` in global mode and `.claude/settings.json` in shared mode. Other environment variables, permissions, and custom hooks remain. Command settings are written even with `--worktrees=false --cloud=false`, when no lifecycle hooks are enabled.
+
+Start a new agent session to use newly written values. Hook-initialized worktrees retain inherited harness selections. Normal terminal commands do not automatically read Claude's settings; see [where selections apply](configuration.md#where-parameter-selections-apply). Local `--migrate` and `--build` flags configure Codex worktree setup; use direct `setup --migrate --build` in a configured Claude session when those local steps are needed.
 
 ### Instruction files
 

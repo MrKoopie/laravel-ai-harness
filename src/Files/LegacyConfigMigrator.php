@@ -79,7 +79,6 @@ final readonly class LegacyConfigMigrator
         $contents = implode("\n", [
             '# Migrated from Laravel AI Harness v0.1 settings.',
             'runtime='.($herd ? 'herd' : 'native'),
-            'service_manager='.($docker ? 'sail' : 'none'),
             'agents='.implode(',', $agents),
             'sail_services='.($docker ? 'mysql' : ''),
             'site_secure=true',
@@ -90,7 +89,7 @@ final readonly class LegacyConfigMigrator
         $this->writer->write($root, '.ai-harness.config', $contents);
 
         if ($docker) {
-            $warnings[] = 'Legacy docker support was mapped to service_manager=sail with sail_services=mysql; review .ai-harness.config.';
+            $warnings[] = 'Legacy docker support was mapped to sail_services=mysql; review .ai-harness.config.';
         }
 
         foreach (['skills', 'polyscope'] as $unsupported) {

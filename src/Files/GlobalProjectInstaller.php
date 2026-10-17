@@ -77,7 +77,9 @@ final readonly class GlobalProjectInstaller
         }
 
         if ($config->supportsAgent('codex') && $config->worktrees) {
-            $this->writer->write($root, GlobalInstallation::CODEX_ENVIRONMENT, $this->resource('agents/codex-global-environment.toml'));
+            if (! CodexConfiguration::configured($root, GlobalInstallation::CODEX_ENVIRONMENT)) {
+                $this->writer->write($root, GlobalInstallation::CODEX_ENVIRONMENT, $this->resource('agents/codex-global-environment.toml'));
+            }
             $written[] = GlobalInstallation::CODEX_ENVIRONMENT;
         } else {
             $this->writer->removeOwnedFile($root, GlobalInstallation::CODEX_ENVIRONMENT, $this->resource('agents/codex-global-environment.toml'));
@@ -86,6 +88,9 @@ final readonly class GlobalProjectInstaller
         $hooks = $config->supportsAgent('claude') && $config->worktrees;
         $cloud = $config->supportsAgent('claude') && $config->cloud;
         $this->claudeSettings->sync($root, $hooks, $cloud, local: true);
+        if ($config->supportsAgent('claude') && $config->hasOverrides()) {
+            $this->claudeSettings->environment($root, $config->environment(), local: true);
+        }
 
         if ($hooks || $cloud || is_file($root.'/.claude/settings.local.json')) {
             $written[] = '.claude/settings.local.json';

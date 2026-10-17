@@ -6,6 +6,7 @@ namespace MrKoopie\LaravelAiHarness\Console;
 
 use MrKoopie\LaravelAiHarness\Environment\EnvironmentManager;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 final class EnvironmentActionCommand extends ProjectCommand
@@ -25,6 +26,10 @@ final class EnvironmentActionCommand extends ProjectCommand
     protected function configure(): void
     {
         $this->configureProjectPath();
+        if ($this->action === 'setup') {
+            $this->addOption('migrate', null, InputOption::VALUE_NONE, 'Run development migrations after setup');
+            $this->addOption('build', null, InputOption::VALUE_NONE, 'Install npm dependencies and build after setup');
+        }
     }
 
     /** Execute the configured environment action. */
@@ -32,8 +37,13 @@ final class EnvironmentActionCommand extends ProjectCommand
     {
         $root = $this->projectPath($input);
 
+        if ($this->action === 'setup') {
+            $status = $this->environment->setup($root, $output);
+
+            return $status === 0 ? $this->environment->finishSetup($root, $output, (bool) $input->getOption('migrate'), (bool) $input->getOption('build')) : $status;
+        }
+
         return match ($this->action) {
-            'setup' => $this->environment->setup($root, $output),
             'cleanup' => $this->environment->cleanup($root, $output),
             'up' => $this->environment->up($root, $output),
             'down' => $this->environment->down($root, $output),

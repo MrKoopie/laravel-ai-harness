@@ -10,6 +10,45 @@ Run all commands from the project root through the `./.ai-harness` bootstrap scr
 
 With a [global installation](installation.md#global-installation), `ai-harness` on `PATH` accepts the same commands. Run `ai-harness init --global` once per project to create the agent integrations and an ignored `.ai-harness.config.global`. Subsequent `init` and `update` commands retain global mode, including in linked local worktrees.
 
+## Configure agents with parameters
+
+Every harness configuration key is available on `init`. For example:
+
+```bash
+ai-harness init --global --agents=codex,claude \
+  --runtime=yerd --php-version=8.5 --site-secure=true \
+  --sail-services=mysql,redis \
+  --local-env=FORWARD_DB_PORT=3308 \
+  --local-env=CUSTOM_FEATURE_ENABLED=true \
+  --cloud=true --cloud-services=mysql,redis \
+  --cloud-migrate=true --cloud-seed=false --cloud-build=true --cloud-browser=false
+```
+
+This generates configuration without provisioning resources. Parameters override process variables and inherited files; omitted parameters keep their effective values. Agent selections are saved in the selected agents' configuration, rather than copied into harness config files or Laravel `.env`. A new session in that agent receives the settings. Select **Laravel AI Harness (Codex)** in the app for Codex worktree automation. `--agents=claude` works without Codex files.
+
+| Configuration key | Parameter |
+| --- | --- |
+| `runtime` | `--runtime=native\|herd\|valet\|yerd\|sail` |
+| `sail_services` | `--sail-services=mysql,redis` (empty: full stack for Sail PHP, no containers for host PHP) |
+| `agents` | `--agents=codex,claude` or repeated `--agent=codex --agent=claude` |
+| `site_secure` | `--site-secure=true\|false` |
+| `php_version` | `--php-version=8.5` (empty preserves the site's selection) |
+| `db_connection` | `--db-connection=auto\|sqlite\|mysql` or `--database=...` |
+| `worktrees` | `--worktrees=true\|false` |
+| `cloud` | `--cloud=true\|false` |
+| `cloud_services` | `--cloud-services=mysql,redis` (empty selects SQLite) |
+| `cloud_migrate` | `--cloud-migrate=true\|false` |
+| `cloud_seed` | `--cloud-seed=true\|false` (requires cloud migrations) |
+| `cloud_build` | `--cloud-build=true\|false` |
+| `cloud_browser` | `--cloud-browser=true\|false` |
+| `local_env.<VARIABLE>` | Repeat `--local-env=NAME=VALUE`; `--local-env=NAME=` explicitly clears it |
+
+Boolean settings take an explicit value. Empty lists use `--sail-services=` or `--cloud-services=`. Empty `--agents=` disables the current integrations and writes no agent environment. Use either `--agents` or repeated `--agent` flags; don't combine them. `--database` and `--db-connection` are aliases and cannot be combined. Duplicate local variables fail before files are generated. Local values are literal data, split at the first `=`; quote the entire argument when the shell might expand its value.
+
+`--migrate` and `--build` remain separate opt-ins for **local** Codex worktree setup, requiring Codex with `worktrees=true`. Omit these flags when regenerating to disable them. They are independent of `--cloud-migrate=true` and `--cloud-build=true`, which affect cloud setup. `setup --migrate --build` can also run the local steps directly; plain `setup` does neither.
+
+With `--worktrees=false`, Codex still receives command settings but the generated worktree environment is removed. Claude receives command settings even when worktree and cloud hooks are disabled. See [agent configuration](configuration.md#codex-environment-example) and [host MySQL](local-environments.md#existing-host-mysql-or-mariadb).
+
 ## Runtime commands
 
 These commands run a tool in the configured runtime. Refer to [Runtimes](configuration.md#runtimes) for the exact command that each runtime uses.
@@ -46,7 +85,7 @@ Runtime commands always operate in the current directory.
 | `update` | Write all managed project files again from the installed package release. Like `init`, it creates `.ai-harness.config` only when no configuration file exists. |
 | `doctor` | Check the configuration, the runtime tools, and the managed files. Returns a non-zero exit code when a check fails. |
 
-`init` and `update` do not install dependencies, start containers, create databases, or change Git. Refer to [Installation](installation.md#init-and-update-scope).
+`init` and `update` do not install dependencies, start containers, create databases, or select/change Git branches or worktrees. Global initialization maintains local Git exclusion rules. Refer to [Installation](installation.md#init-and-update-scope).
 
 ### `doctor` output
 
@@ -60,7 +99,7 @@ OK Laravel artisan entrypoint exists
 OK Configuration loaded from .ai-harness.config
 OK Automatic Composer refresh hooks are installed
 OK Laravel Herd is available
-OK Sail service manager is available
+OK Inferred Sail services are available
 OK COMPOSER_AUTH is valid for http-basic (repo.example.com); github-oauth (github.com)
 OK Agent instructions are installed
 OK Codex local environment is installed

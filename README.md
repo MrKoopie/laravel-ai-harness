@@ -5,10 +5,10 @@
 
 > [!WARNING]
 > **0.6.0 has breaking configuration changes. Rename removed keys before upgrading.**
-> Replace `herd_php`, `valet_php`, and `yerd_php` with `php_version`; replace `herd_secure`, `valet_secure`, and `yerd_secure` with `site_secure`; replace `services` with `service_manager`.
+> Replace `herd_php`, `valet_php`, and `yerd_php` with `php_version`; replace `herd_secure`, `valet_secure`, and `yerd_secure` with `site_secure`; remove `services` and `service_manager`; select Sail through `runtime` and `sail_services`.
 > Old keys are rejected, including keys in personal files inherited by worktrees. Composer's automatic refresh fails if any remain. Follow the [0.6.0 upgrade instructions](docs/upgrading.md#upgrade-to-060), including the recovery steps if an update has already failed. A `^0.5` Composer constraint does not include `0.6.0`.
 
-Laravel AI Harness gives coding agents (Codex and Claude Code) and people one stable command to run a Laravel project. The command is `./.ai-harness`. It works the same way with native PHP, Laravel Herd, Laravel Valet, and Laravel Sail, and in Claude and Codex cloud environments.
+Laravel AI Harness gives coding agents (Codex and Claude Code) and people one stable command to run a Laravel project. The command is `./.ai-harness`. It works the same way with native PHP, Laravel Herd, Laravel Valet, Yerd, and Laravel Sail, and in Claude and Codex cloud environments.
 
 ```bash
 ./.ai-harness artisan migrate
@@ -23,7 +23,7 @@ Personal application settings go in `.ai-harness.config.local`, for example `loc
 ## Why use it
 
 - **One command for all runtimes.** Agent instructions stay the same when you change from Herd to Sail.
-- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With Sail MySQL (`mysql` in `sail_services`), it also gets its own databases. With `runtime=herd`, `runtime=valet`, or `runtime=yerd`, it also gets its own site. Thus, parallel agents do not share data.
+- **Isolated worktrees.** Each checkout gets its own `.env.testing`. With managed Sail MySQL (`mysql` in `sail_services`) or explicit host `db_connection=mysql`, it also gets its own databases. With `runtime=herd`, `runtime=valet`, or `runtime=yerd`, it also gets its own site. Thus, parallel agents do not share data.
 - **Safe cleanup.** The harness removes only the resources that it created and recorded.
 - **Agent integration.** It writes a shared `AGENTS.md` block, a Codex local environment, and Claude Code hooks.
 - **Cloud support.** It provisions and prepares Claude and Codex cloud containers with native PHP, MySQL, and Redis.
@@ -84,7 +84,18 @@ ai-harness init --global
 
 This configures Codex local environments and Claude hooks automatically, using the same options as a project installation. Edit `.ai-harness.config.global` to select your runtime, services, agents, and environment overrides. The harness excludes all generated integrations through Git’s local `.git/info/exclude`; shared `.gitignore`, `composer.json`, and agent configuration stay unchanged. Global initialization requires a Git working tree.
 
-A Codex environment can also select runtime, PHP version, HTTPS, and services with exported `AI_HARNESS_*` variables. See the [PHP 8.4 Codex example](docs/configuration.md#codex-environment-example). Keep the exports available to every later harness command; setup does not persist them.
+For Codex, generate setup, teardown, and persistent command settings with one command:
+
+```bash
+ai-harness init --global --agent=codex \
+  --runtime=yerd --php-version=8.5 --database=mysql --migrate --build
+```
+
+This only writes configuration. Select **Laravel AI Harness (Codex)** in Codex before creating a worktree. Setup then prepares the application; teardown removes the checkout's owned site, development and testing MySQL databases, and numeric parallel-test databases. Host MySQL uses an existing local service and credentials from `.env` or `.env.example`; the harness does not start or stop that service. See [Codex configuration](docs/configuration.md#codex-environment-example).
+
+All settings have [named init parameters](docs/commands.md#configure-agents-with-parameters), including `--agents=codex,claude`, `--sail-services=mysql,redis`, repeatable `--local-env=NAME=VALUE`, and cloud settings.
+
+Manual exported `AI_HARNESS_*` overrides are still supported. Keep them available to every later harness command; setup does not persist them.
 
 Use `ai-harness doctor`, `ai-harness setup`, or the generated `./.ai-harness` launcher. Linked local worktrees inherit the primary checkout's global configuration. After updating the package with `composer global update mrkoopie/laravel-ai-harness`, run `ai-harness update` in each configured project. See [Global installation details](docs/installation.md#global-installation).
 
@@ -131,7 +142,7 @@ Refer to [Commands](docs/commands.md) for all details.
 
 - It does not create, change, or select Git branches or worktrees. It never runs `git fetch`, `pull`, `checkout`, `switch`, `branch`, `rebase`, or `worktree`. The agent supplies the current directory. The harness only prepares that directory.
 - It does not fall back to a different runtime automatically.
-- It does not run migrations during local setup.
+- Local setup runs migrations only when explicitly requested with `setup --migrate`.
 - It does not delete Docker volumes.
 - It does not copy runtime scripts, skills, or MCP configuration into your project.
 

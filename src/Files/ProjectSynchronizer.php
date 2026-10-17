@@ -16,12 +16,14 @@ final readonly class ProjectSynchronizer
         private ComposerScripts $composerScripts,
     ) {}
 
-    /** Refresh project integration without preparing runtime resources. */
-    public function sync(string $root, bool $global = false): SyncResult
+    /** Refresh project integration without preparing runtime resources.
+     * @param  array<string, string>  $overrides
+     */
+    public function sync(string $root, bool $global = false, array $overrides = []): SyncResult
     {
         $global = $global || GlobalInstallation::active($root);
         $createdConfig = $this->installer->ensureConfig($root, $global);
-        $config = $this->configLoader->load($root);
+        $config = $this->configLoader->load($root, $overrides);
         $written = $this->installer->install($root, $config, $global);
 
         if (! $global && $this->composerScripts->sync($root)) {

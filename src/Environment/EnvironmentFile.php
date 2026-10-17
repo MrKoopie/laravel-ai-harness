@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MrKoopie\LaravelAiHarness\Environment;
 
+use Dotenv\Dotenv;
 use MrKoopie\LaravelAiHarness\Files\FileException;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
 
@@ -91,6 +92,15 @@ final readonly class EnvironmentFile
             throw new FileException('Local environment overrides require .env or .env.example in the project root.');
         }
 
+        $this->replaceValues($root, '.env', $this->encodedValues($values));
+    }
+
+    /**
+     * @param  array<string, string>  $values
+     * @return array<string, string>
+     */
+    private function encodedValues(array $values): array
+    {
         $encoded = [];
 
         foreach ($values as $name => $value) {
@@ -106,7 +116,7 @@ final readonly class EnvironmentFile
                 : '"'.str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $value).'"';
         }
 
-        $this->replaceValues($root, '.env', $encoded);
+        return $encoded;
     }
 
     /** Create an isolated testing environment file when it is missing. */
@@ -172,6 +182,58 @@ final readonly class EnvironmentFile
         $this->configureMySql($root, $insideSail);
 
         return $created;
+    }
+
+    /** @param array<string, string> $connection */
+    public function configureHostMySql(string $root, array $connection): void
+    {
+        $this->ensureTesting($root);
+        $values = [
+            'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php',
+            'DB_CONNECTION' => 'mysql', 'DB_DATABASE' => DatabaseName::forPath($root),
+            'DB_URL' => '', 'DATABASE_URL' => '', 'MYSQL_ATTR_SSL_CA' => '',
+        ];
+        foreach (['.env', '.env.testing'] as $file) {
+            $encoded = $file === '.env.testing'
+                ? [...self::TESTING_VALUES, ...$values, 'DB_DATABASE' => DatabaseName::testingForPath($root)] : $values;
+            // Write endpoint settings consistently to both files through the dotenv encoder.
+            $this->replaceValues($root, $file, $encoded);
+        }
+        $endpoint = $this->encodedValues([
+            'DB_HOST' => $connection['host'], 'DB_PORT' => $connection['port'],
+            'DB_SOCKET' => $connection['socket'], 'DB_USERNAME' => $connection['username'], 'DB_PASSWORD' => $connection['password'],
+        ]);
+        foreach (['.env', '.env.testing'] as $file) {
+            $this->replaceValues($root, $file, $endpoint);
+        }
+        $this->configureCloudPhpUnit($root);
+    }
+
+    /** Select a checkout-local SQLite file and isolated test connection. */
+    public function configureSqlite(string $root): string
+    {
+        $this->writer->assertSafePath($root, 'database/database.sqlite');
+        if (is_link($root.'/database/database.sqlite')) {
+            throw new FileException('Refusing a symbolic link for the SQLite database.');
+        }
+        if (! is_dir($root.'/database') && ! mkdir($root.'/database', 0755, true) && ! is_dir($root.'/database')) {
+            throw new FileException('Unable to create the SQLite database directory.');
+        }
+        $this->ensureTesting($root);
+        $this->applyLocalOverrides($root, [
+            'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php',
+            'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $root.'/database/database.sqlite',
+            'DB_URL' => '', 'DATABASE_URL' => '', 'DB_SOCKET' => '', 'MYSQL_ATTR_SSL_CA' => '',
+        ]);
+        $this->replaceValues($root, '.env.testing', [
+            'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php',
+            'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => ':memory:', 'DB_URL' => '', 'DATABASE_URL' => '',
+            'DB_SOCKET' => '', 'MYSQL_ATTR_SSL_CA' => '',
+        ]);
+        $this->clearCloudConfigCache($root);
+        $this->configureCloudPhpUnit($root);
+
+        return $root.'/database/database.sqlite';
     }
 
     /** Configure only local cloud services, never inherited external database hosts. */
@@ -344,15 +406,12 @@ final readonly class EnvironmentFile
             libxml_use_internal_errors($previous);
         }
 
-        preg_match_all('/^([A-Z_]+)=(.*)$/m', $this->read($root.'/.env.testing'), $matches, PREG_SET_ORDER);
+        $testingValues = Dotenv::createArrayBacked($root, '.env.testing')->load();
         $values = [];
-
-        foreach ($matches as $match) {
-            $name = $match[1];
-
+        foreach ($testingValues as $name => $value) {
             if (str_starts_with($name, 'DB_') || str_starts_with($name, 'REDIS_') || array_key_exists($name, self::TESTING_VALUES)
-                || in_array($name, ['MYSQL_ATTR_SSL_CA', 'DATABASE_URL', 'APP_CONFIG_CACHE', 'APP_KEY'], true)) {
-                $values[$name] = trim($match[2], "\"'");
+                || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA', 'APP_KEY', 'APP_CONFIG_CACHE'], true)) {
+                $values[$name] = $value ?? '';
             }
         }
 
