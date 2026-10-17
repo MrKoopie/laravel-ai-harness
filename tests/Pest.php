@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Config\ExistingDatabase;
 use Symfony\Component\Process\Process;
 
@@ -9,7 +10,7 @@ $harnessSavedEnvironment = [];
 
 uses()->beforeEach(function () use (&$harnessSavedEnvironment): void {
     $harnessSavedEnvironment = [];
-    foreach (['AI_HARNESS_RUNTIME', 'AI_HARNESS_PHP_VERSION', 'AI_HARNESS_SITE_SECURE', 'AI_HARNESS_SERVICE_MANAGER', 'AI_HARNESS_ENV', ...array_keys(ExistingDatabase::ENVIRONMENT)] as $name) {
+    foreach ([...array_unique([...array_keys(ConfigLoader::ENVIRONMENT), ...array_keys(ExistingDatabase::ENVIRONMENT)]), 'AI_HARNESS_LOCAL_ENV', 'AI_HARNESS_ENV', 'AI_HARNESS_SERVICE_MANAGER'] as $name) {
         $harnessSavedEnvironment[$name] = [getenv($name), $_ENV[$name] ?? null, $_SERVER[$name] ?? null];
         putenv($name);
         unset($_ENV[$name], $_SERVER[$name]);

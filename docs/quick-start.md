@@ -1,17 +1,51 @@
 # Quick start
 
-This page tells you how to start with the harness for your type of setup. Do the common steps first. Then do the steps for your runtime.
+Use the parameter-based agent setup below, or follow the common steps for a file-based project installation and then the section for your runtime.
 
 | You use | Go to |
 | --- | --- |
+| Configure Codex, Claude, or both with parameters | [Agent setup](#agent-setup-with-parameters) |
 | PHP that you installed yourself, with SQLite | [Native PHP](#native-php) |
 | Laravel Herd | [Laravel Herd](#laravel-herd) |
 | Yerd 2.x | [Yerd](#yerd) |
 | Laravel Valet | [Laravel Valet](#laravel-valet) |
 | Laravel Sail for everything | [Laravel Sail](#laravel-sail) |
-| Herd, Valet, or native PHP, with MySQL from Sail | [MySQL from Sail](#mysql-from-sail) |
+| Herd, Valet, Yerd, or native PHP, with MySQL from Sail | [MySQL from Sail](#mysql-from-sail) |
 | Claude Code or Codex in the cloud | [Cloud](#cloud) |
 | A different runtime than your team | [A different runtime than your team](#a-different-runtime-than-your-team) |
+
+## Agent setup with parameters
+
+Install or update the global package once:
+
+```bash
+composer global require mrkoopie/laravel-ai-harness
+composer global config bin-dir --absolute
+```
+
+Put that bin directory on the agent's `PATH`. From a Laravel project in a Git working tree, generate the settings:
+
+```bash
+ai-harness init --global --agents=codex,claude \
+  --runtime=yerd --php-version=8.5 --site-secure=true \
+  --database=mysql --migrate --build
+```
+
+This writes configuration only. Yerd and the requested PHP version must already be installed, and host MySQL or MariaDB must already be running. The database account from `.env` or `.env.example` needs CREATE/DROP permissions; see [host MySQL prerequisites](local-environments.md#existing-host-mysql-or-mariadb). Omit `--database=mysql` to retain the existing database defaults.
+
+In Codex, select **Laravel AI Harness (Codex)** before creating a worktree. Its setup initializes the new checkout, prepares the site and isolated databases, runs development migrations, and builds locked frontend dependencies. Restart or open the selected agent session to load newly generated command settings. Generating a file does not prove that the app has selected it.
+
+For Claude only, use `--agents=claude` and omit the Codex-specific `--migrate` and `--build` flags. For MySQL and Redis from Sail, add `--sail-services=mysql,redis`. Every setting has a [named parameter](commands.md#configure-agents-with-parameters).
+
+From a configured agent session, run `ai-harness doctor` to inspect the effective values and sources. Commands in an ordinary terminal do not automatically read agent settings; export the same variables there or use file-based personal defaults. See [where selections apply](configuration.md#where-parameter-selections-apply).
+
+Before deleting a prepared local checkout, run:
+
+```bash
+ai-harness cleanup && ai-harness down
+```
+
+The generated Codex teardown runs this sequence automatically when invoked by the app. Cleanup removes owned development, testing, and numeric parallel-test databases before stopping Sail; a failure leaves ownership available for retry. Host database services remain running. See [cleanup and retries](local-environments.md#cleanup-and-retries).
 
 ## Common steps
 
@@ -43,7 +77,7 @@ Do these steps one time for each project:
    ./.ai-harness setup
    ```
 
-6. Commit the generated files and `composer.lock`.
+6. Review and commit the intended shared files and `composer.lock`. Keep personal values out of shared agent files; use global mode when selections include credentials.
 
 After that, use `./.ai-harness` for all Laravel, Composer, PHP, and npm commands:
 
@@ -61,7 +95,6 @@ Use this when PHP 8.2 or newer and Composer are on your `PATH`.
 
 ```ini
 runtime=native
-service_manager=none
 ```
 
 `setup` creates `.env`, `APP_KEY`, and a `.env.testing` file with SQLite.
@@ -135,7 +168,6 @@ Refer to [Laravel Valet](local-environments.md#laravel-valet).
 
    ```ini
    runtime=sail
-   service_manager=sail
    sail_services=
    ```
 
@@ -145,10 +177,9 @@ Use `./.ai-harness up` and `./.ai-harness down` to start and stop the containers
 
 ## MySQL from Sail
 
-You can run PHP with Herd, Valet, or native PHP, and get MySQL and Redis from Sail. Add these keys to the runtime keys of your section:
+You can run PHP with Herd, Valet, Yerd, or native PHP, and get MySQL and Redis from Sail. Add these keys to the runtime keys of your section:
 
 ```ini
-service_manager=sail
 sail_services=mysql,redis
 ```
 
@@ -195,7 +226,6 @@ Install [Yerd 2.x](https://yerd.app/guide/getting-started), start its daemon, an
 
 ```ini
 runtime=yerd
-service_manager=none
 site_secure=true
 php_version=8.4
 ```

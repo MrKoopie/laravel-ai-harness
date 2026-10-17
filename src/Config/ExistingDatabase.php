@@ -59,14 +59,17 @@ final readonly class ExistingDatabase
                 if (strlen($value) > 4096 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
                     throw new ConfigException("{$variable} exceeds 4096 bytes or contains a control character.");
                 }
+                if ($variable === 'AI_HARNESS_DB_CONNECTION') {
+                    continue;
+                }
                 $environment[$key] = $value;
                 $processOverrides[] = $variable;
             }
         }
-        $driver = $environment['DB_CONNECTION'] ?? '';
-        if (getenv('AI_HARNESS_DB_CONNECTION') !== false && ! in_array($driver, ['mysql', 'mariadb'], true)) {
-            throw new ConfigException('AI_HARNESS_DB_CONNECTION must be mysql or mariadb.');
+        if (in_array($values['db_connection'] ?? 'auto', ['mysql', 'mariadb'], true)) {
+            $environment['DB_CONNECTION'] = $values['db_connection'];
         }
+        $driver = $environment['DB_CONNECTION'] ?? '';
         if (! in_array($driver, ['mysql', 'mariadb'], true)) {
             return null;
         }

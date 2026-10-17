@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MrKoopie\LaravelAiHarness\Files;
 
 use JsonException;
+use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 
 final readonly class ClaudeSettings
 {
@@ -82,6 +83,49 @@ final readonly class ClaudeSettings
         }
 
         $this->writer->write($root, $relative, $encoded);
+    }
+
+    /** Merge harness variables while preserving unrelated user environment and permissions.
+     * @param  array<string, string>  $variables
+     */
+    public function environment(string $root, array $variables, bool $local = false, bool $write = true): void
+    {
+        $this->updateEnvironment($root, $variables, $local, $write);
+    }
+
+    /** Clear only harness-owned variables when this integration is explicitly deselected. */
+    public function clearEnvironment(string $root, bool $local = false, bool $write = true): void
+    {
+        $path = $local ? '.claude/settings.local.json' : '.claude/settings.json';
+        if (! file_exists($root.'/'.$path) && ! is_link($root.'/'.$path)) {
+            return;
+        }
+        $this->updateEnvironment($root, [], $local, $write, clear: true);
+    }
+
+    /** @param array<string, string> $variables */
+    private function updateEnvironment(string $root, array $variables, bool $local, bool $write, bool $clear = false): void
+    {
+        $relative = $local ? '.claude/settings.local.json' : '.claude/settings.json';
+        $this->writer->assertSafePath($root, $relative);
+        if (is_link($root.'/'.$relative)) {
+            throw new FileException('Refusing to edit symbolic link at '.$relative.'.');
+        }
+        $settings = $this->read($root.'/'.$relative);
+        $environment = $settings['env'] ?? [];
+        if (! is_array($environment) || ($environment !== [] && array_is_list($environment))) {
+            throw new FileException('Claude env must be an object in '.$relative.'.');
+        }
+        if ($clear) {
+            foreach (ConfigLoader::environmentNames() as $name) {
+                unset($environment[$name]);
+            }
+        }
+        unset($environment['AI_HARNESS_SERVICE_MANAGER']);
+        $settings['env'] = (object) [...$environment, ...$variables];
+        if ($write) {
+            $this->writer->write($root, $relative, json_encode((object) $settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        }
     }
 
     /**

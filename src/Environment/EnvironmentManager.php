@@ -30,6 +30,15 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
+        if ($config->dbConnection === 'sqlite') {
+            foreach (array_keys(getenv()) as $key) {
+                if (str_starts_with($key, 'DB_') || in_array($key, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)) {
+                    throw new EnvironmentException("Unset process {$key} before selecting checkout-local SQLite.");
+                }
+            }
+            $this->environmentFile->assertSqliteRequirements($root);
+        }
+
         if ($config->existingDatabase !== null) {
             $conflicts = $this->environmentFile->existingDatabaseConflicts($root);
             if ($conflicts !== []) {
@@ -66,7 +75,7 @@ final readonly class EnvironmentManager
         if ($config->localEnvironment !== []) {
             // Clear stale configuration before Artisan can read the changed endpoint.
             $this->environmentFile->clearCloudConfigCache($root);
-            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment, $config->existingDatabase === null || $config->serviceManager === Services::Sail);
+            $this->environmentFile->applyLocalOverrides($root, $config->localEnvironment, $config->existingDatabase === null || $config->usesSail());
             $output->writeln('<info>Applied local environment overrides</info>');
         }
 
@@ -78,7 +87,7 @@ final readonly class EnvironmentManager
         }
 
         if ($config->existingDatabase !== null) {
-            $this->environmentFile->configureExistingMySql($root, $config->existingDatabase, $config->serviceManager === Services::Sail);
+            $this->environmentFile->configureExistingMySql($root, $config->existingDatabase, $config->usesSail());
             $output->writeln('<info>Configured checkout-owned existing-server MySQL/MariaDB databases</info>');
         }
 
@@ -91,10 +100,18 @@ final readonly class EnvironmentManager
             }
         }
 
-        if ($this->requiresSail($config)) {
+        if ($config->usesSail()) {
             $output->writeln('<info>Starting configured Sail containers</info>');
             $status = $this->processes->run($this->commands->servicesUp($config, $root), $root, $output);
 
+            if ($status !== 0) {
+                return $status;
+            }
+        }
+
+        if ($config->dbConnection === 'sqlite') {
+            $database = $this->environmentFile->configureSqlite($root, $config->runtime === Runtime::Sail);
+            $status = $this->processes->run($this->commands->runtime($config, 'php', ['-r', 'new PDO("sqlite:".$argv[1]);', $database], $root), $root, $output);
             if ($status !== 0) {
                 return $status;
             }
@@ -141,6 +158,10 @@ final readonly class EnvironmentManager
             if ($status !== 0) {
                 return $status;
             }
+        }
+
+        if (($config->existingDatabase !== null || $config->dbConnection === 'sqlite') && is_file($root.'/.env.testing')) {
+            $this->environmentFile->syncTestingKey($root);
         }
 
         if (is_file($root.'/artisan')) {
@@ -243,6 +264,31 @@ final readonly class EnvironmentManager
         return 0;
     }
 
+    /** Finish explicitly requested local application preparation. */
+    public function finishSetup(string $root, OutputInterface $output, bool $migrate, bool $build): int
+    {
+        $config = $this->configLoader->load($root);
+        $steps = [];
+        if ($migrate) {
+            $steps[] = ['artisan', ['migrate', '--force', '--no-interaction']];
+        }
+        if ($build) {
+            if (! is_file($root.'/package-lock.json')) {
+                throw new EnvironmentException('Frontend setup requires package-lock.json for npm ci.');
+            }
+            $steps[] = ['npm', ['ci', '--include=dev']];
+            $steps[] = ['npm', ['run', 'build']];
+        }
+        foreach ($steps as [$tool, $arguments]) {
+            $status = $this->processes->run($this->commands->runtime($config, $tool, $arguments, $root), $root, $output, ExecutionEnvironment::processEnvironment());
+            if ($status !== 0) {
+                return $status;
+            }
+        }
+
+        return 0;
+    }
+
     /** Start the configured Sail services. */
     public function up(string $root, OutputInterface $output): int
     {
@@ -252,7 +298,7 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
-        if (! $this->requiresSail($config)) {
+        if (! $config->usesSail()) {
             $output->writeln('<info>No Sail containers are configured.</info>');
 
             return 0;
@@ -272,7 +318,7 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
-        if (! $this->requiresSail($config)) {
+        if (! $config->usesSail()) {
             $output->writeln('<info>No Sail containers are configured.</info>');
 
             return 0;
@@ -425,12 +471,6 @@ final readonly class EnvironmentManager
             SiteTool::Valet => $this->commands->valet($action, ...$arguments),
             SiteTool::Yerd => $this->commands->yerd($action, ...$arguments),
         };
-    }
-
-    /** Determine whether the configuration needs Sail containers. */
-    private function requiresSail(Config $config): bool
-    {
-        return $config->runtime === Runtime::Sail || $config->serviceManager === Services::Sail;
     }
 
     /** Determine whether the configured Sail services include MySQL. */

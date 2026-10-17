@@ -51,7 +51,7 @@ final readonly class ProjectInstaller
      *
      * @return list<string>
      */
-    public function install(string $root, Config $config, bool $global = false): array
+    public function install(string $root, Config $config, bool $global = false, bool $persistAgentEnvironment = false): array
     {
         if ($global) {
             return (new GlobalProjectInstaller($this->writer, $this->claudeSettings))->install($root, $config);
@@ -78,7 +78,9 @@ final readonly class ProjectInstaller
         }
 
         if ($config->supportsAgent('codex') && $config->worktrees) {
-            $this->writer->write($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
+            if (! CodexConfiguration::configured($root, '.codex/environments/environment.toml')) {
+                $this->writer->write($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
+            }
             $written[] = '.codex/environments/environment.toml';
         } else {
             $this->writer->removeOwnedFile($root, '.codex/environments/environment.toml', $this->resource('agents/codex-environment.toml'));
@@ -93,6 +95,9 @@ final readonly class ProjectInstaller
         $claudeHooks = $config->supportsAgent('claude') && $config->worktrees;
         $claudeCloud = $config->supportsAgent('claude') && $config->cloud;
         $this->claudeSettings->sync($root, $claudeHooks, $claudeCloud);
+        if ($persistAgentEnvironment && $config->supportsAgent('claude') && $config->hasOverrides()) {
+            $this->claudeSettings->environment($root, $config->environment(), local: false);
+        }
 
         if ($claudeHooks || $claudeCloud || is_file($root.'/.claude/settings.json')) {
             $written[] = '.claude/settings.json';

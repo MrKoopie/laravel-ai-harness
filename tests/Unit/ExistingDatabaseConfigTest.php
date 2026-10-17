@@ -93,7 +93,7 @@ test('invalid dotenv errors do not disclose the offending credential', function 
     }
 });
 
-foreach (["runtime=sail\nservice_manager=sail\n", "runtime=herd\nservice_manager=sail\n", "runtime=valet\nservice_manager=sail\nsail_services=mysql\n"] as $sail) {
+foreach (["runtime=sail\n", "runtime=herd\nsail_services=mysql\n", "runtime=valet\nsail_services=mysql\n"] as $sail) {
     test('Sail database behavior has precedence over inferred host provisioning: '.$sail, function () use ($sail): void {
         $root = temp_directory('existing-sail');
         file_put_contents($root.'/.ai-harness.config', $sail);

@@ -49,7 +49,7 @@ test('legacy artisan update command migrates options and refreshes project files
     expect($status)->toBe(0)
         ->and($tester->getDisplay())->toContain('compatibility command')
         ->and((string) file_get_contents($root.'/.ai-harness.config'))->toContain('runtime=herd')
-        ->toContain('service_manager=sail')
+        ->toContain('sail_services=mysql')
         ->and($root.'/.ai-harness')->toBeFile()
         ->and((string) file_get_contents($root.'/composer.json'))->toContain('laravel-ai-harness:update');
 });
@@ -92,7 +92,7 @@ test('legacy artisan update migrates environment-only v0.1 settings', function (
 
     expect($status)->toBe(0)
         ->and($config)->toContain('runtime=herd')
-        ->toContain('service_manager=sail')
+        ->toContain('sail_services=mysql')
         ->toContain('agents=claude')
         ->toContain('php_version=8.4');
 });

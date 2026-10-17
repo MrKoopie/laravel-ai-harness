@@ -41,7 +41,7 @@ final class DoctorCommand extends ProjectCommand
         $output->writeln(sprintf(
             'Runtime: <comment>%s</comment>; services: <comment>%s</comment>; agents: <comment>%s</comment>',
             $environment->isCloud() ? 'native' : $config->runtime->value,
-            $environment->isCloud() ? implode(',', $config->cloudServices) : $config->serviceManager->value,
+            $environment->isCloud() ? implode(',', $config->cloudServices) : ($config->usesSail() ? 'sail' : 'none'),
             $config->agents === [] ? 'none' : implode(', ', $config->agents),
         ));
 

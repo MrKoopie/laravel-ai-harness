@@ -52,6 +52,22 @@ cloud_browser=false
 
 These keys never change local setup.
 
+### Configure cloud keys with parameters
+
+All cloud configuration keys also have `init` parameters:
+
+```bash
+ai-harness init --global --agents=codex,claude \
+  --cloud=true --cloud-services=mysql,redis \
+  --cloud-migrate=true --cloud-seed=false --cloud-build=true --cloud-browser=false
+```
+
+These selections are saved in agent command settings, without rewriting `.ai-harness.config*`. Shared mode uses `./vendor/bin/ai-harness init` without `--global`. `--cloud-services=` selects cloud SQLite; seeding requires migrations. Local `--migrate` and `--build` flags configure local Codex worktree setup and are independent of these cloud booleans.
+
+Local agent settings do not configure a hosted provider's environment. Follow the provider setup and maintenance steps below; when those scripts use process-based choices, export the corresponding `AI_HARNESS_CLOUD*` variables in the provider environment as well. Shared Claude settings can carry the selections in sessions that load that repository's settings. Ignored global/local settings are not part of a fresh cloud clone.
+
+The [environment override table](configuration.md#environment-variable-overrides) lists the configuration variables. Provider detection, PHP package repositories/extensions, apt sources, sockets, and Composer provisioning controls below remain separate execution inputs. `--cloud=true` enables harness cloud integration; it does not itself select cloud execution or install services during `init`. Local `--local-env` application overrides remain ignored in cloud mode.
+
 ## Claude cloud
 
 1. In the Claude cloud environment settings, set this environment variable:

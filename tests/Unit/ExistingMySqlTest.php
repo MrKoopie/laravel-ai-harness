@@ -245,7 +245,7 @@ test('dotenv connection and local overrides select provisioning while Sail keeps
     expect($config->existingDatabase?->port)->toBe(3308)
         ->and($config->existingDatabase?->provisionPassword)->toBe('private')
         ->and($config->managesMySql())->toBeFalse();
-    file_put_contents($root.'/.ai-harness.config.local', "service_manager=sail\nsail_services=mysql\n");
+    file_put_contents($root.'/.ai-harness.config.local', "sail_services=mysql\n");
     $sail = (new ConfigLoader)->load($root);
     expect($sail->existingDatabase)->toBeNull()->and($sail->managesMySql())->toBeTrue();
 });
@@ -453,12 +453,12 @@ test('socket ownership ignores unused TCP settings and migrates matching legacy 
     expect(array_keys($server->schemas))->toBe(['ai_harness_registry']);
 });
 
-foreach (['', 'mysql-typo', 'sqlite', 'pgsql'] as $driver) {
+foreach (['', 'mysql-typo', 'pgsql'] as $driver) {
     test('an explicit unsupported provisioning driver fails clearly: '.($driver ?: 'empty'), function () use ($driver): void {
         $root = temp_directory('existing-invalid-driver');
         file_put_contents($root.'/.env.example', "DB_CONNECTION=mysql\n");
         putenv('AI_HARNESS_DB_CONNECTION='.$driver);
-        expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'must be mysql or mariadb');
+        expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'db_connection must be');
         putenv('AI_HARNESS_DB_CONNECTION');
         file_put_contents($root.'/.env.example', 'DB_CONNECTION='.$driver."\n");
         if (! in_array($driver, ['mysql-typo'], true)) {
@@ -498,6 +498,6 @@ test('cleanup refuses changed server grant semantics while retaining ownership f
 test('existing-server local overrides retain shell restrictions when Sail manages other services', function (): void {
     $root = temp_directory('existing-sail-redis-credential');
     file_put_contents($root.'/.env.example', "DB_CONNECTION=mysql\nDB_USERNAME=app\n");
-    file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nservice_manager=sail\nsail_services=redis\nlocal_env.DB_PASSWORD=apostrophe'backtick`\n");
+    file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nsail_services=redis\nlocal_env.DB_PASSWORD=apostrophe'backtick`\n");
     expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'cannot combine backticks');
 });

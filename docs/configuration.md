@@ -29,47 +29,89 @@ runtime=herd
 
 ## Environment-variable overrides
 
-Precedence is built-in defaults → the configuration files above → exported process variables:
+Precedence is built-in defaults → the configuration files above → exported process variables → explicit `init` parameters:
 
 | Variable | Configuration key |
 | --- | --- |
 | `AI_HARNESS_RUNTIME` | `runtime` |
 | `AI_HARNESS_PHP_VERSION` | `php_version` |
 | `AI_HARNESS_SITE_SECURE` | `site_secure` |
-| `AI_HARNESS_SERVICE_MANAGER` | `service_manager` |
+| `AI_HARNESS_DB_CONNECTION` | `db_connection` |
+| `AI_HARNESS_DATABASE_PROVISION_USERNAME` | `database_provision_username` |
+| `AI_HARNESS_DATABASE_PROVISION_PASSWORD` | `database_provision_password` |
+| `AI_HARNESS_DATABASE_PARALLEL_PROCESSES` | `database_parallel_processes` |
+| `AI_HARNESS_AGENTS` | `agents` |
+| `AI_HARNESS_SAIL_SERVICES` | `sail_services` |
+| `AI_HARNESS_WORKTREES` | `worktrees` |
+| `AI_HARNESS_CLOUD` | `cloud` |
+| `AI_HARNESS_CLOUD_SERVICES` | `cloud_services` |
+| `AI_HARNESS_CLOUD_MIGRATE` | `cloud_migrate` |
+| `AI_HARNESS_CLOUD_SEED` | `cloud_seed` |
+| `AI_HARNESS_CLOUD_BUILD` | `cloud_build` |
+| `AI_HARNESS_CLOUD_BROWSER` | `cloud_browser` |
+| `AI_HARNESS_LOCAL_ENV` | JSON object of `local_env` string values |
 
-All commands that resolve configuration use these overrides, including `init`, `setup`, `doctor`, `php`, `artisan`, `composer`, `test`, `up`, `down`, and `cleanup`. Unset variables preserve file/default behavior. Values use the same validation as their configuration keys: an explicitly empty PHP version clears a file pin for command resolution (it does not remove an existing site pin); empty runtime, service manager, and HTTPS values are errors. PHP accepts any `major.minor` version allowed by the existing validator. Cross-setting rules still apply locally, such as `sail_services` requiring `service_manager=sail`; cloud execution uses `cloud_services` instead.
+All commands that resolve configuration use these overrides, including `init`, `setup`, `doctor`, `php`, `artisan`, `composer`, `test`, `up`, `down`, and `cleanup`. Unset variables preserve file/default behavior. Values use the same validation as their configuration keys: an explicitly empty PHP version clears a file pin for command resolution (it does not remove an existing site pin); empty runtime and HTTPS values are errors. PHP accepts any `major.minor` version allowed by the existing validator. Sail usage is inferred from `runtime` and `sail_services`; cloud execution uses `cloud_services` instead.
 
-No configuration file is required when process variables supply settings. `doctor` accepts this configuration and reports the effective runtime, PHP version, HTTPS, and service manager with their source variable, file, or built-in default. Other doctor checks still require the selected tools and agent integrations to be installed.
+No configuration file is required when process variables supply settings. `doctor` accepts this configuration and reports the effective runtime, PHP version, HTTPS, Sail services, and database selection with their source variable, file, or built-in default. Other doctor checks still require the selected tools and agent integrations to be installed.
 
 ### Codex environment example
 
-For a Codex local environment with Yerd installed and running, and PHP 8.4 already installed (the consuming application requires PHP `^8.4.1`):
+Generate a complete Codex local environment once, with Yerd running and PHP 8.5 already installed:
 
 ```bash
-export AI_HARNESS_RUNTIME=yerd
-export AI_HARNESS_PHP_VERSION=8.4
-export AI_HARNESS_SITE_SECURE=true
-export AI_HARNESS_SERVICE_MANAGER=none
-
-ai-harness init --global
-ai-harness setup
-ai-harness doctor
-ai-harness test
+ai-harness init --global --agent=codex \
+  --runtime=yerd --php-version=8.5 --database=mysql --migrate --build
 ```
 
-Make all four exports available in the environment used by **every later harness command**, including agent commands and cleanup. Configure them in the Codex environment or shell initialization used by those commands; if a fresh shell does not inherit them, re-export the same values there. Setting variables only in a setup script, or prefixing only `setup` with them, does not configure subsequent commands. Generated agent instructions tell future AI work to preserve or re-export these values.
+`init` only writes files. Select **Laravel AI Harness (Codex)** in the app before creating a worktree. The generated setup script initializes the new checkout, prepares isolated databases and its site, runs development migrations, installs locked npm dependencies, and builds assets. Omit `--migrate` or `--build` to leave those steps out. Rerun the command to change the selections.
 
-`init --global` still creates its normal personal configuration/mode marker, containing defaults rather than a snapshot of the exports. Overrides are never saved to harness configuration files or Laravel's `.env`. Setup still writes generated application values such as `APP_URL` and managed database connections normally. Hostnames and isolated database names remain automatic for each checkout; do not supply your own. Cleanup checks recorded ownership even if the current runtime overrides have changed.
+Every setting also has an [init parameter](commands.md#configure-agents-with-parameters), including `--sail-services`, repeatable `--local-env`, all `--cloud-*` keys, and `--agents=codex,claude`. No `--agent=codex` flag is required when Codex is already selected by the effective configuration.
 
-`AI_HARNESS_ENV` retains its existing behavior: `local` selects local execution, while detected Claude/Codex cloud execution uses native PHP and cloud services regardless of these local runtime settings. These configuration overrides do not install local PHP versions. `AI_HARNESS_PHP_VERSION` also retains its existing [cloud provisioning role](cloud.md#ai_harness_php_version): `cloud provision` uses it to select and install PHP packages. The other three variables do not change cloud provisioning.
+The generator writes:
+
+- `.codex/config.toml`: merges harness values into `[shell_environment_policy.set]` for later agent commands, preserving other keys and sections. Existing shell filters must allow `AI_HARNESS_*` variables.
+- `.claude/settings.local.json` (when Claude is selected): merges the same selections into its `env` object, preserving other environment variables, permissions, and custom hooks. Shared mode uses `.claude/settings.json`.
+- `.codex/environments/ai-harness-global.toml` (when Codex worktrees are enabled): exports the same selections in setup and cleanup. Cleanup runs before `down`, so database failure keeps the service available for a retry. Ordinary `init` and `update` preserve this configured environment.
+
+Global mode excludes the generated files through `.git/info/exclude`. It refuses to modify a tracked personal Codex configuration; use a project installation when these settings should be shared. Without `--global`, the environment is `.codex/environments/environment.toml` and the generated scripts use `./.ai-harness`.
+
+Configuration merging supports the explicit `[shell_environment_policy.set]` table and single-line harness string values. Ambiguous multiline strings, inline/dotted shell tables, and symlinks are refused before project files are generated. Move those shell settings to the explicit table before retrying. The generator does not change the running app's environment selection.
+
+For manual integration, export the applicable variables from the table in every setup, cleanup, and agent command environment. Setup-only exports do not configure later shells. `AI_HARNESS_LOCAL_ENV` is a JSON object of uppercase variable names and string values, for example `'{"DB_PORT":"3307","CUSTOM_FLAG":""}'`. Values merge per variable with file settings; explicit `--local-env` parameters win over the JSON values. Malformed objects, invalid names, and non-string values are rejected. Local overrides stay ignored in cloud execution.
+
+With `--agents=claude`, only Claude is configured. With both agents selected, both receive the full settings, including cloud and local application overrides. Claude uses the standard [settings env object](https://code.claude.com/docs/en/settings); fresh worktree integrations initialized by its hooks retain inherited harness settings. Global mode keeps these files ignored; shared agent files may be committed, so keep personal credentials in global mode or ignored local settings.
+
+Runtime selections are not copied into harness configuration or Laravel `.env`. `init --global` still creates its ordinary defaults/mode marker. Setup writes generated application values such as `APP_URL` and isolated database connections normally. Site names and database names stay automatic; cleanup checks recorded ownership even after runtime selections change.
+
+`AI_HARNESS_ENV` retains its existing behavior: `local` selects local execution, while detected Claude/Codex cloud execution uses native PHP and cloud services regardless of these local runtime settings. These configuration overrides do not install local PHP versions. `AI_HARNESS_PHP_VERSION` also retains its existing [cloud provisioning role](cloud.md#ai_harness_php_version): `cloud provision` uses it to select and install PHP packages. The other configuration overrides do not install PHP or manage the provisioner’s operating-system package sources.
+
+## Where parameter selections apply
+
+`init` resolves explicit parameters over the current process and file configuration, then saves the effective selections in each selected agent's command settings. It does not rewrite `.ai-harness.config*` with those selections. Codex setup and cleanup scripts export the same values, and Claude hooks retain inherited selections when initializing fresh worktrees. Generating settings does not change an already running shell or select an environment in the app.
+
+An ordinary terminal does not load `.codex/config.toml` or `.claude/settings*.json` through the harness. Run commands in the configured agent session, export the equivalent `AI_HARNESS_*` values in the terminal, or deliberately use `.ai-harness.config.local` for file-based personal defaults. `doctor` reports the source used by the process that actually ran it; it does not prove the app selected a particular environment.
+
+### Change or clear a selection
+
+Rerun `init` with explicit new values; those parameters win even when the current agent still exports old selections. Omitted scalar parameters retain the effective value for the process running `init`, which may come from an existing agent environment. Use the [parameter table](commands.md#configure-agents-with-parameters) rather than editing generated setup scripts.
+
+- Boolean settings take values such as `--cloud=false` and `--worktrees=false`.
+- `--sail-services=` and `--cloud-services=` explicitly select empty lists. These mean the full Sail stack and cloud SQLite respectively.
+- `--local-env=NAME=` sets an empty application value. It does not remove that override or restore an inherited value. To remove an override, remove its entry from the generated `AI_HARNESS_LOCAL_ENV` object (and any originating personal config) before regenerating; removing an override does not undo a value already applied to `.env`.
+- `--php-version=` clears a configuration pin for command resolution but does not remove an existing site's PHP pin.
+- Omit local `--migrate` and `--build` flags when regenerating to disable those steps. These are separate from the boolean cloud settings.
+- `--agents=` disables the current integrations and writes no new agent command environment; it does not change the environment of an already running session.
+
+When parameter-generated worktree automation is enabled, ordinary `init` and `update` preserve the Codex lifecycle file. To change that automation, use parameter-based `init` again. Agent settings contain the full resolved local override map, including inherited personal values; use global mode when those values should stay private.
+
+The named parameters cover the keys in [All keys](#all-keys) and `local_env.*`. Provider execution detection (`AI_HARNESS_ENV`), cloud provisioner package-source/extension controls, and Composer authentication are separate execution inputs, not additional harness config keys. See [cloud environment variables](cloud.md#environment-variables) and [private packages](private-packages.md).
 
 ## File format
 
 ```ini
 # A comment starts with # or ;
 runtime=herd
-service_manager=sail
 sail_services=mysql,redis
 php_version="8.4"
 ```
@@ -106,7 +148,6 @@ For MySQL managed by Sail, set the forwarded port instead:
 
 ```ini
 runtime=herd
-service_manager=sail
 sail_services=mysql
 local_env.FORWARD_DB_PORT=3307
 ```
@@ -135,9 +176,10 @@ The namespace is accepted in all configuration layers, so teams can also put non
 
 1. `APP_KEY`, `APP_ENV`, and `APP_CONFIG_CACHE` cannot be overridden through `local_env`.
 2. Herd, Valet, and Yerd own `APP_URL`. With those runtimes, a conflicting override is an error.
-3. When `service_manager=sail` and `sail_services` explicitly includes `mysql`, the harness owns `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA`. Use `FORWARD_DB_PORT` for the host port. Host PHP uses `127.0.0.1:<forwarded-port>`; PHP inside Sail uses `mysql:3306`. The development and testing databases keep separate generated names. Setup clears inherited database URLs, sockets, and SSL CA settings in both files so they cannot redirect the managed connection.
-4. Overrides target `.env`. A newly created `.env.testing` starts from `.env`, then receives the harness's testing defaults: isolated SQLite, array mail/cache/session drivers, and a synchronous queue. Database URL and socket aliases are cleared. Existing testing files are preserved, except for managed Sail MySQL values. Changing a development override does not rewrite unrelated settings in an existing `.env.testing`.
-5. `local_env.*` values are ignored in cloud execution, including custom application variables. The existing cloud configuration remains independent.
+3. When `sail_services` explicitly includes `mysql`, or `runtime=sail` uses an empty list with `db_connection=mysql`, the harness owns `DB_*`, `DATABASE_URL`, and `MYSQL_ATTR_SSL_CA`. Use `FORWARD_DB_PORT` for the host port. Host PHP uses `127.0.0.1:<forwarded-port>`; PHP inside Sail uses `mysql:3306`. The development and testing databases keep separate generated names. Setup clears inherited database URLs, sockets, and SSL CA settings in both files so they cannot redirect the managed connection.
+4. Overrides target `.env`. A newly created `.env.testing` starts from `.env`, then receives the harness's testing defaults: isolated SQLite, array mail/cache/session drivers, and a synchronous queue. Database URL and socket aliases are cleared. Existing testing files are preserved, except when Sail MySQL or an explicit `db_connection` selection manages the testing connection. Changing a development override does not rewrite unrelated settings in an existing `.env.testing`.
+5. Existing-server provisioning owns generated `DB_DATABASE` names. Driver and endpoint overrides such as `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, and credentials remain configurable; explicit `db_connection=mysql` or `mariadb` takes precedence over the application driver. See [host MySQL](local-environments.md#existing-host-mysql-or-mariadb). Explicit SQLite owns its connection and database name.
+6. `local_env.*` values are ignored in cloud execution, including custom application variables. The existing cloud configuration remains independent.
 
 ### Inspecting conflicts
 
@@ -156,7 +198,7 @@ local_env.DATABASE_URL=
 local_env.DB_SOCKET=
 ```
 
-Explicit clears cannot override conflicting system-level environment variables; remove those from the process environment. Use the default configuration cache path when applying local overrides. If `phpunit.xml` forces database settings, those are independent of `.env.testing`; outside managed Sail MySQL, adjust them yourself.
+Explicit clears cannot override conflicting system-level environment variables; remove those from the process environment. Use the default configuration cache path when applying local overrides. If `phpunit.xml` forces database settings, those are independent of `.env.testing`; outside managed Sail MySQL or explicit `db_connection` selection, adjust them yourself.
 
 ## All keys
 
@@ -165,9 +207,9 @@ Explicit clears cannot override conflicting system-level environment variables; 
 | Key | Default | Values | Description |
 | --- | --- | --- | --- |
 | `runtime` | `native` | `native`, `herd`, `valet`, `yerd`, `sail` | Where PHP, Artisan, Composer, and npm run. |
-| `service_manager` | `none` | `none`, `sail` | Use Sail to manage supporting containers. |
-| `sail_services` | (empty) | List of Sail service names | Sail services to start. Empty means the full stack. Only valid with `service_manager=sail`. |
+| `sail_services` | (empty) | List of Sail service names | A nonempty list enables Sail services for any runtime. Empty means the full stack for `runtime=sail`, and no containers for host PHP. |
 | `site_secure` | `true` | Boolean | Enable HTTPS for the selected Herd, Valet, or Yerd site and its `APP_URL`. Ignored by native, Sail, and cloud execution. |
+| `db_connection` | `auto` | `auto`, `sqlite`, `mysql`, `mariadb` | `auto` detects existing MySQL/MariaDB from the application environment. `mysql` uses managed Sail MySQL when configured, otherwise an existing host service. `sqlite` selects a checkout-local SQLite file. |
 | `php_version` | (empty) | Empty or `major.minor`, for example `8.4` | Select the PHP version for a Herd, Valet, or Yerd site. Empty preserves the existing selection. Ignored by native, Sail, and cloud execution. |
 
 The site settings follow `runtime`, so switching between Herd, Valet, and Yerd does not require new keys. Run `setup` after changing them. An empty `php_version` does not remove an existing site pin. Valet can install missing PHP through Homebrew; Herd and Yerd require the requested version to be installed. Native PHP uses PATH, Sail uses its image, and cloud uses the provisioned PHP.
@@ -214,14 +256,16 @@ In a cloud environment, the harness always uses `native`. The `runtime` value is
 
 ## Services
 
-`service_manager=sail` lets Sail manage the supporting containers. This is independent of the PHP runtime. You can use it for:
+Sail usage follows `runtime` and `sail_services`; no separate service manager is needed.
 
-- A full Sail project (`runtime=sail`).
-- Herd, Valet, Yerd, or native PHP with MySQL, Redis, or Mailpit from Sail.
+| PHP runtime | `sail_services` | `up` | `down` |
+| --- | --- | --- | --- |
+| Native, Herd, Valet, or Yerd | Empty | No containers | No containers |
+| Native, Herd, Valet, or Yerd | `mysql,redis` | `sail up -d mysql redis` | `sail stop mysql redis` |
+| Sail | Empty | `sail up -d` (full stack) | `sail down` |
+| Sail | `mysql,redis` | `sail up -d laravel.test mysql redis` | `sail stop laravel.test mysql redis` |
 
-With an empty `sail_services`, `up` starts the full stack and `down` runs `sail down`. With a list, `up` starts only those services and `down` runs `sail stop` for them.
-
-With `runtime=sail`, the harness always includes the Sail `laravel.test` application container, also when `service_manager=none`.
+With `runtime=sail`, an explicit subset always includes the `laravel.test` application container. For isolated MySQL databases, list `mysql`, or use `db_connection=mysql` with the full Sail stack. An empty list with `db_connection=auto` leaves database configuration unchanged. Cloud execution uses `cloud_services` independently.
 
 The harness never deletes Docker volumes.
 
@@ -231,14 +275,12 @@ The harness never deletes Docker volumes.
 
 ```ini
 runtime=native
-service_manager=none
 ```
 
 ### Laravel Herd with SQLite
 
 ```ini
 runtime=herd
-service_manager=none
 site_secure=true
 php_version=8.4
 ```
@@ -247,7 +289,6 @@ php_version=8.4
 
 ```ini
 runtime=valet
-service_manager=none
 site_secure=true
 php_version=8.4
 ```
@@ -256,7 +297,6 @@ php_version=8.4
 
 ```ini
 runtime=herd
-service_manager=sail
 sail_services=mysql,redis,mailpit
 site_secure=true
 php_version=8.4
@@ -268,7 +308,6 @@ When another MySQL server already uses port 3306, set `local_env.FORWARD_DB_PORT
 
 ```ini
 runtime=sail
-service_manager=sail
 sail_services=
 ```
 
@@ -290,9 +329,9 @@ cloud_build=true
 
 ## Databases on an existing MySQL / MariaDB server
 
-Setup reads the application's normal `.env` settings. When `.env` does not exist, it reads `.env.example`, which setup copies into `.env`. `DB_CONNECTION=mysql` or `DB_CONNECTION=mariadb` automatically selects provisioning on that existing server. There is no database mode flag and no duplicate connection configuration. This works with native PHP, Yerd, Herd and Valet. Sail runtimes and full Sail stacks keep their existing database behavior, as does Sail's explicitly configured MySQL service; SQLite and other connections keep theirs. Cloud uses its own local services and preserves development data during cleanup.
+Setup reads the application's normal `.env` settings. When `.env` does not exist, it reads `.env.example`, which setup copies into `.env`. `DB_CONNECTION=mysql` or `DB_CONNECTION=mariadb` automatically selects provisioning on that existing server. There is no database mode flag and no duplicate connection configuration. This works with native PHP, Yerd, Herd and Valet. Explicit `db_connection=mariadb` is supported for host PHP with an existing server. Harness-managed Sail databases require `db_connection=mysql`; MariaDB provisioning through a Sail runtime is unsupported. Sail runtimes and full Sail stacks otherwise keep their existing database behavior, as does Sail's explicitly configured MySQL service; SQLite and other connections keep theirs. Cloud uses its own local services and preserves development data during cleanup.
 
-Development and testing database names are generated by default from the checkout basename and path hash. Setup replaces the original `DB_DATABASE` value; worktree-specific names are never required. An explicit `AI_HARNESS_DB_DATABASE` override can select a custom development name when needed. The server address, port, socket, username and password come from the normal `DB_*` settings. Defaults are `127.0.0.1:3306`, username `root` and an empty password. `DB_SOCKET` takes precedence over host/port. Quoted values, comments, exports and references to earlier dotenv variables use Laravel's dotenv parser, without executing code or modifying the process environment. `MYSQL_ATTR_SSL_CA` is preserved and also used by the provisioning connection when configured.
+Development and testing database names are generated by default from the checkout basename and path hash. Setup replaces the original `DB_DATABASE` value; worktree-specific names are never required. An explicit `AI_HARNESS_DB_DATABASE` override can select a custom development name when needed. The server address, port, socket, username and password come from the normal `DB_*` settings. Explicit `init --database=mysql` or `--database=mariadb` selects that driver even for a SQLite template; `--database=sqlite` disables existing-server provisioning. Defaults are `127.0.0.1:3306`, username `root` and an empty password. `DB_SOCKET` takes precedence over host/port. Quoted values, comments, exports and references to earlier dotenv variables use Laravel's dotenv parser, without executing code or modifying the process environment. `MYSQL_ATTR_SSL_CA` is preserved and also used by the provisioning connection when configured.
 
 Personal overrides still use the existing `local_env.DB_*` configuration keys and primary-checkout inheritance. They override the dotenv values. Keep personal credentials in `.ai-harness.config.local` when they differ from the application defaults. `local_env.DB_DATABASE` is reserved for generated names; nonempty connection URL overrides cannot override managed connections. Setup clears stale `DB_URL` and `DATABASE_URL` entries in the environment files.
 
@@ -315,7 +354,7 @@ Process overrides take precedence over dotenv and personal `local_env.*` setting
 | `AI_HARNESS_DB_HOST` | Server host (`DB_HOST`) |
 | `AI_HARNESS_DB_PORT` | TCP port (`DB_PORT`) |
 | `AI_HARNESS_DB_SOCKET` | Socket (`DB_SOCKET`); set empty to clear an inherited socket |
-| `AI_HARNESS_DB_CONNECTION` | `mysql` or `mariadb`; can explicitly switch a SQLite template |
+| `AI_HARNESS_DB_CONNECTION` | `auto`, `sqlite`, `mysql`, or `mariadb`; explicit SQL drivers can switch a SQLite template |
 | `AI_HARNESS_DB_DATABASE` | Custom development database name; testing uses `<name>_testing` |
 
 ```bash
@@ -352,7 +391,6 @@ With MariaDB already running locally, keep the runtime configuration in `.ai-har
 runtime=yerd
 php_version=8.5
 site_secure=true
-service_manager=none
 sail_services=
 database_parallel_processes=4
 ```
@@ -390,3 +428,5 @@ Omit the administrative settings when the application account already has the re
 ```
 
 Doctor may report missing setup or runtime resources before the first setup. Hostname, HTTPS and PHP selection follow the existing runtime behavior. Linked worktrees inherit personal `local_env.*` and administrative credentials, read their own `.env` or `.env.example`, and automatically receive distinct database names. The harness does not copy the primary checkout's entire `.env`. `up` and `down` leave MariaDB running.
+
+Parameterized agent generation also retains exported `AI_HARNESS_DB_HOST`, `AI_HARNESS_DB_PORT`, `AI_HARNESS_DB_SOCKET`, `AI_HARNESS_DB_USERNAME`, `AI_HARNESS_DB_PASSWORD`, and `AI_HARNESS_DB_DATABASE` values. Prefer `--local-env=DB_HOST=...` and other endpoint overrides when configuring from parameters. Provisioning credentials and parallel workers have dedicated parameters; generated agent files containing credentials need the same protection as `.env`.
