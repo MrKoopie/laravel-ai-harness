@@ -63,6 +63,17 @@ final class ConfigLoader
         '.ai-harness.config.local',
     ];
 
+    /** Return the variable names owned by generated agent settings.
+     * @return list<string>
+     */
+    public static function environmentNames(): array
+    {
+        return array_values(array_unique([
+            ...array_keys(self::ENVIRONMENT), ...array_keys(ExistingDatabase::ENVIRONMENT),
+            'AI_HARNESS_LOCAL_ENV', 'AI_HARNESS_SERVICE_MANAGER',
+        ]));
+    }
+
     /** Load and validate the layered configuration for a project.
      * @param  array<string, string>  $overrides
      */
@@ -237,7 +248,10 @@ final class ConfigLoader
             databaseEnvironment: $databaseEnvironment,
         );
 
-        if (! $cloud && in_array($config->dbConnection, ['mysql', 'mariadb'], true) && ! $config->managesMySql() && $runtime === Runtime::Sail) {
+        if (! $cloud && $config->dbConnection === 'mariadb' && ($config->managesMySql() || $runtime === Runtime::Sail)) {
+            throw new ConfigException('Sail-managed databases use the mysql service; select db_connection=mysql. For an existing MariaDB server, use a host PHP runtime.');
+        }
+        if (! $cloud && $config->dbConnection === 'mysql' && ! $config->managesMySql() && $runtime === Runtime::Sail) {
             throw new ConfigException('A Sail MySQL subset must include mysql in sail_services; use an empty list for the full stack.');
         }
         if (! $cloud && $config->dbConnection === 'sqlite' && $config->managesMySql()) {

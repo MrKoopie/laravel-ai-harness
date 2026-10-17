@@ -30,6 +30,15 @@ final readonly class EnvironmentManager
 
         $config = $this->configLoader->load($root);
 
+        if ($config->dbConnection === 'sqlite') {
+            foreach (array_keys(getenv()) as $key) {
+                if (str_starts_with($key, 'DB_') || in_array($key, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)) {
+                    throw new EnvironmentException("Unset process {$key} before selecting checkout-local SQLite.");
+                }
+            }
+            $this->environmentFile->assertSqliteRequirements($root);
+        }
+
         if ($config->existingDatabase !== null) {
             $conflicts = $this->environmentFile->existingDatabaseConflicts($root);
             if ($conflicts !== []) {
@@ -82,19 +91,6 @@ final readonly class EnvironmentManager
             $output->writeln('<info>Configured checkout-owned existing-server MySQL/MariaDB databases</info>');
         }
 
-        if ($config->dbConnection === 'sqlite') {
-            foreach (array_keys(getenv()) as $key) {
-                if (str_starts_with($key, 'DB_') || in_array($key, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)) {
-                    throw new EnvironmentException("Unset process {$key} before selecting checkout-local SQLite.");
-                }
-            }
-            $database = $this->environmentFile->configureSqlite($root);
-            $status = $this->processes->run($this->commands->runtime($config, 'php', ['-r', 'new PDO("sqlite:".$argv[1]);', $database], $root), $root, $output);
-            if ($status !== 0) {
-                return $status;
-            }
-        }
-
         if (! is_file($root.'/vendor/autoload.php')) {
             $output->writeln('<info>Installing Composer dependencies</info>');
             $status = $this->processes->run($this->commands->bootstrapComposer($config, $root), $root, $output);
@@ -108,6 +104,14 @@ final readonly class EnvironmentManager
             $output->writeln('<info>Starting configured Sail containers</info>');
             $status = $this->processes->run($this->commands->servicesUp($config, $root), $root, $output);
 
+            if ($status !== 0) {
+                return $status;
+            }
+        }
+
+        if ($config->dbConnection === 'sqlite') {
+            $database = $this->environmentFile->configureSqlite($root, $config->runtime === Runtime::Sail);
+            $status = $this->processes->run($this->commands->runtime($config, 'php', ['-r', 'new PDO("sqlite:".$argv[1]);', $database], $root), $root, $output);
             if ($status !== 0) {
                 return $status;
             }

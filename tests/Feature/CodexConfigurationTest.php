@@ -118,6 +118,9 @@ foreach ([
     'multiline strings' => 'instructions = """a multiline string"""',
     'inline table' => 'shell_environment_policy = { set = { AI_HARNESS_RUNTIME = "native" } }',
     'dotted keys' => "[shell_environment_policy]\nset.AI_HARNESS_RUNTIME = \"native\"\n",
+    'quoted parent with inline settings' => '["shell_environment_policy"]'."\n".'set = { AI_HARNESS_RUNTIME = "native" }',
+    'single-quoted parent with inline settings' => "['shell_environment_policy']\nset = { AI_HARNESS_RUNTIME = \"native\" }",
+    'escaped parent with inline settings' => '["shell\\u005fenvironment_policy"]'."\n".'set = { AI_HARNESS_RUNTIME = "native" }',
     'duplicate table' => "[shell_environment_policy.set]\n[shell_environment_policy.set]\n",
 ] as $case => $contents) {
     test('Codex generation refuses '.$case.' without changing the original file', function () use ($contents): void {
@@ -318,4 +321,45 @@ test('agent generation preserves existing-server process credentials without pro
         ->and($root.'/.env')->not->toBeFile()
         ->and($root.'/.ai-harness.state.json')->not->toBeFile()
         ->and($root.'/not-executed')->not->toBeFile();
+});
+
+foreach ([false, true] as $global) {
+    foreach (['codex', 'claude', ''] as $agents) {
+        test('explicit agent deselection removes generated settings for ['.$agents.'] in '.($global ? 'global' : 'project').' mode', function () use ($global, $agents): void {
+            $root = temp_directory('harness-deselect-agents');
+            (new Process(['git', 'init', $root]))->mustRun();
+            $mode = $global ? ['--global'] : [];
+            harness_process(['init', ...$mode, '--agents=codex,claude', '--runtime=native'], $root)->mustRun();
+            $environmentPath = $global ? '.codex/environments/ai-harness-global.toml' : '.codex/environments/environment.toml';
+            $claudePath = $global ? '.claude/settings.local.json' : '.claude/settings.json';
+            file_put_contents($root.'/.codex/config.toml', "\nCUSTOM = \"keep\"\nAI_HARNESS_CUSTOM = \"keep-too\"\n", FILE_APPEND);
+            $settings = json_decode((string) file_get_contents($root.'/'.$claudePath), true, flags: JSON_THROW_ON_ERROR);
+            $settings['env']['CUSTOM'] = 'keep';
+            $settings['env']['AI_HARNESS_CUSTOM'] = 'keep-too';
+            $settings['permissions'] = ['deny' => ['Bash(dangerous)']];
+            file_put_contents($root.'/'.$claudePath, json_encode($settings, JSON_THROW_ON_ERROR));
+            file_put_contents($root.'/.codex/environments/user.toml', 'name = "User"');
+            harness_process(['init', ...$mode, '--agents='.$agents], $root)->mustRun();
+            $codex = read_codex_toml($root.'/.codex/config.toml')['shell_environment_policy']['set'];
+            $claude = json_decode((string) file_get_contents($root.'/'.$claudePath), true, flags: JSON_THROW_ON_ERROR);
+            if ($agents !== 'codex') {
+                expect($root.'/'.$environmentPath)->not->toBeFile()
+                    ->and($codex)->toBe(['CUSTOM' => 'keep', 'AI_HARNESS_CUSTOM' => 'keep-too']);
+            }
+            if ($agents !== 'claude') {
+                expect($claude['env'])->toBe(['CUSTOM' => 'keep', 'AI_HARNESS_CUSTOM' => 'keep-too'])
+                    ->and($claude)->not->toHaveKey('hooks');
+            }
+            expect(file_get_contents($root.'/.codex/environments/user.toml'))->toBe('name = "User"')
+                ->and($claude['permissions']['deny'])->toBe(['Bash(dangerous)']);
+        });
+    }
+}
+
+test('ordinary shared update does not persist process credentials in Claude settings', function (): void {
+    $root = temp_directory('harness-update-process-credentials');
+    harness_process(['init', '--agents=claude', '--runtime=native'], $root)->mustRun();
+    $before = file_get_contents($root.'/.claude/settings.json');
+    harness_process(['update'], $root, ['AI_HARNESS_DB_PASSWORD' => 'personal-secret', 'AI_HARNESS_PHP_VERSION' => '8.5'])->mustRun();
+    expect(file_get_contents($root.'/.claude/settings.json'))->toBe($before);
 });

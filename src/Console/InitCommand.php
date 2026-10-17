@@ -84,20 +84,29 @@ final class InitCommand extends ProjectCommand
         }
         $codex = new CodexConfiguration;
         $variables = $config->environment();
-        $shellConfig = $codexEnabled ? $codex->shellConfig($root, $variables) : '';
+        $shellConfig = $configured ? $codex->shellConfig($root, $codexEnabled ? $variables : []) : '';
         $global = (bool) $input->getOption('global') || GlobalInstallation::active($root);
         $claude = new ClaudeSettings(new SafeWriter);
         if ($configured && $config->supportsAgent('claude')) {
             // Preflight before writing project integrations.
             $claude->environment($root, $variables, $global, write: false);
         }
+        if ($configured && ! $config->supportsAgent('claude')) {
+            $claude->clearEnvironment($root, $global, write: false);
+        }
         if ($codexEnabled && $global) {
             (new GitExcludes(new SafeWriter))->sync($root, ['.codex/config.toml']);
         }
-        $result = $this->synchronizer->sync($root, $global, $overrides);
+        $result = $this->synchronizer->sync($root, $global, $overrides, persistAgentEnvironment: $configured || $config->hasOverrides());
         if ($codexEnabled) {
             $codex->write($root, $config, $global, $migrate, $build, $shellConfig);
             $output->writeln('<info>Configured Codex command settings'.($config->worktrees ? ', setup, and cleanup. Select this environment in Codex before creating worktrees.' : '. Worktree automation is disabled.').'</info>');
+        }
+        if ($configured && ! $config->supportsAgent('codex')) {
+            $codex->disable($root, $global, $shellConfig);
+        }
+        if ($configured && ! $config->supportsAgent('claude')) {
+            $claude->clearEnvironment($root, $global);
         }
         if ($configured && $config->supportsAgent('claude')) {
             $output->writeln('<info>Configured Claude command settings.</info>');

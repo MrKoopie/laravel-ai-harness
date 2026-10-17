@@ -51,7 +51,7 @@ final readonly class ProjectInstaller
      *
      * @return list<string>
      */
-    public function install(string $root, Config $config, bool $global = false): array
+    public function install(string $root, Config $config, bool $global = false, bool $persistAgentEnvironment = false): array
     {
         if ($global) {
             return (new GlobalProjectInstaller($this->writer, $this->claudeSettings))->install($root, $config);
@@ -95,7 +95,7 @@ final readonly class ProjectInstaller
         $claudeHooks = $config->supportsAgent('claude') && $config->worktrees;
         $claudeCloud = $config->supportsAgent('claude') && $config->cloud;
         $this->claudeSettings->sync($root, $claudeHooks, $claudeCloud);
-        if ($config->supportsAgent('claude') && $config->hasOverrides()) {
+        if ($persistAgentEnvironment && $config->supportsAgent('claude') && $config->hasOverrides()) {
             $this->claudeSettings->environment($root, $config->environment(), local: false);
         }
 

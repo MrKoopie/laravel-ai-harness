@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MrKoopie\LaravelAiHarness\Files;
 
 use MrKoopie\LaravelAiHarness\Config\Config;
+use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 
 /** Generate Codex's setup and subprocess configuration from one selection. */
@@ -61,6 +62,10 @@ final readonly class CodexConfiguration
                     $result = [...$result, ...$this->assignments($variables)];
                 }
                 $section = trim(explode(']', ltrim(trim($line), '['), 2)[0]);
+                if (str_contains($section, '\\')) {
+                    throw new FileException('Escaped TOML table headers cannot be merged safely; use explicit unescaped table names.');
+                }
+                $section = trim($section, "\"'");
                 $table = preg_match('/^\s*\[shell_environment_policy\.set\]\s*(?:#.*)?$/', $line) === 1;
                 if ($table && $found) {
                     throw new FileException('Duplicate shell_environment_policy.set table in .codex/config.toml.');
@@ -73,7 +78,7 @@ final readonly class CodexConfiguration
                 || ($section === 'shell_environment_policy' && preg_match('/^\s*["\']?set["\']?\s*[.=]/', $line) === 1)) {
                 throw new FileException('Inline or dotted shell environment settings cannot be merged; use [shell_environment_policy.set].');
             }
-            if ($table && preg_match('/^\s*["\']?(AI_HARNESS_[A-Z_]+)["\']?\s*([=.])/', $line, $match) === 1 && (array_key_exists($match[1], $variables) || $match[1] === 'AI_HARNESS_SERVICE_MANAGER')) {
+            if ($table && preg_match('/^\s*["\']?(AI_HARNESS_[A-Z_]+)["\']?\s*([=.])/', $line, $match) === 1 && in_array($match[1], ConfigLoader::environmentNames(), true)) {
                 if ($match[2] !== '=') {
                     throw new FileException('Harness shell settings must be scalar TOML strings.');
                 }
@@ -85,7 +90,7 @@ final readonly class CodexConfiguration
             }
             $result[] = $line;
         }
-        if (! $found) {
+        if (! $found && $variables !== []) {
             $result[] = '[shell_environment_policy.set]';
         }
         if ($table || ! $found) {
@@ -133,6 +138,18 @@ final readonly class CodexConfiguration
             if (self::configured($root, $path)) {
                 $this->writer->removeOwnedFile($root, $path, (string) file_get_contents($root.'/'.$path));
             }
+        }
+    }
+
+    /** Remove generated Codex integration while preserving unrelated user settings. */
+    public function disable(string $root, bool $global, string $shellConfig): void
+    {
+        if (is_file($root.'/.codex/config.toml')) {
+            $this->writer->write($root, '.codex/config.toml', $shellConfig);
+        }
+        $path = $global ? GlobalInstallation::CODEX_ENVIRONMENT : '.codex/environments/environment.toml';
+        if (self::configured($root, $path)) {
+            $this->writer->removeOwnedFile($root, $path, (string) file_get_contents($root.'/'.$path));
         }
     }
 

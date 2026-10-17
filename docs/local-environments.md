@@ -209,7 +209,7 @@ Setup creates isolated development and testing databases, verifies server-side o
 
 Provisioning runs through the PHP launching the harness, which needs `pdo_mysql`; PHPUnit reconciliation also needs `ext-dom`. Endpoint overrides, custom names, TLS, registry ownership, and separate credentials are covered in [existing server configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server).
 
-`db_connection=sqlite` explicitly selects `database/database.sqlite` in the checkout and an in-memory testing connection; the selected runtime needs `pdo_sqlite`. It cannot be combined with managed Sail MySQL.
+`db_connection=sqlite` explicitly selects `database/database.sqlite` in the checkout and an in-memory testing connection; the selected runtime needs `pdo_sqlite`. It cannot be combined with managed Sail MySQL. SQLite setup checks conflicting process variables and PHPUnit DOM requirements before changing files. Its runtime opens the database after Composer bootstrap and service startup; Sail uses the application-relative path `database/database.sqlite`.
 
 ## Optional application preparation
 

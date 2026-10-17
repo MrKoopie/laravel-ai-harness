@@ -131,6 +131,14 @@ final readonly class EnvironmentFile
         }
     }
 
+    /** Refuse SQLite PHPUnit reconciliation before changing environment files. */
+    public function assertSqliteRequirements(string $root): void
+    {
+        if ((is_file($root.'/phpunit.xml') || is_file($root.'/phpunit.xml.dist')) && ! class_exists(\DOMDocument::class)) {
+            throw new EnvironmentException('SQLite PHPUnit configuration requires ext-dom; enable the DOM extension in the PHP process launching ai-harness.');
+        }
+    }
+
     /** Configure existing-server endpoints without replacing unrelated application/test settings. */
     public function configureExistingMySql(string $root, ExistingDatabase $config, bool $shellSafe = false): void
     {
@@ -307,8 +315,10 @@ final readonly class EnvironmentFile
     }
 
     /** Select a checkout-local SQLite file and isolated test connection. */
-    public function configureSqlite(string $root): string
+    public function configureSqlite(string $root, bool $insideSail = false): string
     {
+        $this->assertSqliteRequirements($root);
+        $database = $insideSail ? 'database/database.sqlite' : $root.'/database/database.sqlite';
         $this->writer->assertSafePath($root, 'database/database.sqlite');
         if (is_link($root.'/database/database.sqlite')) {
             throw new FileException('Refusing a symbolic link for the SQLite database.');
@@ -319,7 +329,7 @@ final readonly class EnvironmentFile
         $this->ensureTesting($root);
         $this->applyLocalOverrides($root, [
             'APP_CONFIG_CACHE' => 'bootstrap/cache/config.php',
-            'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $root.'/database/database.sqlite',
+            'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $database,
             'DB_URL' => '', 'DATABASE_URL' => '', 'DB_SOCKET' => '', 'MYSQL_ATTR_SSL_CA' => '',
         ]);
         $this->replaceValues($root, '.env.testing', [
@@ -330,7 +340,7 @@ final readonly class EnvironmentFile
         $this->clearCloudConfigCache($root);
         $this->configureCloudPhpUnit($root);
 
-        return $root.'/database/database.sqlite';
+        return $database;
     }
 
     /** Configure only local cloud services, never inherited existing-server database hosts. */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use MrKoopie\LaravelAiHarness\Config\ConfigException;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
+use Symfony\Component\Process\Process;
 
 foreach ([
     ['native', '', null, null],
@@ -61,3 +62,88 @@ test('the removed service manager option is rejected before generating files', f
         ->and($process->getErrorOutput())->toContain('service-manager')
         ->and($root.'/.ai-harness.config')->not->toBeFile();
 });
+
+foreach ([false, true] as $installed) {
+    test('SQLite setup bootstraps and starts Sail before opening the database with dependencies '.($installed ? 'installed' : 'missing'), function () use ($installed): void {
+        $root = temp_directory('harness-sail-sqlite-startup');
+        file_put_contents($root.'/.env.example', "APP_KEY=existing\nDB_CONNECTION=sqlite\n");
+        file_put_contents($root.'/.ai-harness.config', "runtime=sail\ndb_connection=sqlite\nagents=\n");
+        $sail = <<<'BASH'
+#!/usr/bin/env bash
+set -e
+printf '%s\n' "$1" >> lifecycle-log
+if [[ "$1" == up ]]; then touch sail-running; exit 0; fi
+[[ -f sail-running ]] || exit 42
+if [[ "$1" == php ]]; then shift; exec "$HARNESS_PHP" "$@"; fi
+BASH;
+        write_executable($root.'/sail-fixture', $sail);
+        if ($installed) {
+            write_executable($root.'/vendor/bin/sail', $sail);
+            file_put_contents($root.'/vendor/autoload.php', '<?php');
+        }
+        write_executable($root.'/bin/composer', <<<'BASH'
+#!/usr/bin/env bash
+set -e
+printf 'composer\n' >> lifecycle-log
+mkdir -p vendor/bin
+cp sail-fixture vendor/bin/sail
+printf '<?php' > vendor/autoload.php
+BASH);
+        harness_process(['setup'], $root, ['PATH' => $root.'/bin'.PATH_SEPARATOR.getenv('PATH'), 'HARNESS_PHP' => PHP_BINARY])->mustRun();
+        expect(file($root.'/lifecycle-log', FILE_IGNORE_NEW_LINES))->toBe($installed ? ['up', 'php'] : ['composer', 'up', 'php'])
+            ->and($root.'/database/database.sqlite')->toBeFile()
+            ->and(file_get_contents($root.'/.env'))->toContain('DB_DATABASE=database/database.sqlite');
+    });
+}
+
+foreach ([false, true] as $existing) {
+    test('SQLite process conflicts preserve all environment files with an '.($existing ? 'existing' : 'absent').' env', function () use ($existing): void {
+        $root = temp_directory('harness-sqlite-preflight');
+        $contents = "APP_NAME=unchanged\nDB_CONNECTION=sqlite\n";
+        file_put_contents($root.'/.env.example', $contents);
+        file_put_contents($root.'/.env.testing', $contents);
+        if ($existing) {
+            file_put_contents($root.'/.env', $contents);
+        }
+        file_put_contents($root.'/.ai-harness.config', "runtime=native\ndb_connection=sqlite\nagents=\nlocal_env.APP_NAME=changed\n");
+        $process = harness_process(['setup'], $root, ['DB_HOST' => '127.0.0.1']);
+        $process->run();
+        expect($process->getExitCode())->toBe(1)
+            ->and($process->getErrorOutput())->toContain('Unset process DB_HOST')
+            ->and(file_get_contents($root.'/.env.example'))->toBe($contents)
+            ->and(file_get_contents($root.'/.env.testing'))->toBe($contents);
+        if ($existing) {
+            expect(file_get_contents($root.'/.env'))->toBe($contents);
+        } else {
+            expect($root.'/.env')->not->toBeFile();
+        }
+    });
+}
+
+test('SQLite without DOM fails before copying environment files or creating its database', function (): void {
+    $root = temp_directory('harness-sqlite-no-dom');
+    file_put_contents($root.'/.env.example', "DB_CONNECTION=sqlite\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\ndb_connection=sqlite\nagents=\n");
+    file_put_contents($root.'/phpunit.xml', '<phpunit/>');
+    $script = $root.'/without-dom.php';
+    $autoload = var_export(package_root().'/vendor/autoload.php', true);
+    $project = var_export($root, true);
+    file_put_contents($script, '<?php namespace MrKoopie\\LaravelAiHarness\\Environment { function class_exists(string $name): bool { return $name !== \\DOMDocument::class && \\class_exists($name); } } namespace { require '.$autoload.'; exit((new \\MrKoopie\\LaravelAiHarness\\Application)->run(new \\Symfony\\Component\\Console\\Input\\ArrayInput(["command" => "setup", "--path" => '.$project.']))); }');
+    $process = new Process([PHP_BINARY, $script]);
+    $process->run();
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getOutput().$process->getErrorOutput())->toContain('ext-dom')
+        ->and($root.'/.env')->not->toBeFile()
+        ->and($root.'/.env.testing')->not->toBeFile()
+        ->and($root.'/database')->not->toBeDirectory()
+        ->and(file_get_contents($root.'/phpunit.xml'))->toBe('<phpunit/>');
+});
+
+foreach ([['sail', 'mysql'], ['native', 'mysql'], ['sail', '']] as [$runtime, $services]) {
+    test('MariaDB selection rejects unsupported Sail provisioning for '.$runtime.' with ['.$services.']', function () use ($runtime, $services): void {
+        $root = temp_directory('harness-sail-mariadb-conflict');
+        file_put_contents($root.'/.ai-harness.config', "runtime={$runtime}\nsail_services={$services}\ndb_connection=mariadb\n");
+        expect(fn () => (new ConfigLoader)->load($root))->toThrow(ConfigException::class, 'Sail-managed databases use the mysql service');
+    });
+
+}

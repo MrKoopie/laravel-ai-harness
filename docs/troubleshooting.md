@@ -24,7 +24,7 @@ Each `FAIL` line tells you what is wrong. This page gives the fix for each messa
 | Yerd site unowned or reassigned | Preserve the existing site. Check its JSON target and harness state; use a distinct checkout path. |
 | `Laravel Valet is unavailable` | Install Valet and make sure that `valet` is on `PATH`, or change `runtime`. |
 | `Laravel Sail is missing or not executable` | Install Sail with the host Composer: `composer require laravel/sail --dev`. Do not use `./.ai-harness composer`, because with `runtime=sail` it needs Sail. Or change `runtime`. |
-| `Sail usage inferred from runtime/sail_services requires vendor/bin/sail` | Install Laravel Sail with `./.ai-harness composer require laravel/sail --dev`, or choose a host PHP runtime with an empty `sail_services` list. |
+| `Sail usage inferred from runtime/sail_services requires vendor/bin/sail` | Install Sail using host Composer: `composer require laravel/sail --dev`. With a host PHP runtime, `./.ai-harness composer require laravel/sail --dev` also works; or choose a host PHP runtime with an empty `sail_services` list. |
 | `Cloud mysql is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
 | `Cloud redis-cli is missing; run cloud provision` | Run `./.ai-harness-cloud provision`. |
 | `Agent instructions are missing` | Run `./.ai-harness update`. |
