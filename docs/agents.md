@@ -89,10 +89,12 @@ Each hook calls `.ai-harness hook claude <event>`. The Composer package reads th
 - When you set `worktrees=false`, the next refresh removes the worktree hooks.
 - To remove all harness hooks, set `worktrees=false` and `cloud=false`, then run `./.ai-harness update`.
 
+## Deselecting agents
+
+Explicit `init --agents=codex`, `--agents=claude`, or `--agents=` removes generated environment values for deselected agents, along with their owned lifecycle integration. Unrelated environment variables, permissions, and custom Codex environments remain. Ordinary `update` does not copy process settings into shared Claude configuration; use `init` to generate new shared agent environment settings.
+
 ## Laravel Boost
 
 When [Laravel Boost](https://github.com/laravel/boost) is installed in your application, it can find the short guideline of this package at `resources/boost/guidelines/core.blade.php`. The guideline explains the configuration and the environment boundaries.
 
 The managed block in `AGENTS.md` stays the source for command syntax. AI Harness does not need Boost and does not add Boost files.
-
-Explicit `init --agents=codex`, `--agents=claude`, or `--agents=` removes generated environment values for deselected agents, along with their owned lifecycle integration. Unrelated environment variables, permissions, and custom Codex environments remain. Ordinary `update` does not copy process settings into shared Claude configuration; use `init` to generate new shared agent environment settings.
