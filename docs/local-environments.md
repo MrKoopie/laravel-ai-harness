@@ -2,7 +2,7 @@
 
 This page tells you what the environment commands do on a local machine. For cloud containers, refer to [Cloud environments](cloud.md).
 
-Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.testing`. The names come from the checkout path. Thus, parallel worktrees do not share data. Resource names do not depend on Git or agent metadata; Git metadata is used only to find inherited personal configuration.
+Each checkout gets its own `.env.testing`. Managed Sail MySQL or detected existing MySQL/MariaDB creates checkout-specific development and testing databases; Herd, Valet, and Yerd create checkout-specific sites. Generated names come from the checkout path, so managed worktrees do not share database names or site links. Resource names do not depend on Git or agent metadata; Git metadata is used only to find inherited personal configuration.
 
 ## `setup`
 
@@ -23,7 +23,7 @@ Each checkout or worktree gets its own databases, Herd or Valet site, and `.env.
 
 `setup` does not:
 
-- Run migrations.
+- Run migrations unless `--migrate` is explicitly passed.
 - Change `compose.yaml`.
 - Add test-runner options.
 
@@ -41,23 +41,39 @@ Personal `local_env.*` settings in `.ai-harness.config.local` are also reapplied
 `cleanup` removes only the resources that the harness created and recorded in `.ai-harness.state.json`:
 
 1. It drops the MySQL databases of this checkout.
-2. It removes HTTPS from the Herd or Valet site of this checkout.
-3. It unlinks the Herd or Valet site of this checkout.
+2. It removes harness-managed HTTPS from the Herd, Valet, or Yerd site of this checkout.
+3. It unlinks the owned site after checking its live target.
 
-Before each Herd or Valet action, the harness makes sure that the recorded site name is the expected name for the current path. If the names are different, it stops and changes nothing.
+Before each site cleanup action, the harness makes sure that the recorded site name is the expected name for the current path. If the names are different, it stops and changes nothing.
 
 `cleanup` does not stop Sail. Use `down` for that. The generated Codex local environment runs `cleanup` and then `down`.
+
+### Cleanup and retries
+
+Run cleanup before deleting the checkout, while its `.env`, dependencies, and `.ai-harness.state.json` are still available:
+
+```bash
+./.ai-harness cleanup && ./.ai-harness down
+```
+
+Use `ai-harness` in global mode and run the sequence in the configured agent/process environment. Codex's generated teardown exports its saved selections before running it. A nonzero cleanup exit prevents `down`, keeping Sail available for a retry. Restore the reported prerequisite or original database endpoint, then rerun the sequence; do not delete ownership state to bypass a refusal.
+
+Local database cleanup removes owned development and testing databases plus numeric parallel workers. Names such as `<testing>_1` and `<testing>_test_2` match; `<testing>_test_2_backup`, nonnumeric suffixes, and another checkout's databases do not. Sail also recognizes its supported legacy path-derived names. Host MySQL requires its recorded endpoint to match and refuses copied/moved ownership. Host services remain running; Docker volumes are preserved.
+
+Cloud cleanup has a different scope: it preserves development data and removes only owned testing databases and workers. See [cloud cleanup](cloud.md#cloud-cleanup).
 
 ## `up` and `down`
 
 `up` starts the configured Sail services. `down` stops them.
 
-| `sail_services` | `up` runs | `down` runs |
-| --- | --- | --- |
-| Empty | `sail up -d` | `sail down` |
-| `mysql,redis` | `sail up -d mysql redis` | `sail stop mysql redis` |
+| PHP runtime | `sail_services` | `up` runs | `down` runs |
+| --- | --- | --- | --- |
+| Host PHP | Empty | Nothing | Nothing |
+| Host PHP | `mysql,redis` | `sail up -d mysql redis` | `sail stop mysql redis` |
+| Sail | Empty | `sail up -d` | `sail down` |
+| Sail | `mysql,redis` | `sail up -d laravel.test mysql redis` | `sail stop laravel.test mysql redis` |
 
-With `runtime=sail`, the harness adds the `laravel.test` container to the list. When no Sail containers are configured, `up` and `down` do nothing.
+Host PHP means native, Herd, Valet, or Yerd. With `runtime=sail`, an explicit subset includes the `laravel.test` container; an empty list controls the full stack.
 
 The harness never deletes Docker volumes.
 
@@ -133,7 +149,7 @@ Valet commands must also run outside the Codex sandbox. The managed `AGENTS.md` 
 
 ## MySQL with Sail
 
-The harness manages databases only when `service_manager=sail` and `mysql` is in the `sail_services` list. With an empty list (the full stack), the harness does not create databases or change `.env` for MySQL.
+With `db_connection=auto`, the harness manages databases when `mysql` is in `sail_services`. For the full Sail stack (`runtime=sail` with an empty service list), explicitly select `db_connection=mysql` to enable isolated databases. Otherwise, the full stack leaves database configuration unchanged. See [inferred Sail lifecycle](configuration.md#services).
 
 ### Database names
 
@@ -148,7 +164,7 @@ The names leave space for the parallel worker suffix of Laravel. They stay withi
 
 ### Port
 
-With host PHP (Herd, Valet, or native), `DB_PORT` uses the `FORWARD_DB_PORT` value from `.env`. The default is `3306`. To keep a personal port choice across fresh worktrees, put this in the primary checkout's `.ai-harness.config.local`, then run `./.ai-harness setup`:
+With host PHP (Herd, Valet, Yerd, or native), `DB_PORT` uses the `FORWARD_DB_PORT` value from `.env`. The default is `3306`. To keep a personal port choice across fresh worktrees, put this in the primary checkout's `.ai-harness.config.local`, then run `./.ai-harness setup`:
 
 ```ini
 local_env.FORWARD_DB_PORT=3307
@@ -183,4 +199,18 @@ Setup refuses an existing name unless the harness state owns it and Yerd reports
 
 `prune-yerd` reads JSON rather than a filesystem links directory. It selects only linked sites whose absolute target is missing and whose name exactly matches the harness path-derived name. Parked sites, live directories, symlinks, and unrelated names are excluded. Each removal requires confirmation and fresh inspection; `--dry-run`, noninteractive runs, and piped or redirected input only report. Yerd unlink removes the site's configuration, including HTTPS and its PHP pin. Pruning never removes databases.
 
-Yerd-managed SQL services are not provisioned by the harness. Use `service_manager=none` for an existing local service or `service_manager=sail` to retain the harness's isolated Sail database workflow. Tests receive isolated defaults just as other host runtimes do.
+Yerd-managed SQL services are not provisioned by the harness. Use `db_connection=mysql` with an empty `sail_services` list for isolated databases on an existing local service, or list `mysql` in `sail_services` for the isolated Sail workflow.
+
+## Existing host MySQL or MariaDB
+
+Select `db_connection=mysql` or `db_connection=mariadb` with native, Herd, Valet, or Yerd PHP. The default `auto` detects these drivers from `.env` or `.env.example`. Without managed Sail MySQL, setup uses the existing server's endpoint and application credentials. Configure an administrative account with `database_provision_username` and `database_provision_password` when the application account lacks provisioning rights. No database server or user is installed.
+
+Setup creates isolated development and testing databases, verifies server-side ownership, and grants access to the application account. Set `database_parallel_processes=N` (or `init --database-parallel-processes=N`) before parallel tests to provision exact worker schemas and grants. Cleanup removes only recorded databases and numeric workers whose ownership it can verify, and revokes only grants added by the harness. Unrelated databases, backup names, and prior grants remain. Failed cleanup retains ownership for retry; restore the original connection settings and rerun it. Neither cleanup nor `down` stops the existing server.
+
+Provisioning runs through the PHP launching the harness, which needs `pdo_mysql`; PHPUnit reconciliation also needs `ext-dom`. Endpoint overrides, custom names, TLS, registry ownership, and separate credentials are covered in [existing server configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server).
+
+`db_connection=sqlite` explicitly selects `database/database.sqlite` in the checkout and an in-memory testing connection; the selected runtime needs `pdo_sqlite`. It cannot be combined with managed Sail MySQL. SQLite setup checks conflicting process variables and PHPUnit DOM requirements before changing files. Its runtime opens the database after Composer bootstrap and service startup; Sail uses the application-relative path `database/database.sqlite`.
+
+## Optional application preparation
+
+`setup --migrate --build` runs development migrations, then `npm ci --include=dev` and `npm run build`. Each step stops on failure. The frontend step requires `package-lock.json`. Plain `setup` retains its existing behavior and does not run migrations or build assets.

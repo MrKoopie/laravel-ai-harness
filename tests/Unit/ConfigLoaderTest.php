@@ -5,7 +5,6 @@ declare(strict_types=1);
 use MrKoopie\LaravelAiHarness\Config\ConfigException;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use Symfony\Component\Process\Process;
 
 test('configuration layers from dist through shared and local files', function (): void {
@@ -13,7 +12,6 @@ test('configuration layers from dist through shared and local files', function (
 
     file_put_contents($root.'/.ai-harness.config.dist', implode("\n", [
         'runtime=native',
-        'service_manager=none',
         'agents=codex',
         'worktrees=false',
     ]));
@@ -23,7 +21,6 @@ test('configuration layers from dist through shared and local files', function (
         'php_version="8.4"',
     ]));
     file_put_contents($root.'/.ai-harness.config.local', implode("\n", [
-        'service_manager=sail',
         'sail_services=mysql, redis',
         'worktrees=on',
     ]));
@@ -31,7 +28,6 @@ test('configuration layers from dist through shared and local files', function (
     $config = (new ConfigLoader)->load($root);
 
     expect($config->runtime)->toBe(Runtime::Herd)
-        ->and($config->serviceManager)->toBe(Services::Sail)
         ->and($config->agents)->toBe(['codex', 'claude'])
         ->and($config->sailServices)->toBe(['mysql', 'redis'])
         ->and($config->phpVersion)->toBe('8.4')
@@ -62,7 +58,6 @@ test('configuration has conservative internal defaults', function (): void {
     $config = (new ConfigLoader)->load(temp_directory('harness-defaults'));
 
     expect($config->runtime)->toBe(Runtime::Native)
-        ->and($config->serviceManager)->toBe(Services::None)
         ->and($config->agents)->toBe(['codex', 'claude'])
         ->and($config->sailServices)->toBe([])
         ->and($config->siteSecure)->toBeTrue()
@@ -79,12 +74,11 @@ test('unknown and duplicate configuration keys fail clearly', function (): void 
         ['site_secure=perhaps', 'site_secure must be true or false'],
         ['php_version=php@8.4', 'php_version must be empty or a major.minor version'],
         ['agents=codex,cursor', 'Unsupported agent [cursor]'],
-        ["service_manager=none\nsail_services=mysql", 'sail_services may only be set when service_manager=sail'],
         ['sail_services=mysql,,redis', 'sail_services contains an empty list item'],
         ['runtime="herd', 'Unterminated quoted value'],
         ['runtime=docker', 'runtime must be one of: native, herd, valet, yerd, sail'],
-        ['service_manager=podman', 'service_manager must be one of: none, sail'],
-        ["service_manager=sail\nsail_services=my db", 'Invalid Sail service name [my db]'],
+        ['service_manager=podman', 'Unknown configuration key [service_manager]'],
+        ['sail_services=my db', 'Invalid Sail service name [my db]'],
     ] as [$contents, $message]) {
         $root = temp_directory('harness-invalid');
         file_put_contents($root.'/.ai-harness.config', $contents);
@@ -165,8 +159,8 @@ foreach ([
     ['local_env.APP_ENV=production', 'managed'],
     ['local_env.APP_CONFIG_CACHE=/outside.php', 'managed'],
     ["runtime=herd\nlocal_env.APP_URL=https://shared.test", 'managed'],
-    ["service_manager=sail\nsail_services=mysql\nlocal_env.DB_DATABASE=shared", 'managed'],
-    ["service_manager=sail\nsail_services=mysql\nlocal_env.DB_PORT=3307", 'FORWARD_DB_PORT'],
+    ["sail_services=mysql\nlocal_env.DB_DATABASE=shared", 'managed'],
+    ["sail_services=mysql\nlocal_env.DB_PORT=3307", 'FORWARD_DB_PORT'],
 ] as [$contents, $message]) {
     test('unsafe or conflicting local override fails: '.$contents, function () use ($contents, $message): void {
         $root = temp_directory('harness-env-invalid');
@@ -195,7 +189,7 @@ test('site preferences follow a personal runtime override and retain layer prece
         ->and($yerd->siteSecure)->toBeFalse();
 });
 
-foreach (['herd_php', 'valet_php', 'yerd_php', 'herd_secure', 'valet_secure', 'yerd_secure', 'services'] as $key) {
+foreach (['herd_php', 'valet_php', 'yerd_php', 'herd_secure', 'valet_secure', 'yerd_secure', 'services', 'service_manager'] as $key) {
     test("removed configuration key {$key} is rejected", function () use ($key): void {
         $root = temp_directory('harness-removed-config');
         file_put_contents($root.'/.ai-harness.config', $key.'=');

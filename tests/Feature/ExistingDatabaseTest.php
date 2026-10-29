@@ -40,7 +40,7 @@ XML);
 
 test('existing-server up and down do not connect to or manage the database server', function (): void {
     $root = temp_directory('external-services');
-    file_put_contents($root.'/.ai-harness.config', "runtime=native\nservice_manager=none\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=native\n");
     file_put_contents($root.'/.env.example', "DB_CONNECTION=mysql\nDB_USERNAME=app\nDB_HOST=unreachable.invalid\n");
     harness_process(['up'], $root)->mustRun();
     harness_process(['down'], $root)->mustRun();
@@ -83,7 +83,7 @@ test('existing-server provisioning works against a real MySQL or MariaDB server'
         mkdir($root.'/vendor');
         file_put_contents($root.'/vendor/autoload.php', '<?php');
         file_put_contents($root.'/.env.example', "APP_KEY=existing\nDB_CONNECTION=mysql\nDB_HOST={$host}\nDB_PORT={$port}\nDB_USERNAME={$user}\nDB_PASSWORD=test-app-password\nDB_DATABASE=shared-original\n");
-        file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nservice_manager=none\ndatabase_provision_username=root\ndatabase_provision_password={$password}\ndatabase_parallel_processes=2\n");
+        file_put_contents($root.'/.ai-harness.config.local', "runtime=native\ndatabase_provision_username=root\ndatabase_provision_password={$password}\ndatabase_parallel_processes=2\n");
         harness_process(['setup'], $root)->mustRun();
         expect(file_get_contents($root.'/.env.testing'))->toContain('DB_DATABASE='.$test);
         expect($manager->diagnose($config)[0])->toBeTrue();
@@ -244,7 +244,7 @@ foreach ([false, true] as $existing) {
         foreach ($snapshots as $path => $contents) {
             file_put_contents($root.'/'.$path, $contents);
         }
-        file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nservice_manager=none\nlocal_env.APP_NAME=changed\n");
+        file_put_contents($root.'/.ai-harness.config.local', "runtime=native\nlocal_env.APP_NAME=changed\n");
         $process = harness_process(['setup'], $root);
         $process->run();
         expect($process->getExitCode())->toBe(1);

@@ -21,7 +21,7 @@ function yerd_fixture(): array
     file_put_contents($root.'/vendor/autoload.php', '<?php');
     file_put_contents($root.'/artisan', '<?php');
     file_put_contents($root.'/.env', "APP_KEY=present\nAPP_URL=http://shared.test\n");
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\nphp_version=8.2\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nagents=\nphp_version=8.2\n");
     file_put_contents($root.'/sites.json', '[]');
     file_put_contents($root.'/status.json', json_encode(['tld' => 'test', 'default_php' => '8.5', 'http' => ['bound' => 80], 'https' => ['bound' => 443]], JSON_THROW_ON_ERROR));
     file_put_contents($root.'/log', '');
@@ -146,7 +146,7 @@ test('Yerd uses versioned PHP for all PHP tools and forwards arguments and exit 
 
 test('Yerd runtime reads the linked site version or default when no PHP version is configured', function (): void {
     [$root, $env] = yerd_fixture();
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nagents=\n");
     $process = yerd_harness(['php', '-v'], $root, $env)->mustRun();
     expect($process->getOutput())->toContain('php8.5');
     file_put_contents($root.'/sites.json', json_encode([['name' => SiteName::forPath($root), 'document_root' => $root, 'kind' => 'linked', 'php' => '8.2']], JSON_THROW_ON_ERROR));
@@ -179,7 +179,7 @@ test('Yerd cleanup clears stale ownership for an already removed site', function
 test('Yerd unsecured setup and HTTPS downgrade use the requested URL scheme', function (): void {
     [$root, $env] = yerd_fixture();
     yerd_harness(['setup'], $root, $env)->mustRun();
-    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\nsite_secure=false\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nagents=\nsite_secure=false\n");
     yerd_harness(['setup'], $root, $env)->mustRun();
     expect(file_get_contents($root.'/.env'))->toContain('APP_URL=http://'.SiteName::forPath($root).'.test')
         ->and(yerd_mutations($root))->toContain(['unsecure', SiteName::forPath($root)]);
@@ -305,7 +305,7 @@ test('Yerd piped confirmations stay report only', function (): void {
 foreach ([[false, 8080, ':8080'], [true, 8443, ':8443'], [false, 80, ''], [true, 443, '']] as [$secure, $port, $suffix]) {
     test('Yerd APP_URL uses '.($secure ? 'HTTPS' : 'HTTP').' port '.$port, function () use ($secure, $port, $suffix): void {
         [$root, $env] = yerd_fixture();
-        file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nservice_manager=none\nagents=\nsite_secure=".($secure ? 'true' : 'false')."\n");
+        file_put_contents($root.'/.ai-harness.config', "runtime=yerd\nagents=\nsite_secure=".($secure ? 'true' : 'false')."\n");
         $report = json_decode((string) file_get_contents($root.'/status.json'), true, flags: JSON_THROW_ON_ERROR);
         $report[$secure ? 'https' : 'http'] = ['requested' => $secure ? 443 : 80, 'bound' => $port];
         file_put_contents($root.'/status.json', json_encode($report, JSON_THROW_ON_ERROR));
@@ -340,7 +340,7 @@ test('all process settings work without configuration files and remain effective
         'AI_HARNESS_RUNTIME' => 'yerd',
         'AI_HARNESS_PHP_VERSION' => '8.4',
         'AI_HARNESS_SITE_SECURE' => 'false',
-        'AI_HARNESS_SERVICE_MANAGER' => 'none',
+        'AI_HARNESS_SAIL_SERVICES' => '',
     ]);
     yerd_harness(['setup'], $root, $env)->mustRun();
     expect($root.'/.ai-harness.config')->not->toBeFile()
@@ -351,14 +351,14 @@ test('all process settings work without configuration files and remain effective
     $doctor = yerd_harness(['doctor'], $root, $env);
     $doctor->run();
     expect($doctor->getOutput())->not->toContain('No project configuration file exists')
-        ->and($doctor->getOutput())->toContain('runtime=yerd from AI_HARNESS_RUNTIME', 'php_version=8.4 from AI_HARNESS_PHP_VERSION', 'site_secure=false from AI_HARNESS_SITE_SECURE', 'service_manager=none from AI_HARNESS_SERVICE_MANAGER');
+        ->and($doctor->getOutput())->toContain('runtime=yerd from AI_HARNESS_RUNTIME', 'php_version=8.4 from AI_HARNESS_PHP_VERSION', 'site_secure=false from AI_HARNESS_SITE_SECURE', 'sail_services= from AI_HARNESS_SAIL_SERVICES');
 
     (new Process(['git', 'init', $root]))->mustRun();
     yerd_harness(['init', '--global'], $root, $env)->mustRun();
     $configContents = file_get_contents($root.'/.ai-harness.config.global');
     expect($configContents)->toContain('runtime=native', 'php_version=', 'site_secure=true')
         ->and($configContents)->not->toContain('runtime=yerd', 'php_version=8.4', 'AI_HARNESS_RUNTIME=')
-        ->and(file_get_contents($root.'/AGENTS.override.md'))->toContain('AI_HARNESS_RUNTIME', 'AI_HARNESS_PHP_VERSION', 'AI_HARNESS_SITE_SECURE', 'AI_HARNESS_SERVICE_MANAGER');
+        ->and(file_get_contents($root.'/AGENTS.override.md'))->toContain('AI_HARNESS_RUNTIME', 'AI_HARNESS_PHP_VERSION', 'AI_HARNESS_SITE_SECURE', 'AI_HARNESS_SAIL_SERVICES');
     yerd_harness(['doctor'], $root, $env)->mustRun();
     foreach (['php', 'artisan', 'composer', 'test'] as $tool) {
         $process = yerd_harness([$tool, 'argument'], $root, $env)->mustRun();
@@ -370,7 +370,7 @@ test('all process settings work without configuration files and remain effective
     expect(file_get_contents($root.'/.ai-harness.config.global'))->toBe($configContents);
 
     // Cleanup follows recorded ownership even when all four settings change.
-    $changed = array_replace($env, ['AI_HARNESS_RUNTIME' => 'native', 'AI_HARNESS_PHP_VERSION' => '', 'AI_HARNESS_SITE_SECURE' => 'true', 'AI_HARNESS_SERVICE_MANAGER' => 'sail']);
+    $changed = array_replace($env, ['AI_HARNESS_RUNTIME' => 'native', 'AI_HARNESS_PHP_VERSION' => '', 'AI_HARNESS_SITE_SECURE' => 'true', 'AI_HARNESS_SAIL_SERVICES' => 'redis']);
     file_put_contents($root.'/sites.json', json_encode([['name' => SiteName::forPath($root), 'document_root' => '/another/app', 'kind' => 'linked']], JSON_THROW_ON_ERROR));
     $cleanup = yerd_harness(['cleanup'], $root, $changed);
     $cleanup->run();
@@ -383,20 +383,20 @@ test('all process settings work without configuration files and remain effective
         ->and($root.'/.ai-harness.state.json')->not->toBeFile();
 });
 
-test('service manager process override controls both lifecycle commands', function (): void {
+test('Sail services process override controls both lifecycle commands', function (): void {
     [$root, $env] = yerd_fixture();
     write_executable($root.'/vendor/bin/sail', "#!/bin/sh\nprintf '%s\\n' \"\$@\" >> sail-log\n");
-    $env += ['AI_HARNESS_RUNTIME' => 'native', 'AI_HARNESS_SERVICE_MANAGER' => 'sail', 'AI_HARNESS_ENV' => 'local'];
+    $env += ['AI_HARNESS_RUNTIME' => 'native', 'AI_HARNESS_SAIL_SERVICES' => 'redis', 'AI_HARNESS_ENV' => 'local'];
     foreach (['up', 'down'] as $action) {
         yerd_harness([$action], $root, $env)->mustRun();
     }
-    expect(file_get_contents($root.'/sail-log'))->toBe("up\n-d\ndown\n");
+    expect(file_get_contents($root.'/sail-log'))->toBe("up\n-d\nredis\nstop\nredis\n");
 });
 
 foreach (['init', 'setup', 'doctor', 'php', 'artisan', 'composer', 'test', 'up', 'down', 'cleanup'] as $action) {
     test("{$action} validates every process override", function () use ($action): void {
         [$root, $env] = yerd_fixture();
-        foreach (['AI_HARNESS_RUNTIME' => 'runtime', 'AI_HARNESS_PHP_VERSION' => 'php_version', 'AI_HARNESS_SITE_SECURE' => 'site_secure', 'AI_HARNESS_SERVICE_MANAGER' => 'service_manager'] as $name => $key) {
+        foreach (['AI_HARNESS_RUNTIME' => 'runtime', 'AI_HARNESS_PHP_VERSION' => 'php_version', 'AI_HARNESS_SITE_SECURE' => 'site_secure'] as $name => $key) {
             $process = yerd_harness([$action], $root, $env + [$name => 'invalid', 'AI_HARNESS_ENV' => 'local']);
             $process->run();
             expect($process->getExitCode())->toBe(1)
@@ -408,12 +408,11 @@ foreach (['init', 'setup', 'doctor', 'php', 'artisan', 'composer', 'test', 'up',
 
 test('cloud detection still uses native PHP when local process settings select Yerd', function (): void {
     [$root, $env] = yerd_fixture();
-    file_put_contents($root.'/.ai-harness.config', "runtime=sail\nservice_manager=sail\nsail_services=mysql\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=sail\nsail_services=mysql\nagents=\n");
     $env += [
         'AI_HARNESS_RUNTIME' => 'yerd',
         'AI_HARNESS_PHP_VERSION' => '8.4',
         'AI_HARNESS_SITE_SECURE' => 'true',
-        'AI_HARNESS_SERVICE_MANAGER' => 'none',
         'AI_HARNESS_ENV' => 'codex-cloud',
     ];
     // A version query uses native PHP without provisioning any runtime or services.

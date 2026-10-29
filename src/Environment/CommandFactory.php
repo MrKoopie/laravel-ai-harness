@@ -78,7 +78,7 @@ final readonly class CommandFactory
      */
     public function servicesDown(Config $config, string $root): array
     {
-        if ($config->serviceManager === Services::Sail && $config->sailServices === []) {
+        if ($config->runtime === Runtime::Sail && $config->sailServices === []) {
             return [$this->sail($root), 'down'];
         }
 
@@ -309,15 +309,13 @@ final readonly class CommandFactory
      */
     private function sailTargets(Config $config): array
     {
-        if ($config->serviceManager === Services::Sail && $config->sailServices === []) {
+        if ($config->runtime === Runtime::Sail && $config->sailServices === []) {
             return [];
         }
 
         $targets = $config->runtime === Runtime::Sail ? ['laravel.test'] : [];
 
-        if ($config->serviceManager === Services::Sail) {
-            $targets = [...$targets, ...$config->sailServices];
-        }
+        $targets = [...$targets, ...$config->sailServices];
 
         return array_values(array_unique($targets));
     }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Files\LegacyConfigMigrator;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
 
@@ -29,7 +28,6 @@ test('legacy configuration is conservatively translated when no new config exist
 
     expect($result->created)->toBeTrue()
         ->and($config->runtime)->toBe(Runtime::Herd)
-        ->and($config->serviceManager)->toBe(Services::Sail)
         ->and($config->sailServices)->toBe(['mysql'])
         ->and($config->agents)->toBe(['codex'])
         ->and($config->phpVersion)->toBe('8.4')
@@ -49,7 +47,7 @@ test('legacy command flags are translated but never overwrite a new config', fun
         ->and($second->created)->toBeFalse()
         ->and(file_get_contents($root.'/.ai-harness.config'))->toBe($contents)
         ->and($contents)->toContain('runtime=herd')
-        ->and($contents)->toContain('service_manager=sail');
+        ->and($contents)->toContain('sail_services=mysql');
 });
 
 test('legacy migration reports obsolete package artifacts without deleting them', function (): void {

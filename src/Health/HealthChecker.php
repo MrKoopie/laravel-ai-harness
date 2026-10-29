@@ -11,7 +11,6 @@ use MrKoopie\LaravelAiHarness\Environment\EnvironmentFile;
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\ExistingMySql;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Environment\StateStore;
 use MrKoopie\LaravelAiHarness\Environment\Yerd;
 use MrKoopie\LaravelAiHarness\Files\ComposerScripts;
@@ -53,7 +52,7 @@ final readonly class HealthChecker
             ),
         ];
 
-        foreach (['runtime' => $config->runtime->value, 'php_version' => $config->phpVersion ?? '(empty)', 'site_secure' => $config->siteSecure ? 'true' : 'false', 'service_manager' => $config->serviceManager->value] as $key => $value) {
+        foreach (['runtime' => $config->runtime->value, 'php_version' => $config->phpVersion ?? '(empty)', 'site_secure' => $config->siteSecure ? 'true' : 'false', 'sail_services' => implode(',', $config->sailServices), 'db_connection' => $config->dbConnection] as $key => $value) {
             $checks[] = new CheckResult(true, "{$key}={$value} from ".($config->sources[$key] ?? 'built-in default'));
         }
 
@@ -109,8 +108,8 @@ final readonly class HealthChecker
             Runtime::Sail => $this->file(is_executable($root.'/vendor/bin/sail'), 'Laravel Sail is available', 'Laravel Sail is missing or not executable'),
         };
 
-        if (! $cloud && $config->serviceManager === Services::Sail) {
-            $checks[] = $this->file(is_executable($root.'/vendor/bin/sail'), 'Sail service manager is available', 'service_manager=sail requires vendor/bin/sail');
+        if (! $cloud && $config->usesSail()) {
+            $checks[] = $this->file(is_executable($root.'/vendor/bin/sail'), 'Inferred Sail services are available', 'Sail usage inferred from runtime/sail_services requires vendor/bin/sail');
         }
 
         $composerAuth = ComposerAuth::fromEnvironment();

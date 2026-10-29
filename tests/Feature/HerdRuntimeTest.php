@@ -5,13 +5,12 @@ use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Environment\CommandFactory;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Process\ExecutableLocator;
 
 test('Herd runtime tolerates noisy PHP resolution while preserving arguments and exit status', function (): void {
     $root = temp_directory('harness-noisy-herd');
     $bin = $root.'/bin';
-    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nservice_manager=none\nagents=\n");
+    file_put_contents($root.'/.ai-harness.config', "runtime=herd\nagents=\n");
     write_executable($bin.'/php84', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$@\"\nexit 23\n");
     write_executable($bin.'/herd', '#!/usr/bin/env bash'."\n".'if [[ "$1" == which-php ]]; then'."\n".'printf "Warning: simulated startup warning\\n%s\\n" '.escapeshellarg($bin.'/php84')."\nexit 0\nfi\n".'"$("$0" which-php)" "${@:2}"'."\n");
     write_executable($bin.'/php', '#!/usr/bin/env bash'."\n".'if [[ "$1" != -d ]]; then exec '.escapeshellarg(PHP_BINARY).' "$@"; fi'."\n".'printf "Warning: simulated startup warning\\n%s\\n" '.escapeshellarg($bin.'/php84')."\n");
@@ -57,7 +56,7 @@ foreach (['outside', 'missing', 'not-php', 'failure', 'not-executable', 'missing
         write_executable($bin.'/php', "#!/usr/bin/env bash\nprintf '%s\\n' ".escapeshellarg($value)."\nexit $exit\n");
         $factory = new CommandFactory(new ExecutableLocator(overrides: ['herd' => $bin.'/herd']));
 
-        expect($factory->runtime(new Config(Runtime::Herd, Services::None, [], [], true, null, true, []), 'php', ['-v'], $root))
+        expect($factory->runtime(new Config(Runtime::Herd, [], [], true, null, true, []), 'php', ['-v'], $root))
             ->toBe([$bin.'/herd', 'php', '-v']);
     });
 }

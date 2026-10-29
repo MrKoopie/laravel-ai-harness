@@ -6,7 +6,6 @@ namespace MrKoopie\LaravelAiHarness\Config;
 
 use MrKoopie\LaravelAiHarness\Environment\ExecutionEnvironment;
 use MrKoopie\LaravelAiHarness\Environment\Runtime;
-use MrKoopie\LaravelAiHarness\Environment\Services;
 use MrKoopie\LaravelAiHarness\Support\GlobalInstallation;
 use MrKoopie\LaravelAiHarness\Support\PrimaryCheckout;
 
@@ -19,11 +18,14 @@ final class ConfigLoader
     /** @var array<string, string> */
     private const DEFAULTS = [
         'runtime' => 'native',
-        'service_manager' => 'none',
         'agents' => 'codex,claude',
         'sail_services' => '',
         'site_secure' => 'true',
         'php_version' => '',
+        'db_connection' => 'auto',
+        'database_provision_username' => '',
+        'database_provision_password' => '',
+        'database_parallel_processes' => '0',
         'worktrees' => 'true',
         'cloud' => 'true',
         'cloud_services' => 'mysql',
@@ -31,17 +33,26 @@ final class ConfigLoader
         'cloud_seed' => 'false',
         'cloud_build' => 'false',
         'cloud_browser' => 'false',
-        'database_provision_username' => '',
-        'database_provision_password' => '',
-        'database_parallel_processes' => '0',
     ];
 
     /** @var array<string, string> */
-    private const ENVIRONMENT = [
+    public const ENVIRONMENT = [
         'AI_HARNESS_RUNTIME' => 'runtime',
         'AI_HARNESS_PHP_VERSION' => 'php_version',
         'AI_HARNESS_SITE_SECURE' => 'site_secure',
-        'AI_HARNESS_SERVICE_MANAGER' => 'service_manager',
+        'AI_HARNESS_DB_CONNECTION' => 'db_connection',
+        'AI_HARNESS_DATABASE_PROVISION_USERNAME' => 'database_provision_username',
+        'AI_HARNESS_DATABASE_PROVISION_PASSWORD' => 'database_provision_password',
+        'AI_HARNESS_DATABASE_PARALLEL_PROCESSES' => 'database_parallel_processes',
+        'AI_HARNESS_AGENTS' => 'agents',
+        'AI_HARNESS_SAIL_SERVICES' => 'sail_services',
+        'AI_HARNESS_WORKTREES' => 'worktrees',
+        'AI_HARNESS_CLOUD' => 'cloud',
+        'AI_HARNESS_CLOUD_SERVICES' => 'cloud_services',
+        'AI_HARNESS_CLOUD_MIGRATE' => 'cloud_migrate',
+        'AI_HARNESS_CLOUD_SEED' => 'cloud_seed',
+        'AI_HARNESS_CLOUD_BUILD' => 'cloud_build',
+        'AI_HARNESS_CLOUD_BROWSER' => 'cloud_browser',
     ];
 
     /** @var list<string> */
@@ -52,8 +63,21 @@ final class ConfigLoader
         '.ai-harness.config.local',
     ];
 
-    /** Load and validate the layered configuration for a project. */
-    public function load(string $root): Config
+    /** Return the variable names owned by generated agent settings.
+     * @return list<string>
+     */
+    public static function environmentNames(): array
+    {
+        return array_values(array_unique([
+            ...array_keys(self::ENVIRONMENT), ...array_keys(ExistingDatabase::ENVIRONMENT),
+            'AI_HARNESS_LOCAL_ENV', 'AI_HARNESS_SERVICE_MANAGER',
+        ]));
+    }
+
+    /** Load and validate the layered configuration for a project.
+     * @param  array<string, string>  $overrides
+     */
+    public function load(string $root, array $overrides = []): Config
     {
         $values = self::DEFAULTS;
         $sourceFiles = [];
@@ -95,16 +119,57 @@ final class ConfigLoader
             }
         }
 
+        $localJson = getenv('AI_HARNESS_LOCAL_ENV');
+        if ($localJson !== false) {
+            if (strlen($localJson) > self::MAX_FILE_SIZE) {
+                throw new ConfigException('AI_HARNESS_LOCAL_ENV exceeds 64 KiB.');
+            }
+            try {
+                $localValues = json_decode($localJson, flags: JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                throw new ConfigException('AI_HARNESS_LOCAL_ENV must be a JSON object of string values.');
+            }
+            if (! $localValues instanceof \stdClass) {
+                throw new ConfigException('AI_HARNESS_LOCAL_ENV must be a JSON object of string values.');
+            }
+            foreach (get_object_vars($localValues) as $name => $value) {
+                if (! is_string($name) || preg_match('/^[A-Z_][A-Z0-9_]*$/D', $name) !== 1 || ! is_string($value)) {
+                    throw new ConfigException('AI_HARNESS_LOCAL_ENV requires uppercase variable names and string values.');
+                }
+                $this->validateValue($value, 'local_env.'.$name, 'AI_HARNESS_LOCAL_ENV');
+                if (! $cloud) {
+                    $localEnvironment[$name] = $value;
+                    $localEnvironmentSources[$name] = 'AI_HARNESS_LOCAL_ENV';
+                }
+            }
+        }
+
+        foreach ($overrides as $key => $value) {
+            if (preg_match('/^local_env\.([A-Z_][A-Z0-9_]*)$/D', $key, $match) === 1) {
+                $this->validateValue($value, $key, 'command option');
+                if (! $cloud) {
+                    $localEnvironment[$match[1]] = $value;
+                    $localEnvironmentSources[$match[1]] = 'command option';
+                }
+
+                continue;
+            }
+            if (! array_key_exists($key, self::DEFAULTS)) {
+                throw new ConfigException("Unknown configuration key [{$key}].");
+            }
+            $this->validateValue($value, $key, 'command option');
+            $values[$key] = $value;
+            $sources[$key] = 'command option';
+        }
+
+        if (! in_array($values['db_connection'], ['auto', 'sqlite', 'mysql', 'mariadb'], true)) {
+            throw new ConfigException('db_connection must be auto, sqlite, mysql, or mariadb.');
+        }
+
         $runtime = Runtime::tryFrom($values['runtime']);
 
         if ($runtime === null) {
             throw new ConfigException('runtime must be one of: native, herd, valet, yerd, sail.');
-        }
-
-        $services = Services::tryFrom($values['service_manager']);
-
-        if ($services === null) {
-            throw new ConfigException('service_manager must be one of: none, sail.');
         }
 
         $agents = $this->list($values['agents'], 'agents');
@@ -121,11 +186,6 @@ final class ConfigLoader
             if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $service) !== 1) {
                 throw new ConfigException("Invalid Sail service name [{$service}].");
             }
-        }
-
-        // Cloud execution uses cloud_services rather than the local Sail relationship.
-        if (! $cloud && $services !== Services::Sail && $sailServices !== []) {
-            throw new ConfigException('sail_services may only be set when service_manager=sail.');
         }
 
         $phpVersion = trim($values['php_version']);
@@ -145,16 +205,26 @@ final class ConfigLoader
             throw new ConfigException('cloud_seed requires cloud_migrate=true; seeders must be safe to rerun.');
         }
 
-        $sailMySql = $services === Services::Sail && in_array('mysql', $sailServices, true);
-        $sailStack = $services === Services::Sail && $sailServices === [];
-        $existing = ! $cloud && ! $sailMySql && ! $sailStack && $runtime !== Runtime::Sail
+        $sailMySql = in_array('mysql', $sailServices, true)
+            || ($runtime === Runtime::Sail && $sailServices === [] && $values['db_connection'] === 'mysql');
+        $existing = ! $cloud && ! $sailMySql && $runtime !== Runtime::Sail && $values['db_connection'] !== 'sqlite'
             ? ExistingDatabase::forProject($root, $values, $localEnvironment) : null;
+        $databaseEnvironment = [];
+        foreach (ExistingDatabase::ENVIRONMENT as $variable => $key) {
+            if ($variable !== 'AI_HARNESS_DB_CONNECTION' && ($value = getenv($variable)) !== false) {
+                $databaseEnvironment[$variable] = $value;
+            }
+        }
+        if (! ctype_digit($values['database_parallel_processes']) || (int) $values['database_parallel_processes'] > 64) {
+            throw new ConfigException('database_parallel_processes is outside its supported range.');
+        }
+        if ($values['database_provision_password'] !== '' && $values['database_provision_username'] === '') {
+            throw new ConfigException('database_provision_password requires database_provision_username.');
+        }
 
         /** @var list<'claude'|'codex'> $agents */
         $config = new Config(
             runtime: $runtime,
-            existingDatabase: $existing,
-            serviceManager: $services,
             agents: $agents,
             sailServices: $sailServices,
             worktrees: $this->boolean($values['worktrees'], 'worktrees'),
@@ -170,7 +240,23 @@ final class ConfigLoader
             siteSecure: $this->boolean($values['site_secure'], 'site_secure'),
             phpVersion: $phpVersion === '' ? null : $phpVersion,
             sources: $sources,
+            dbConnection: $values['db_connection'],
+            existingDatabase: $existing,
+            databaseProvisionUsername: $values['database_provision_username'],
+            databaseProvisionPassword: $values['database_provision_password'],
+            databaseParallelProcesses: $values['database_parallel_processes'],
+            databaseEnvironment: $databaseEnvironment,
         );
+
+        if (! $cloud && $config->dbConnection === 'mariadb' && ($config->managesMySql() || $runtime === Runtime::Sail)) {
+            throw new ConfigException('Sail-managed databases use the mysql service; select db_connection=mysql. For an existing MariaDB server, use a host PHP runtime.');
+        }
+        if (! $cloud && $config->dbConnection === 'mysql' && ! $config->managesMySql() && $runtime === Runtime::Sail) {
+            throw new ConfigException('A Sail MySQL subset must include mysql in sail_services; use an empty list for the full stack.');
+        }
+        if (! $cloud && $config->dbConnection === 'sqlite' && $config->managesMySql()) {
+            throw new ConfigException('db_connection=sqlite conflicts with harness-managed Sail MySQL.');
+        }
 
         $this->validateLocalEnvironment($config);
 
@@ -202,7 +288,7 @@ final class ConfigLoader
     private function validateLocalEnvironment(Config $config): void
     {
         foreach ($config->localEnvironment as $name => $value) {
-            if (str_contains($value, '`') && str_contains($value, "'") && ($config->existingDatabase === null || $config->serviceManager === Services::Sail)) {
+            if (str_contains($value, '`') && str_contains($value, "'") && ($config->existingDatabase === null || $config->usesSail())) {
                 throw new ConfigException("local_env.{$name} cannot combine backticks with apostrophes; that literal cannot be represented safely for both Laravel and Sail.");
             }
 
@@ -211,11 +297,11 @@ final class ConfigLoader
                 || ($config->managesMySql() && (str_starts_with($name, 'DB_') || in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true)))
                 || ($config->existingDatabase !== null && ($name === 'DB_DATABASE' || in_array($name, ['DB_URL', 'DATABASE_URL'], true) && $value !== ''));
 
+            $managed = $managed || (($config->dbConnection === 'sqlite')
+                && in_array($name, ['DB_CONNECTION', 'DB_DATABASE'], true));
+
             if ($managed) {
-                $hint = $config->existingDatabase !== null
-                    ? 'the harness generates database names; configure connection values with local_env.DB_*.'
-                    : 'use local_env.FORWARD_DB_PORT for a Sail host port.';
-                throw new ConfigException("local_env.{$name} is managed by the harness for this runtime; ".$hint);
+                throw new ConfigException("local_env.{$name} is managed by the harness for this runtime; use local_env.FORWARD_DB_PORT for a Sail host port.");
             }
 
             if (in_array($name, ['DB_PORT', 'FORWARD_DB_PORT', 'REDIS_PORT', 'FORWARD_REDIS_PORT', 'MAIL_PORT', 'FORWARD_MAILPIT_PORT', 'FORWARD_MAILPIT_DASHBOARD_PORT', 'APP_PORT', 'VITE_PORT'], true)
