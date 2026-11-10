@@ -22,6 +22,7 @@ final class ConfigLoader
         'sail_services' => '',
         'site_secure' => 'true',
         'php_version' => '',
+        'env_source' => 'example',
         'db_connection' => 'auto',
         'database_provision_username' => '',
         'database_provision_password' => '',
@@ -39,6 +40,7 @@ final class ConfigLoader
     public const ENVIRONMENT = [
         'AI_HARNESS_RUNTIME' => 'runtime',
         'AI_HARNESS_PHP_VERSION' => 'php_version',
+        'AI_HARNESS_ENV_SOURCE' => 'env_source',
         'AI_HARNESS_SITE_SECURE' => 'site_secure',
         'AI_HARNESS_DB_CONNECTION' => 'db_connection',
         'AI_HARNESS_DATABASE_PROVISION_USERNAME' => 'database_provision_username',
@@ -166,6 +168,10 @@ final class ConfigLoader
             throw new ConfigException('db_connection must be auto, sqlite, mysql, or mariadb.');
         }
 
+        if (! in_array($values['env_source'], ['example', 'primary'], true)) {
+            throw new ConfigException('env_source must be example or primary.');
+        }
+
         $runtime = Runtime::tryFrom($values['runtime']);
 
         if ($runtime === null) {
@@ -246,6 +252,7 @@ final class ConfigLoader
             databaseProvisionPassword: $values['database_provision_password'],
             databaseParallelProcesses: $values['database_parallel_processes'],
             databaseEnvironment: $databaseEnvironment,
+            envSource: $values['env_source'],
         );
 
         if (! $cloud && $config->dbConnection === 'mariadb' && ($config->managesMySql() || $runtime === Runtime::Sail)) {

@@ -29,6 +29,42 @@ test('Codex init generates persistent command overrides and a complete retryable
     (new Process(['git', 'check-ignore', '.codex/config.toml'], $root))->mustRun();
 });
 
+foreach ([false, true] as $global) {
+    test('environment source parameters persist for both agents in '.($global ? 'global' : 'shared').' mode', function () use ($global): void {
+        $root = temp_directory('harness-env-source-agents');
+        (new Process(['git', 'init', $root]))->mustRun();
+        $base = ['init', '--agents=codex,claude', ...($global ? ['--global'] : [])];
+        $process = ['AI_HARNESS_ENV_SOURCE' => 'example'];
+        harness_process([...$base, '--env-source=primary'], $root, $process)->mustRun();
+        $environmentPath = $global ? '.codex/environments/ai-harness-global.toml' : '.codex/environments/environment.toml';
+        $claudePath = $global ? '.claude/settings.local.json' : '.claude/settings.json';
+        $settings = read_codex_toml($root.'/.codex/config.toml')['shell_environment_policy']['set'];
+        $lifecycle = read_codex_toml($root.'/'.$environmentPath);
+        $claude = json_decode((string) file_get_contents($root.'/'.$claudePath), true, flags: JSON_THROW_ON_ERROR);
+        expect($settings['AI_HARNESS_ENV_SOURCE'])->toBe('primary')
+            ->and($claude['env']['AI_HARNESS_ENV_SOURCE'])->toBe('primary')
+            ->and($root.'/.env')->not->toBeFile();
+
+        $logger = <<<'BASH'
+#!/usr/bin/env bash
+printf '%s|%s\n' "$*" "$AI_HARNESS_ENV_SOURCE" >> "$HARNESS_LOG"
+BASH;
+        write_executable($root.'/.ai-harness', $logger);
+        write_executable($root.'/fake-bin/ai-harness', $logger);
+        file_put_contents($root.'/bash-env', 'export PATH='.escapeshellarg($root.'/fake-bin').':"$PATH"'."\n");
+        $env = ['BASH_ENV' => $root.'/bash-env', 'HARNESS_LOG' => $root.'/commands.log'];
+        (new Process(['bash', '-c', $lifecycle['setup']['script']], $root, $env))->mustRun();
+        (new Process(['bash', '-c', $lifecycle['cleanup']['script']], $root, $env))->mustRun();
+        expect(file_get_contents($root.'/commands.log'))->toContain('setup|primary', 'cleanup|primary', 'down|primary');
+
+        harness_process(['update'], $root, $settings)->mustRun();
+        expect(read_codex_toml($root.'/'.$environmentPath))->toBe($lifecycle);
+        harness_process([...$base, '--env-source=example'], $root, $settings)->mustRun();
+        expect(read_codex_toml($root.'/.codex/config.toml')['shell_environment_policy']['set']['AI_HARNESS_ENV_SOURCE'])->toBe('example')
+            ->and(json_decode((string) file_get_contents($root.'/'.$claudePath), true, flags: JSON_THROW_ON_ERROR)['env']['AI_HARNESS_ENV_SOURCE'])->toBe('example');
+    });
+}
+
 test('Codex generation rejects invalid choices before changing project files', function (): void {
     $root = temp_directory('harness-codex-invalid');
     $process = harness_process(['init', '--agent=codex', '--runtime=invalid'], $root);

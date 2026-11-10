@@ -43,6 +43,7 @@ final readonly class Config
         public string $databaseProvisionPassword = '',
         public string $databaseParallelProcesses = '0',
         public array $databaseEnvironment = [],
+        public string $envSource = 'example',
     ) {}
 
     /** Return string values suitable for every agent's command environment.
@@ -56,6 +57,7 @@ final readonly class Config
             'sail_services' => implode(',', $this->sailServices),
             'site_secure' => $this->siteSecure ? 'true' : 'false',
             'php_version' => $this->phpVersion ?? '',
+            'env_source' => $this->envSource,
             'db_connection' => $this->dbConnection,
             'database_provision_username' => $this->databaseProvisionUsername,
             'database_provision_password' => $this->databaseProvisionPassword,

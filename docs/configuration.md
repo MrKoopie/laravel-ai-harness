@@ -35,6 +35,7 @@ Precedence is built-in defaults → the configuration files above → exported p
 | --- | --- |
 | `AI_HARNESS_RUNTIME` | `runtime` |
 | `AI_HARNESS_PHP_VERSION` | `php_version` |
+| `AI_HARNESS_ENV_SOURCE` | `env_source` (`example` or `primary`) |
 | `AI_HARNESS_SITE_SECURE` | `site_secure` |
 | `AI_HARNESS_DB_CONNECTION` | `db_connection` |
 | `AI_HARNESS_DATABASE_PROVISION_USERNAME` | `database_provision_username` |
@@ -130,6 +131,43 @@ The harness reads these files as data. It never runs them as shell scripts. An u
 
 After you change `agents`, `worktrees`, or `cloud`, run `./.ai-harness update`. This refreshes the managed agent files.
 
+## Environment source for local worktrees
+
+By default, setup creates a missing `.env` from the current checkout's `.env.example`.
+To copy your original project's `.env` into new local worktrees, add this to the
+primary checkout's Git-ignored `.ai-harness.config.local`:
+
+```ini
+env_source=primary
+```
+
+This copies the entire file, including credentials and `APP_KEY`, from the registered
+primary checkout. Use it with a primary environment intended for local development.
+Existing worktree `.env` files are preserved. If there is no registered primary
+checkout or its `.env` is missing, setup falls back to the current `.env.example`.
+A symbolic link at the primary `.env` is refused. Cloud setup ignores this setting.
+
+You can also select the source through the normal parameter workflow:
+
+```bash
+ai-harness init --global --env-source=primary
+```
+
+The parameter is saved as `AI_HARNESS_ENV_SOURCE=primary` in the selected agents'
+command settings and worktree lifecycle scripts. Export `AI_HARNESS_ENV_SOURCE=primary`
+in an ordinary terminal to apply it directly to commands such as `ai-harness setup`.
+Explicit `init --env-source=example` overrides an inherited process selection.
+Precedence is defaults → config files → process environment → explicit init parameters.
+
+After copying, setup applies `local_env.*` overrides and its usual managed database,
+site URL and testing defaults. Database isolation still depends on the configured
+database manager: with an unmanaged database, the copied development connection
+continues to point at the primary database unless explicitly overridden. Copying a
+token also does not create its matching application database record.
+
+Set `env_source=example` to restore the default for future worktrees. Changing the
+setting does not replace an existing `.env` or update an existing `.env.testing`.
+
 ## Local application environment overrides
 
 Use `local_env.<VARIABLE>=<value>` for settings that differ on your computer. Put personal values in `.ai-harness.config.local` in your primary checkout so new worktrees inherit them. Variable names must use uppercase letters, digits, or underscores, and cannot start with a digit.
@@ -159,7 +197,7 @@ Then run:
 ./.ai-harness doctor
 ```
 
-`setup` applies the effective overrides to ordinary `.env` entries before Composer installation, service startup, or Artisan commands. It requires `.env` or `.env.example`, and copies `.env.example` only when `.env` is missing. It replaces only explicitly configured entries, preserves unrelated values, and reapplies overrides on each setup. `.env.example` is unchanged. `update`, `up`, and runtime commands do not apply environment overrides; run `setup` after editing them.
+`setup` applies the effective overrides to ordinary `.env` entries before Composer installation, service startup, or Artisan commands. It requires `.env` or an available environment source, and copies the selected source only when `.env` is missing. It replaces only explicitly configured entries, preserves unrelated values, and reapplies overrides on each setup. `.env.example` is unchanged. `update`, `up`, and runtime commands do not apply environment overrides; run `setup` after editing them.
 
 Overrides merge per variable. A worktree can change just one inherited setting:
 
@@ -207,6 +245,7 @@ Explicit clears cannot override conflicting system-level environment variables; 
 | Key | Default | Values | Description |
 | --- | --- | --- | --- |
 | `runtime` | `native` | `native`, `herd`, `valet`, `yerd`, `sail` | Where PHP, Artisan, Composer, and npm run. |
+| `env_source` | `example` | `example`, `primary` | Source for a missing local `.env`; `primary` prefers the primary checkout's `.env`. Ignored in cloud setup. |
 | `sail_services` | (empty) | List of Sail service names | A nonempty list enables Sail services for any runtime. Empty means the full stack for `runtime=sail`, and no containers for host PHP. |
 | `site_secure` | `true` | Boolean | Enable HTTPS for the selected Herd, Valet, or Yerd site and its `APP_URL`. Ignored by native, Sail, and cloud execution. |
 | `db_connection` | `auto` | `auto`, `sqlite`, `mysql`, `mariadb` | `auto` detects existing MySQL/MariaDB from the application environment. `mysql` uses managed Sail MySQL when configured, otherwise an existing host service. `sqlite` selects a checkout-local SQLite file. |
@@ -427,6 +466,6 @@ Omit the administrative settings when the application account already has the re
 ./.ai-harness cleanup
 ```
 
-Doctor may report missing setup or runtime resources before the first setup. Hostname, HTTPS and PHP selection follow the existing runtime behavior. Linked worktrees inherit personal `local_env.*` and administrative credentials, read their own `.env` or `.env.example`, and automatically receive distinct database names. The harness does not copy the primary checkout's entire `.env`. `up` and `down` leave MariaDB running.
+Doctor may report missing setup or runtime resources before the first setup. Hostname, HTTPS and PHP selection follow the existing runtime behavior. Linked worktrees inherit personal `local_env.*` and administrative credentials, read their own `.env` or `.env.example`, and automatically receive distinct database names. The harness copies the primary checkout's entire `.env` only when `env_source=primary`; the default is `.env.example`. `up` and `down` leave MariaDB running.
 
 Parameterized agent generation also retains exported `AI_HARNESS_DB_HOST`, `AI_HARNESS_DB_PORT`, `AI_HARNESS_DB_SOCKET`, `AI_HARNESS_DB_USERNAME`, `AI_HARNESS_DB_PASSWORD`, and `AI_HARNESS_DB_DATABASE` values. Prefer `--local-env=DB_HOST=...` and other endpoint overrides when configuring from parameters. Provisioning credentials and parallel workers have dedicated parameters; generated agent files containing credentials need the same protection as `.env`.

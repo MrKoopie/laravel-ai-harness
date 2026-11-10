@@ -38,6 +38,8 @@ test('process overrides win over every file layer without changing files', funct
 foreach ([
     ['AI_HARNESS_RUNTIME', '', 'runtime must be one of'],
     ['AI_HARNESS_RUNTIME', 'unknown', 'runtime must be one of'],
+    ['AI_HARNESS_ENV_SOURCE', '', 'env_source must be example or primary'],
+    ['AI_HARNESS_ENV_SOURCE', 'unknown', 'env_source must be example or primary'],
     ['AI_HARNESS_SAIL_SERVICES', 'mysql,,redis', 'sail_services contains an empty list item'],
     ['AI_HARNESS_SITE_SECURE', '', 'site_secure must be true or false'],
     ['AI_HARNESS_SITE_SECURE', 'perhaps', 'site_secure must be true or false'],
@@ -132,4 +134,24 @@ test('explicit database parameters take precedence over the process driver', fun
     expect($loader->load($root, ['db_connection' => 'auto'])->existingDatabase)->toBeNull()
         ->and($loader->load($root, ['db_connection' => 'sqlite'])->existingDatabase)->toBeNull()
         ->and($loader->load($root, ['db_connection' => 'mariadb'])->existingDatabase?->connection)->toBe('mariadb');
+});
+
+test('environment source uses normal precedence and survives an agent environment round trip', function (): void {
+    $root = temp_directory('harness-env-source-precedence');
+    $loader = new ConfigLoader;
+    expect($loader->load($root)->envSource)->toBe('example');
+    file_put_contents($root.'/.ai-harness.config.local', 'env_source=primary');
+    expect($loader->load($root)->envSource)->toBe('primary');
+    putenv('AI_HARNESS_ENV_SOURCE=example');
+    $process = $loader->load($root);
+    expect($process->envSource)->toBe('example')
+        ->and($process->sources['env_source'])->toBe('AI_HARNESS_ENV_SOURCE');
+    $explicit = $loader->load($root, ['env_source' => 'primary']);
+    expect($explicit->envSource)->toBe('primary')
+        ->and($explicit->sources['env_source'])->toBe('command option')
+        ->and($explicit->environment()['AI_HARNESS_ENV_SOURCE'])->toBe('primary')
+        ->and($explicit->hasOverrides())->toBeTrue()
+        ->and(file_get_contents($root.'/.ai-harness.config.local'))->toBe('env_source=primary');
+    putenv('AI_HARNESS_ENV_SOURCE='.$explicit->environment()['AI_HARNESS_ENV_SOURCE']);
+    expect($loader->load($root)->envSource)->toBe('primary');
 });

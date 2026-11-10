@@ -8,6 +8,7 @@ use Dotenv\Dotenv;
 use MrKoopie\LaravelAiHarness\Environment\DatabaseName;
 use MrKoopie\LaravelAiHarness\Environment\StateStore;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
+use MrKoopie\LaravelAiHarness\Support\EnvironmentSource;
 use Throwable;
 
 /** Connection data is deliberately never included in diagnostics or state. */
@@ -49,8 +50,8 @@ final readonly class ExistingDatabase
      */
     public static function forProject(string $root, array $values, array $overrides): ?self
     {
-        $file = is_file($root.'/.env') || is_link($root.'/.env') ? '.env' : '.env.example';
-        $environment = self::environment($root.'/'.$file);
+        $source = EnvironmentSource::forProject($root, ($values['env_source'] ?? 'example') === 'primary');
+        $environment = self::environment($source);
         $environment = [...$environment, ...$overrides];
         $processOverrides = [];
         foreach (self::ENVIRONMENT as $variable => $key) {

@@ -29,6 +29,7 @@ This generates configuration without provisioning resources. Parameters override
 | Configuration key | Parameter |
 | --- | --- |
 | `runtime` | `--runtime=native\|herd\|valet\|yerd\|sail` |
+| `env_source` | `--env-source=example\|primary` (source for a missing local `.env`) |
 | `sail_services` | `--sail-services=mysql,redis` (empty: full stack for Sail PHP, no containers for host PHP) |
 | `agents` | `--agents=codex,claude` or repeated `--agent=codex --agent=claude` |
 | `site_secure` | `--site-secure=true\|false` |

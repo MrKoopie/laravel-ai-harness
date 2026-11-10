@@ -25,6 +25,7 @@ final class InitCommand extends ProjectCommand
      */
     private const OPTIONS = [
         'runtime' => 'runtime',
+        'env-source' => 'env_source',
         'agents' => 'agents', 'sail-services' => 'sail_services',
         'site-secure' => 'site_secure', 'php-version' => 'php_version',
         'database-provision-username' => 'database_provision_username',
@@ -48,6 +49,7 @@ final class InitCommand extends ProjectCommand
         $this->configureProjectPath();
         $descriptions = [
             'runtime' => 'PHP runtime: native, herd, valet, yerd, or sail',
+            'env-source' => 'Source for a missing local .env: example or primary',
             'agents' => 'Comma-separated coding agents: codex,claude (empty disables integrations)',
             'php-version' => 'Installed site PHP version, for example 8.5 (empty preserves selection)',
             'site-secure' => 'Serve the checkout site over HTTPS: true or false',

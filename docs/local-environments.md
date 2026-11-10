@@ -9,7 +9,7 @@ Each checkout gets its own `.env.testing`. Managed Sail MySQL or detected existi
 `setup` prepares the current checkout. It does these steps in sequence:
 
 1. Load configuration and check local override conflicts before making changes.
-2. Copy `.env.example` to `.env` when `.env` does not exist.
+2. Create a missing `.env` from `.env.example`, or prefer the primary checkout's `.env` when `env_source=primary`. See [environment sources](configuration.md#environment-source-for-local-worktrees).
 3. Apply `local_env.*` overrides to `.env` and clear cached Laravel configuration when overrides are configured.
 4. Set the MySQL values in `.env` when Sail manages MySQL. Host PHP uses `127.0.0.1`; PHP inside Sail uses `mysql`. The harness activates commented default values and removes duplicates.
 5. For MySQL/MariaDB on an existing server, read the normal `.env` connection settings and create isolated development/testing databases. No database mode setting is required; see [existing server configuration](configuration.md#databases-on-an-existing-mysql--mariadb-server).
