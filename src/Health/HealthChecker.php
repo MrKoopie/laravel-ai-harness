@@ -52,7 +52,7 @@ final readonly class HealthChecker
             ),
         ];
 
-        foreach (['runtime' => $config->runtime->value, 'php_version' => $config->phpVersion ?? '(empty)', 'site_secure' => $config->siteSecure ? 'true' : 'false', 'sail_services' => implode(',', $config->sailServices), 'db_connection' => $config->dbConnection] as $key => $value) {
+        foreach (['runtime' => $config->runtime->value, 'php_version' => $config->phpVersion ?? '(empty)', 'site_secure' => $config->siteSecure ? 'true' : 'false', 'sail_services' => implode(',', $config->sailServices), 'db_connection' => $config->dbConnection, 'env_source' => $config->envSource] as $key => $value) {
             $checks[] = new CheckResult(true, "{$key}={$value} from ".($config->sources[$key] ?? 'built-in default'));
         }
 
@@ -70,7 +70,7 @@ final readonly class HealthChecker
 
             $environmentFile = new EnvironmentFile(new SafeWriter);
 
-            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null) as $name) {
+            foreach ($environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null, $config->envSource === 'primary') as $name) {
                 $checks[] = new CheckResult(false, "Local environment override conflicts with {$name}; remove it or explicitly clear the URL/socket override");
             }
 
@@ -93,7 +93,7 @@ final readonly class HealthChecker
                 $checks[] = new CheckResult(true, "Database override {$variable} (value redacted)");
             }
             $environment = new EnvironmentFile(new SafeWriter);
-            foreach ($environment->existingEnvironmentConflicts($root, $config->existingDatabase) as $name) {
+            foreach ($environment->existingEnvironmentConflicts($root, $config->existingDatabase, $config->envSource === 'primary') as $name) {
                 $checks[] = new CheckResult(false, 'Existing-server database configuration conflict: '.$name);
             }
             [$passed, $message] = (new ExistingMySql(new StateStore(new SafeWriter)))->diagnose($config->existingDatabase);

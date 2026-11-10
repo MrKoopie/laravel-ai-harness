@@ -7,6 +7,7 @@ namespace MrKoopie\LaravelAiHarness\Environment;
 use MrKoopie\LaravelAiHarness\Config\Config;
 use MrKoopie\LaravelAiHarness\Config\ConfigLoader;
 use MrKoopie\LaravelAiHarness\Process\ProcessRunner;
+use MrKoopie\LaravelAiHarness\Support\EnvironmentSource;
 use Symfony\Component\Console\Output\OutputInterface;
 
 final readonly class EnvironmentManager
@@ -29,6 +30,8 @@ final readonly class EnvironmentManager
         }
 
         $config = $this->configLoader->load($root);
+        $usePrimary = $config->envSource === 'primary';
+        $source = EnvironmentSource::forProject($root, $usePrimary);
 
         if ($config->dbConnection === 'sqlite') {
             foreach (array_keys(getenv()) as $key) {
@@ -40,20 +43,20 @@ final readonly class EnvironmentManager
         }
 
         if ($config->existingDatabase !== null) {
-            $conflicts = $this->environmentFile->existingDatabaseConflicts($root);
+            $conflicts = $this->environmentFile->existingDatabaseConflicts($root, $usePrimary);
             if ($conflicts !== []) {
                 throw new EnvironmentException('Existing-server database configuration conflicts with '.implode(', ', $conflicts).'; remove these conflicting overrides.');
             }
         }
 
         if ($config->localEnvironment !== []) {
-            if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
+            if (! is_file($source)) {
                 throw new EnvironmentException('Local environment overrides require .env or .env.example in the project root.');
             }
         }
 
         if ($config->localEnvironment !== [] || $config->managesMySql()) {
-            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null);
+            $conflicts = $this->environmentFile->localOverrideConflicts($root, $config->localEnvironment, $config->managesMySql(), $config->runtime === Runtime::Sail, $config->existingDatabase !== null, $config->envSource === 'primary');
 
             if ($conflicts !== []) {
                 throw new EnvironmentException('Local environment settings conflict with '.implode(', ', $conflicts).'; unset conflicting process variables or explicitly clear inherited URL/socket entries using local_env.<NAME>=.');
@@ -62,14 +65,15 @@ final readonly class EnvironmentManager
 
         if ($config->existingDatabase !== null) {
             $this->environmentFile->assertExistingRequirements($root);
-            if (! is_file($root.'/.env') && ! is_file($root.'/.env.example')) {
+            if (! is_file($source)) {
                 throw new EnvironmentException('Existing-server setup requires .env or .env.example.');
             }
             (new ExistingMySql($this->state))->setup($root, $config->existingDatabase);
         }
 
-        if ($this->environmentFile->ensure($root)) {
-            $output->writeln('<info>Created .env from .env.example</info>');
+        if ($this->environmentFile->ensure($root, $usePrimary)) {
+            $label = $source === $root.'/.env.example' ? '.env.example' : 'the primary checkout .env';
+            $output->writeln("<info>Created .env from {$label}</info>");
         }
 
         if ($config->localEnvironment !== []) {

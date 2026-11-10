@@ -8,6 +8,7 @@ use Dotenv\Dotenv;
 use MrKoopie\LaravelAiHarness\Config\ExistingDatabase;
 use MrKoopie\LaravelAiHarness\Files\FileException;
 use MrKoopie\LaravelAiHarness\Files\SafeWriter;
+use MrKoopie\LaravelAiHarness\Support\EnvironmentSource;
 use Throwable;
 
 final readonly class EnvironmentFile
@@ -34,8 +35,8 @@ final readonly class EnvironmentFile
     /** Create an environment-file manager backed by safe writes. */
     public function __construct(private SafeWriter $writer) {}
 
-    /** Create .env from .env.example when it is missing. */
-    public function ensure(string $root): bool
+    /** Create a missing .env from the selected local source. */
+    public function ensure(string $root, bool $usePrimary = false): bool
     {
         $target = $root.'/.env';
 
@@ -47,7 +48,7 @@ final readonly class EnvironmentFile
             throw new FileException("Refusing to replace symbolic link [{$target}].");
         }
 
-        $example = $root.'/.env.example';
+        $example = EnvironmentSource::forProject($root, $usePrimary);
 
         if (! is_file($example)) {
             return false;
@@ -215,9 +216,9 @@ final readonly class EnvironmentFile
      *
      * @return list<string>
      */
-    public function existingDatabaseConflicts(string $root): array
+    public function existingDatabaseConflicts(string $root, bool $usePrimary = false): array
     {
-        $conflicts = $this->localOverrideConflicts($root, []);
+        $conflicts = $this->localOverrideConflicts($root, [], usePrimary: $usePrimary);
         foreach (['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_URL', 'DATABASE_URL', 'DB_SOCKET', 'MYSQL_ATTR_SSL_CA'] as $name) {
             if (getenv($name) !== false) {
                 $conflicts[] = 'process '.$name;
@@ -231,9 +232,9 @@ final readonly class EnvironmentFile
      *
      * @return list<string>
      */
-    public function existingEnvironmentConflicts(string $root, ExistingDatabase $config): array
+    public function existingEnvironmentConflicts(string $root, ExistingDatabase $config, bool $usePrimary = false): array
     {
-        $conflicts = $this->existingDatabaseConflicts($root);
+        $conflicts = $this->existingDatabaseConflicts($root, $usePrimary);
         foreach (['.env' => $config->developmentName($root), '.env.testing' => $config->testingName($root)] as $file => $database) {
             if (! is_file($root.'/'.$file)) {
                 $conflicts[] = $file.' missing (run setup)';
@@ -417,14 +418,14 @@ final readonly class EnvironmentFile
      * @param  array<string, string>  $overrides
      * @return list<string>
      */
-    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false, bool $insideSail = false, bool $existingMySql = false): array
+    public function localOverrideConflicts(string $root, array $overrides, bool $managedMySql = false, bool $insideSail = false, bool $existingMySql = false, bool $usePrimary = false): array
     {
         if ($existingMySql) {
             // Existing-server connections are resolved from these values and checked separately.
             $overrides = array_filter($overrides, static fn (string $name): bool => ! str_starts_with($name, 'DB_') && ! in_array($name, ['DATABASE_URL', 'MYSQL_ATTR_SSL_CA'], true), ARRAY_FILTER_USE_KEY);
         }
         $conflicts = [];
-        $path = is_file($root.'/.env') ? $root.'/.env' : $root.'/.env.example';
+        $path = EnvironmentSource::forProject($root, $usePrimary);
         $contents = is_file($path) ? $this->read($path) : '';
         $databaseEndpoint = $managedMySql || array_intersect(['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_PASSWORD', 'DB_DATABASE'], array_keys($overrides)) !== [];
         $redisEndpoint = array_intersect(['REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD'], array_keys($overrides)) !== [];
@@ -462,7 +463,7 @@ final readonly class EnvironmentFile
         $expected = $overrides;
 
         if ($managedMySql) {
-            $forwardedPort = $overrides['FORWARD_DB_PORT'] ?? $this->forwardedMySqlPort($root);
+            $forwardedPort = $overrides['FORWARD_DB_PORT'] ?? $this->forwardedMySqlPort($root, $usePrimary);
             $expected = [...$expected, ...$this->mySqlValues($root, $insideSail, $forwardedPort), 'FORWARD_DB_PORT' => $forwardedPort];
         }
 
@@ -666,9 +667,9 @@ final readonly class EnvironmentFile
     }
 
     /** Read and validate the host-side forwarded MySQL port. */
-    private function forwardedMySqlPort(string $root): string
+    private function forwardedMySqlPort(string $root, bool $usePrimary = false): string
     {
-        $path = is_file($root.'/.env') ? $root.'/.env' : $root.'/.env.example';
+        $path = EnvironmentSource::forProject($root, $usePrimary);
 
         if (! is_file($path)) {
             return '3306';
